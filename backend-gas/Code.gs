@@ -231,8 +231,8 @@ function buildFullSnapshot_() {
       risk: readSheetObjects_(stockSS, '風控', 20, false),
       watchlist: readSheetObjects_(stockSS, '觀察清單', 50, false),
       dailySnapshots: readSheetObjects_(stockSS, '每日快照', 30, false),
-      recentTrades: readSheetObjects_(stockSS, '交易明細', 60, true),
-      recentExits: readSheetObjects_(stockSS, '出場明細', 40, true)
+      recentTrades: readSheetObjects_(stockSS, '交易明細', 0, false),
+      recentExits: readSheetObjects_(stockSS, '出場明細', 0, false)
     },
     asset: {
       settings: readSheetObjects_(assetSS, '設定', 100, false),

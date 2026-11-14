@@ -1,22 +1,73 @@
 import { SEED_DATA } from './seed-data.js';
+import { VAULT_B64 } from './vault-data.js';
 
 const STORAGE_KEY = 'nic_toolkit_state_v1';
 const CONFIG_KEY = 'nic_toolkit_config_v1';
 const QUEUE_KEY = 'nic_toolkit_sync_queue_v1';
+const COOKIE_CFG_KEY = 'nic_tk_cfg';
 
 class LocalFirstStore {
   constructor() {
     this.listeners = new Set();
     this.state = null;
+    this.baselineLots = null;
     this.config = this._loadConfig();
     this.syncQueue = this._loadQueue();
     this.initialized = false;
+  }
+
+  _decryptVault(pin = '2026') {
+    try {
+      const cipherStr = atob(VAULT_B64);
+      const keyBytes = new TextEncoder().encode(String(pin).trim());
+      const plainBytes = new Uint8Array(cipherStr.length);
+      for (let i = 0; i < cipherStr.length; i++) {
+        plainBytes[i] = cipherStr.charCodeAt(i) ^ keyBytes[i % keyBytes.length];
+      }
+      const plainText = new TextDecoder().decode(plainBytes);
+      if (plainText.startsWith('{"gasUrl":"https://')) {
+        return JSON.parse(plainText);
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  _getBaselineLots() {
+    if (this.baselineLots) return this.baselineLots;
+    if (!this.config?.apiToken && !this.config?.gasUrl) return [];
+    const vault = this._decryptVault('2026');
+    if (vault && Array.isArray(vault.openLots)) {
+      this.baselineLots = vault.openLots.map((r) => ({
+        id: r[0] || '',
+        '建立時間': r[1] || '',
+        '類型': r[2] || '進攻型',
+        '市場': r[3] || 'US',
+        '券商': r[4] || 'F',
+        '代號': r[5] || '',
+        '進場日': r[6] || '',
+        '進場價': r[7] || '0',
+        '進場股數': r[8] || '0',
+        '備註': r[9] || ''
+      }));
+      return this.baselineLots;
+    }
+    return [];
   }
 
   _loadConfig() {
     try {
       const raw = localStorage.getItem(CONFIG_KEY);
       if (raw) return JSON.parse(raw);
+    } catch (_) {}
+    try {
+      const match = document.cookie.split('; ').find((row) => row.startsWith(COOKIE_CFG_KEY + '='));
+      if (match) {
+        const parsed = JSON.parse(decodeURIComponent(match.split('=')[1]));
+        if (parsed && parsed.gasUrl) {
+          localStorage.setItem(CONFIG_KEY, JSON.stringify(parsed));
+          return parsed;
+        }
+      }
     } catch (_) {}
     return {
       mode: 'sandbox', // 'sandbox' (本機安全沙盒) | 'cloud' (正式同步 Google Sheets)
@@ -58,6 +109,16 @@ class LocalFirstStore {
     try {
       localStorage.setItem(CONFIG_KEY, JSON.stringify(this.config));
     } catch (_) {}
+    try {
+      if (this.config.gasUrl) {
+        const cookiePayload = encodeURIComponent(JSON.stringify({
+          mode: this.config.mode,
+          gasUrl: this.config.gasUrl,
+          apiToken: this.config.apiToken
+        }));
+        document.cookie = `${COOKIE_CFG_KEY}=${cookiePayload}; max-age=31536000; path=/; SameSite=Lax`;
+      }
+    } catch (_) {}
     this._notify();
   }
 
@@ -71,7 +132,7 @@ class LocalFirstStore {
     try {
       const cached = localStorage.getItem(STORAGE_KEY);
       if (cached) {
-        this.state = JSON.parse(cached);
+        this.state = this._normalizeSnapshot(JSON.parse(cached));
         this.initialized = true;
         this._notify();
         // Background refresh: if demo seed, try local snapshot or cloud GAS snapshot
@@ -142,6 +203,19 @@ class LocalFirstStore {
       if (v && typeof v === 'object' && Object.keys(v).length > 0) return [v];
       return [];
     };
+    const rawTrades = ensureArr(raw.stock?.recentTrades);
+    const baseline = this._getBaselineLots();
+    let mergedTrades = rawTrades;
+    if (baseline.length > 0) {
+      const map = new Map();
+      for (const b of baseline) {
+        if (b.id) map.set(String(b.id), b);
+      }
+      for (const t of rawTrades) {
+        if (t.id) map.set(String(t.id), t);
+      }
+      mergedTrades = Array.from(map.values());
+    }
     return {
       generatedAt: raw.generatedAt || new Date().toISOString(),
       isDemoSeed: Boolean(raw.isDemoSeed),
@@ -152,7 +226,7 @@ class LocalFirstStore {
         risk: ensureArr(raw.stock?.risk),
         watchlist: ensureArr(raw.stock?.watchlist),
         dailySnapshots: ensureArr(raw.stock?.dailySnapshots),
-        recentTrades: ensureArr(raw.stock?.recentTrades),
+        recentTrades: mergedTrades,
         recentExits: ensureArr(raw.stock?.recentExits)
       },
       asset: {
@@ -198,6 +272,24 @@ class LocalFirstStore {
   applyPairingInput(inputStr) {
     const trimmed = String(inputStr || '').trim();
     if (!trimmed) return false;
+    // 1. Try unlocking built-in encrypted personal vault via short PIN (e.g. "2026")
+    const vaultObj = this._decryptVault(trimmed);
+    if (vaultObj && vaultObj.gasUrl) {
+      this.saveConfig({
+        gasUrl: vaultObj.gasUrl,
+        apiToken: vaultObj.apiToken,
+        mode: 'cloud'
+      });
+      if (this.state) {
+        this.state = this._normalizeSnapshot(this.state);
+        this._persistState();
+        this._notify();
+      }
+      this.pullFromCloudSilently(true);
+      return true;
+    }
+
+    // 2. Fallback: full ?pair= URL or base64 string
     if (trimmed.includes('pair=')) {
       const ok = this._checkUrlPairing(trimmed);
       if (ok) this.pullFromCloudSilently(true);

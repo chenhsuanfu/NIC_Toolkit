@@ -1,10 +1,11 @@
-const CACHE_NAME = 'nic-toolkit-shell-v3';
+const CACHE_NAME = 'nic-toolkit-shell-v4';
 const CORE_ASSETS = [
   './',
   './index.html',
   './manifest.webmanifest',
   './assets/css/main.css',
   './core/seed-data.js',
+  './core/vault-data.js',
   './core/store.js',
   './core/api-client.js',
   './core/registry.js',

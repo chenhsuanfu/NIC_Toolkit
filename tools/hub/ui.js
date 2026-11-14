@@ -24,14 +24,14 @@ export class HubUI {
       ${needsPairing ? `
         <div class="card" style="margin-bottom:16px; border-color: rgba(245, 158, 11, 0.5); background: rgba(245, 158, 11, 0.08);">
           <div class="card-header" style="margin-bottom:8px;">
-            <div class="card-title" style="color:var(--accent-amber);">📱 iPhone 主畫面快速配對（只需貼上一次）</div>
+            <div class="card-title" style="color:var(--accent-amber);">🔐 iPhone 主畫面快速解鎖雲端同步</div>
           </div>
           <p class="text-muted" style="font-size:12px; margin-bottom:10px;">
-            iOS「加入主畫面」會建立獨立儲存空間。請將您的<strong>專屬一鍵配對連結</strong>貼在下方並點「立即配對」，即可自動載入真實持股與資產數據：
+            只需輸入您的<strong>4 位數個人解鎖碼（預設：<code>2026</code>）</strong>，即可一鍵解鎖雲端連線並自動載入真實持股與資產（記憶後永久免重輸）：
           </p>
           <form id="form-quick-pair" style="display:flex; gap:8px; flex-wrap:wrap;">
-            <input class="form-control" name="pairInput" placeholder="貼上 https://.../?pair=... 配對連結" style="flex:1; min-width:180px;" required />
-            <button type="submit" class="btn btn-primary">⚡ 立即配對並載入真實資料</button>
+            <input class="form-control" name="pairInput" placeholder="輸入 4 位解鎖碼 (2026) 或貼上配對連結" style="flex:1; min-width:160px;" required />
+            <button type="submit" class="btn btn-primary">⚡ 一鍵解鎖雲端</button>
           </form>
         </div>
       ` : ''}

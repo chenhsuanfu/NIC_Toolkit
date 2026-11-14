@@ -99,6 +99,82 @@ export const StockCore = {
     });
   },
 
+  /**
+   * Get all inventory lots (open & closed) for a specific stock ticker
+   */
+  getLotsBySymbol(state, symbol) {
+    const sym = String(symbol || '').trim().toUpperCase();
+    if (!sym) return { symbol: '', openLots: [], closedLots: [], holding: null };
+
+    const holding = (state?.stock?.overview || []).find((r) => String(r['代號']).toUpperCase() === sym) || null;
+    const currentPrice = toNum(holding?.['現價(原幣)'], 0);
+
+    const exits = state?.stock?.recentExits || [];
+    const exitedSharesMap = {};
+    const exitRecordsMap = {};
+    for (const ex of exits) {
+      const tid = String(ex['交易id'] || '').trim();
+      if (!tid) continue;
+      exitedSharesMap[tid] = (exitedSharesMap[tid] || 0) + toNum(ex['出場股數'], 0);
+      if (!exitRecordsMap[tid]) exitRecordsMap[tid] = [];
+      exitRecordsMap[tid].push(ex);
+    }
+
+    const trades = (state?.stock?.recentTrades || []).filter(
+      (t) => String(t['代號'] || '').trim().toUpperCase() === sym
+    );
+
+    const openLots = [];
+    const closedLots = [];
+
+    for (const t of trades) {
+      const tid = String(t.id || '').trim();
+      const entryShares = toNum(t['進場股數'], 0);
+      const exitedShares = exitedSharesMap[tid] || 0;
+      const remainingShares = Math.max(0, Math.round((entryShares - exitedShares) * 10000) / 10000);
+      const entryPrice = toNum(t['進場價'], 0);
+      const refPrice = currentPrice > 0 ? currentPrice : entryPrice;
+      const unrealizedNative = (refPrice - entryPrice) * remainingShares;
+      const roi = entryPrice > 0 ? (refPrice - entryPrice) / entryPrice : 0;
+
+      const lotObj = {
+        id: tid,
+        symbol: sym,
+        market: t['市場'] || holding?.['市場'] || 'US',
+        type: t['類型'] || holding?.['類型'] || '進攻型',
+        broker: t['券商'] || 'F',
+        entryDate: t['進場日'] || t['建立時間'] || '-',
+        entryPrice,
+        entryShares,
+        exitedShares,
+        remainingShares,
+        currentPrice: refPrice,
+        unrealizedNative: Math.round(unrealizedNative * 100) / 100,
+        roi,
+        note: t['備註'] || '',
+        exits: exitRecordsMap[tid] || []
+      };
+
+      if (remainingShares > 0) {
+        openLots.push(lotObj);
+      } else {
+        closedLots.push(lotObj);
+      }
+    }
+
+    // Sort open lots by entryDate ascending (FIFO view) or newest first
+    openLots.sort((a, b) => String(b.entryDate).localeCompare(String(a.entryDate)));
+    closedLots.sort((a, b) => String(b.entryDate).localeCompare(String(a.entryDate)));
+
+    return {
+      symbol: sym,
+      holding,
+      currentPrice,
+      openLots,
+      closedLots
+    };
+  },
+
   addTrade(state, params, storeInstance) {
     const symbol = String(params.symbol || params['代號'] || '').trim().toUpperCase();
     const market = String(params.market || params['市場'] || (symbol.endsWith('.TW') || symbol.endsWith('.TWO') ? 'TW' : 'US')).toUpperCase();
@@ -207,6 +283,35 @@ export const StockCore = {
 
     storeInstance.mutate('stock.appendExit', newExit, (s) => {
       s.stock.recentExits.push(newExit);
+      // Optimistically update overview holdings when selling a specific lot
+      const trade = (s.stock.recentTrades || []).find((t) => String(t.id) === tradeId);
+      if (trade) {
+        const sym = String(trade['代號'] || '').toUpperCase();
+        const existing = (s.stock.overview || []).find((r) => String(r['代號']).toUpperCase() === sym);
+        if (existing) {
+          const { usdTwd } = this.getOptions(s);
+          const market = existing['市場'] || trade['市場'] || 'US';
+          const oldShares = toNum(existing['剩餘股數']);
+          const newShares = Math.max(0, Math.round((oldShares - exitShares) * 10000) / 10000);
+          const avgCost = toNum(existing['平均成本(原幣)']);
+          const curPrice = toNum(existing['現價(原幣)'], exitPrice);
+          const newCostNative = newShares * avgCost;
+          const newMktNative = newShares * curPrice;
+          const newCostUsd = market === 'US' ? newCostNative : newCostNative / usdTwd;
+          const newCostTwd = market === 'TW' ? newCostNative : newCostNative * usdTwd;
+          const newMktUsd = market === 'US' ? newMktNative : newMktNative / usdTwd;
+          const newMktTwd = market === 'TW' ? newMktNative : newMktNative * usdTwd;
+
+          existing['剩餘股數'] = String(newShares);
+          existing['成本(USD)'] = String(Math.round(newCostUsd * 100) / 100);
+          existing['成本(TWD)'] = String(Math.round(newCostTwd));
+          existing['市值(USD)'] = String(Math.round(newMktUsd * 100) / 100);
+          existing['市值(TWD)'] = String(Math.round(newMktTwd));
+          existing['未實現(USD)'] = String(Math.round((newMktUsd - newCostUsd) * 100) / 100);
+          existing['未實現(TWD)'] = String(Math.round(newMktTwd - newCostTwd));
+          existing['報酬率'] = String(newCostTwd > 0 ? (newMktTwd - newCostTwd) / newCostTwd : 0);
+        }
+      }
     });
 
     return newExit;
@@ -286,6 +391,7 @@ agentBridge.registerModule('stock-tracker', {
   actions: {
     getSummary: (state) => StockCore.getSummary(state),
     filterHoldings: (state, params) => StockCore.filterHoldings(state, params),
+    getLotsBySymbol: (state, params) => StockCore.getLotsBySymbol(state, params?.symbol),
     addTrade: (state, params, store) => StockCore.addTrade(state, params, store),
     addExit: (state, params, store) => StockCore.addExit(state, params, store),
     upsertWatchlist: (state, params, store) => StockCore.upsertWatchlist(state, params, store),

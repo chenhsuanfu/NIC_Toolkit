@@ -125,6 +125,55 @@ try {
           }
         } 0
       }
+      "getLotsBySymbol" {
+        $sym = ($Params.symbol -as [string]).Trim().ToUpper()
+        if (-not $sym) {
+          Write-AgentJson @{ ok = $false; exitCode = 400; error = "Missing symbol parameter" } 400
+        }
+        $exitsByTradeId = @{}
+        foreach ($ex in $State.stock.recentExits) {
+          $tid = ($ex.'交易id' -as [string]).Trim()
+          if (-not $tid) { continue }
+          if (-not $exitsByTradeId.ContainsKey($tid)) { $exitsByTradeId[$tid] = 0.0 }
+          $exitsByTradeId[$tid] += (To-Num $ex.'出場股數')
+        }
+        $openLots = @()
+        $totalRem = 0.0
+        foreach ($tr in $State.stock.recentTrades) {
+          $trSym = ($tr.'代號' -as [string]).Trim().ToUpper()
+          if ($trSym -ne $sym) { continue }
+          $tid = ($tr.'id' -as [string]).Trim()
+          $inShares = To-Num $tr.'進場股數'
+          $outShares = if ($exitsByTradeId.ContainsKey($tid)) { $exitsByTradeId[$tid] } else { 0.0 }
+          $rem = [math]::Max(0.0, [math]::Round(($inShares - $outShares), 6))
+          if ($rem -gt 0.00001) {
+            $totalRem += $rem
+            $openLots += @{
+              tradeId = $tid
+              type = $tr.'類型'
+              broker = $tr.'券商'
+              entryDate = $tr.'進場日'
+              entryPrice = To-Num $tr.'進場價'
+              entryShares = $inShares
+              exitedShares = $outShares
+              remainingShares = $rem
+              note = $tr.'備註'
+            }
+          }
+        }
+        Write-AgentJson @{
+          ok = $true
+          exitCode = 0
+          module = "stock-tracker"
+          action = "getLotsBySymbol"
+          data = @{
+            symbol = $sym
+            openLotCount = $openLots.Count
+            totalRemainingShares = [math]::Round($totalRem, 4)
+            openLots = $openLots
+          }
+        } 0
+      }
       default {
         Write-AgentJson @{ ok = $false; exitCode = 404; error = "Unsupported stock-tracker action: $Action" } 404
       }

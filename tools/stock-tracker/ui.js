@@ -11,6 +11,10 @@ export class StockTrackerUI {
     this.filterType = 'ALL';
     this.searchQuery = '';
     this.showAddForm = false;
+    this.selectedSymbol = null; // Currently inspected stock ticker for lot-level inventory
+    this.selectedLotId = null;  // Specific lot ID selected for exit/selling
+    this.showBuyForSelected = false; // Quick add buy lot for selectedSymbol
+    this.showClosedLots = false;
     this.valParams = {
       symbol: '2330.TW',
       isTwStock: true,
@@ -83,17 +87,17 @@ export class StockTrackerUI {
         </div>
         <div style="display:flex; gap:8px;">
           <button class="btn btn-primary" id="btn-toggle-trade-form">
-            ${this.showAddForm ? '✕ 收起表單' : '＋ 新增買進 / 出場'}
+            ${this.showAddForm ? '✕ 收起新股買進表單' : '＋ 新增買進紀錄'}
           </button>
         </div>
       </div>
 
       <!-- Quick Trade Form (Optimistic 0.01s Entry) -->
-      ${this.showAddForm ? this._renderTradeForm(options, state) : ''}
+      ${this.showAddForm ? this._renderTradeForm(options) : ''}
 
       <!-- Tab Content -->
       <div id="stock-tab-body">
-        ${this.activeTab === 'holdings' ? this._renderHoldingsTab(holdings, options) : ''}
+        ${this.activeTab === 'holdings' ? this._renderHoldingsTab(holdings, options, state) : ''}
         ${this.activeTab === 'watchlist' ? this._renderWatchlistTab(state, options) : ''}
         ${this.activeTab === 'history' ? this._renderHistoryTab(state, summary) : ''}
       </div>
@@ -102,101 +106,237 @@ export class StockTrackerUI {
     this._bindEvents(container, state, store, showToast);
   }
 
-  _renderTradeForm(options, state) {
+  _renderTradeForm(options, prefill = {}) {
     const today = new Date().toISOString().slice(0, 10);
-    const recentTrades = (state?.stock?.recentTrades || []).slice().reverse().slice(0, 25);
 
     return `
-      <div class="card" style="margin-bottom:20px; border-color: rgba(56,189,248,0.4);">
+      <div class="card" style="margin-bottom:18px; border-color: rgba(56,189,248,0.45);">
         <div class="card-header">
-          <div class="card-title">⚡ 快速新增股票交易（0.01 秒本機樂觀寫入，背景同步 N_BD_C）</div>
+          <div class="card-title">📥 新增股票買進（寫入「交易明細」・0.01 秒樂觀更新）</div>
         </div>
-        <div class="grid-2" style="margin-bottom:0;">
-          <!-- Buy Form -->
-          <form id="form-add-trade" style="display:flex; flex-direction:column; gap:12px;">
-            <div style="font-weight:700; color:var(--accent-blue); font-size:13px;">📥 新增買進（寫入「交易明細」）</div>
-            <div class="form-grid">
-              <div class="form-group">
-                <label class="form-label">股票代號</label>
-                <input class="form-control" name="symbol" placeholder="如 NVDA 或 2330.TW" required />
-              </div>
-              <div class="form-group">
-                <label class="form-label">市場</label>
-                <select class="form-control" name="market">
-                  ${options.markets.map((m) => `<option value="${m}">${m}</option>`).join('')}
-                </select>
-              </div>
-              <div class="form-group">
-                <label class="form-label">策略類型</label>
-                <select class="form-control" name="type">
-                  ${options.types.map((t) => `<option value="${t}" ${t === '進攻型' ? 'selected' : ''}>${t}</option>`).join('')}
-                </select>
-              </div>
-              <div class="form-group">
-                <label class="form-label">券商代號</label>
-                <select class="form-control" name="broker">
-                  ${options.brokers.map((b) => `<option value="${b}">${b}</option>`).join('')}
-                </select>
-              </div>
-              <div class="form-group">
-                <label class="form-label">進場單價 (原幣)</label>
-                <input class="form-control" type="number" step="any" name="price" placeholder="0.00" required />
-              </div>
-              <div class="form-group">
-                <label class="form-label">進場股數</label>
-                <input class="form-control" type="number" step="any" name="shares" placeholder="1" required />
-              </div>
-              <div class="form-group">
-                <label class="form-label">進場日</label>
-                <input class="form-control" type="date" name="date" value="${today}" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">備註</label>
-                <input class="form-control" name="note" placeholder="選填策略說明" />
-              </div>
+        <form id="form-add-trade" style="display:flex; flex-direction:column; gap:12px;">
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label">股票代號</label>
+              <input class="form-control" name="symbol" placeholder="如 NVDA 或 2330.TW" value="${prefill.symbol || ''}" required />
             </div>
-            <button type="submit" class="btn btn-primary" style="align-self:flex-start;">✓ 確認新增買進</button>
-          </form>
-
-          <!-- Sell / Exit Form -->
-          <form id="form-add-exit" style="display:flex; flex-direction:column; gap:12px; border-left:1px solid var(--border-color); padding-left:16px;">
-            <div style="font-weight:700; color:var(--accent-emerald); font-size:13px;">📤 紀錄賣出出場（寫入「出場明細」）</div>
-            <div class="form-grid">
-              <div class="form-group" style="grid-column: span 2;">
-                <label class="form-label">關聯進場交易 (交易id)</label>
-                <select class="form-control" name="tradeId" required>
-                  <option value="">-- 選擇近期買進紀錄 --</option>
-                  ${recentTrades.map((t) => `<option value="${t.id}">${t['代號']} | 進場:${t['進場價']} (${t['進場股數']}股) [${t['進場日'] || ''}]</option>`).join('')}
-                </select>
-              </div>
-              <div class="form-group">
-                <label class="form-label">出場單價</label>
-                <input class="form-control" type="number" step="any" name="exitPrice" placeholder="0.00" required />
-              </div>
-              <div class="form-group">
-                <label class="form-label">出場股數</label>
-                <input class="form-control" type="number" step="any" name="exitShares" placeholder="1" required />
-              </div>
-              <div class="form-group">
-                <label class="form-label">出場日</label>
-                <input class="form-control" type="date" name="date" value="${today}" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">出場備註</label>
-                <input class="form-control" name="note" placeholder="停利 / 停損說明" />
-              </div>
+            <div class="form-group">
+              <label class="form-label">市場</label>
+              <select class="form-control" name="market">
+                ${options.markets.map((m) => `<option value="${m}" ${prefill.market === m ? 'selected' : ''}>${m}</option>`).join('')}
+              </select>
             </div>
-            <button type="submit" class="btn btn-emerald" style="align-self:flex-start;">✓ 確認紀錄出場</button>
-          </form>
-        </div>
+            <div class="form-group">
+              <label class="form-label">策略類型</label>
+              <select class="form-control" name="type">
+                ${options.types.map((t) => `<option value="${t}" ${(prefill.type || '進攻型') === t ? 'selected' : ''}>${t}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">券商代號</label>
+              <select class="form-control" name="broker">
+                ${options.brokers.map((b) => `<option value="${b}" ${prefill.broker === b ? 'selected' : ''}>${b}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">進場單價 (原幣)</label>
+              <input class="form-control" type="number" step="any" name="price" placeholder="0.00" value="${prefill.price || ''}" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label">進場股數</label>
+              <input class="form-control" type="number" step="any" name="shares" placeholder="1" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label">進場日</label>
+              <input class="form-control" type="date" name="date" value="${today}" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">備註</label>
+              <input class="form-control" name="note" placeholder="選填策略說明" />
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary" style="align-self:flex-start;">✓ 確認新增買進庫存</button>
+        </form>
       </div>
     `;
   }
 
-  _renderHoldingsTab(holdings, options) {
+  /**
+   * Lot-Level Inventory Drilldown Panel when a stock ticker is clicked
+   */
+  _renderSelectedSymbolLotsPanel(state, options) {
+    if (!this.selectedSymbol) return '';
+    const detail = StockCore.getLotsBySymbol(state, this.selectedSymbol);
+    const { symbol, holding, currentPrice, openLots, closedLots } = detail;
+    const today = new Date().toISOString().slice(0, 10);
+    const activeLot = openLots.find((l) => l.id === this.selectedLotId) || null;
+    const curLabel = (holding?.['市場'] || openLots[0]?.market || 'US') === 'TW' ? 'TWD' : 'USD';
+
     return `
+      <div class="card" id="lot-drilldown-panel" style="margin-bottom:18px; border: 2px solid var(--accent-blue); background: linear-gradient(180deg, rgba(14, 165, 233, 0.08), var(--bg-card));">
+        <div class="card-header">
+          <div>
+            <div class="card-title" style="font-size:17px;">
+              📌 【${symbol}】庫存批次明細與指定交易
+              <span class="pill pill-blue">${openLots.length} 筆持有中批次</span>
+              ${closedLots.length > 0 ? `<span class="pill pill-purple">${closedLots.length} 筆已出場</span>` : ''}
+            </div>
+            <div class="text-muted" style="font-size:12px; margin-top:4px;">
+              現價：<strong class="text-primary font-mono">${curLabel} ${fmtDec(currentPrice)}</strong> ｜ 
+              平均成本：<strong class="font-mono">${fmtDec(holding?.['平均成本(原幣)'] || 0)}</strong> ｜ 
+              總剩餘股數：<strong class="text-emerald font-mono">${fmtDec(holding?.['剩餘股數'] || 0, 0)} 股</strong>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button type="button" class="btn btn-primary btn-sm" id="btn-buy-same-symbol">
+              ${this.showBuyForSelected ? '✕ 收起加碼' : `📥 加碼買進 ${symbol}`}
+            </button>
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-close-lots-panel">✕ 關閉明細</button>
+          </div>
+        </div>
+
+        <!-- Inline Quick Buy for this specific ticker -->
+        ${this.showBuyForSelected ? this._renderTradeForm(options, {
+          symbol,
+          market: holding?.['市場'] || openLots[0]?.market || 'US',
+          type: holding?.['類型'] || openLots[0]?.type || '進攻型',
+          broker: openLots[0]?.broker || 'F',
+          price: currentPrice > 0 ? currentPrice : ''
+        }) : ''}
+
+        <!-- Inline Lot-Specific Sell / Exit Action Box (when a specific lot is clicked) -->
+        ${activeLot ? `
+          <div style="margin-bottom:16px; padding:14px; border-radius:12px; background:rgba(16, 185, 129, 0.12); border:1px solid rgba(16, 185, 129, 0.45);">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+              <div style="font-weight:700; color:var(--accent-emerald); font-size:14px;">
+                📤 指定庫存批次出場：進場日 <span class="font-mono">${activeLot.entryDate}</span> ｜ 券商 <span class="font-mono">${activeLot.broker}</span> ｜ 進場價 <span class="font-mono">${fmtDec(activeLot.entryPrice)}</span>（可賣上限：<span class="font-mono">${activeLot.remainingShares}</span> 股）
+              </div>
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-cancel-lot-exit">✕ 取消指定</button>
+            </div>
+            <form id="form-lot-exit" class="form-grid" style="align-items:end;">
+              <input type="hidden" name="tradeId" value="${activeLot.id}" />
+              <div class="form-group">
+                <label class="form-label">出場股數 (上限 ${activeLot.remainingShares})</label>
+                <input class="form-control font-mono" type="number" step="any" max="${activeLot.remainingShares}" name="exitShares" value="${activeLot.remainingShares}" required />
+              </div>
+              <div class="form-group">
+                <label class="form-label">出場單價 (${curLabel})</label>
+                <input class="form-control font-mono" type="number" step="any" name="exitPrice" value="${currentPrice > 0 ? currentPrice : activeLot.entryPrice}" required />
+              </div>
+              <div class="form-group">
+                <label class="form-label">出場日期</label>
+                <input class="form-control" type="date" name="date" value="${today}" required />
+              </div>
+              <div class="form-group">
+                <label class="form-label">出場備註</label>
+                <input class="form-control" name="note" placeholder="停利 / 停損 / 減碼" />
+              </div>
+              <div class="form-group">
+                <button type="submit" class="btn btn-emerald" style="width:100%;">✓ 確認從此批庫存賣出</button>
+              </div>
+            </form>
+          </div>
+        ` : `
+          <div style="margin-bottom:10px; font-size:12px; color:var(--accent-blue);">
+            💡 請點擊下方任一筆庫存的 <strong>「📤 指定賣出」</strong> 按鈕，即可針對該筆進場庫存進行全部或部分出場：
+          </div>
+        `}
+
+        <!-- Open Lots Table -->
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>操作</th>
+                <th>進場日</th>
+                <th>券商</th>
+                <th>類型</th>
+                <th>進場單價</th>
+                <th>剩餘股數 (原股數)</th>
+                <th>單批損益 (${curLabel})</th>
+                <th>報酬率</th>
+                <th>備註</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${openLots.length === 0 ? `
+                <tr><td colspan="9" class="text-muted" style="text-align:center; padding:18px;">找不到此代號之未出場批次明細</td></tr>
+              ` : openLots.map((lot) => {
+                const isSelected = lot.id === this.selectedLotId;
+                const pnlCls = lot.unrealizedNative >= 0 ? 'text-emerald' : 'text-rose';
+                const sign = lot.unrealizedNative >= 0 ? '+' : '';
+                return `
+                  <tr style="${isSelected ? 'background:rgba(16, 185, 129, 0.14);' : ''}">
+                    <td>
+                      <button type="button" class="btn ${isSelected ? 'btn-primary' : 'btn-emerald'} btn-sm" data-select-lot="${lot.id}">
+                        ${isSelected ? '✓ 已指定' : '📤 指定賣出'}
+                      </button>
+                    </td>
+                    <td class="font-mono" style="font-size:12px;">${lot.entryDate}</td>
+                    <td><span class="pill pill-blue font-mono">${lot.broker}</span></td>
+                    <td>${lot.type}</td>
+                    <td class="font-mono" style="font-weight:700;">${fmtDec(lot.entryPrice)}</td>
+                    <td class="font-mono">
+                      <strong class="text-primary">${lot.remainingShares}</strong>
+                      ${lot.exitedShares > 0 ? `<span class="text-muted" style="font-size:11px;"> (原 ${lot.entryShares} / 已賣 ${lot.exitedShares})</span>` : ''}
+                    </td>
+                    <td class="font-mono mask-amount ${pnlCls}" style="font-weight:700;">${sign}${fmtDec(lot.unrealizedNative)}</td>
+                    <td><span class="pill ${lot.unrealizedNative >= 0 ? 'pill-emerald' : 'pill-rose'}">${sign}${fmtPct(lot.roi)}</span></td>
+                    <td class="text-muted" style="font-size:12px;">${lot.note || '-'}</td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Optional Closed Lots Toggle -->
+        ${closedLots.length > 0 ? `
+          <div style="margin-top:12px; padding-top:10px; border-top:1px solid var(--border-color);">
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-toggle-closed-lots">
+              ${this.showClosedLots ? '▲ 隱藏已全數出場批次' : `▼ 查看此標的歷史已出場完畢批次 (${closedLots.length} 筆)`}
+            </button>
+            ${this.showClosedLots ? `
+              <div class="table-wrap" style="margin-top:10px;">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>進場日</th>
+                      <th>券商</th>
+                      <th>進場價</th>
+                      <th>原股數</th>
+                      <th>狀態</th>
+                      <th>備註</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${closedLots.map((c) => `
+                      <tr>
+                        <td class="font-mono" style="font-size:12px;">${c.entryDate}</td>
+                        <td class="font-mono">${c.broker}</td>
+                        <td class="font-mono">${fmtDec(c.entryPrice)}</td>
+                        <td class="font-mono">${c.entryShares}</td>
+                        <td><span class="pill pill-purple">已全數出場 (${c.exitedShares} 股)</span></td>
+                        <td class="text-muted" style="font-size:12px;">${c.note || '-'}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            ` : ''}
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  _renderHoldingsTab(holdings, options, state) {
+    return `
+      <!-- Lot-Level Inventory Drilldown Panel (Appears when clicking any stock ticker) -->
+      ${this._renderSelectedSymbolLotsPanel(state, options)}
+
       <div class="card">
-        <div class="card-header" style="flex-wrap:wrap;">
+        <div class="card-header">
           <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
             <select id="filter-market" class="form-control" style="width:auto; padding:6px 10px;">
               <option value="ALL" ${this.filterMarket === 'ALL' ? 'selected' : ''}>全部市場 (US+TW)</option>
@@ -208,9 +348,8 @@ export class StockTrackerUI {
             </select>
             <input id="filter-query" class="form-control" style="width:160px; padding:6px 10px;" placeholder="🔍 搜尋代號..." value="${this.searchQuery}" />
           </div>
-          <div style="display:flex; gap:8px;">
-            <a href="https://mvp-qas.com/" target="_blank" rel="noopener" class="btn btn-ghost btn-sm" style="text-decoration:none;">🔗 開啟 MVP 量化</a>
-            <a href="https://goodstockprice.com/" target="_blank" rel="noopener" class="btn btn-ghost btn-sm" style="text-decoration:none;">🔗 開啟 好股價</a>
+          <div style="font-size:12px; color:var(--accent-blue); font-weight:600;">
+            👆 點擊任一「股票代號」即可展開該股所有庫存批次並指定交易
           </div>
         </div>
 
@@ -218,7 +357,7 @@ export class StockTrackerUI {
           <table class="data-table">
             <thead>
               <tr>
-                <th>代號</th>
+                <th>代號 (點擊展開庫存)</th>
                 <th>類型</th>
                 <th>股數</th>
                 <th>均價 (原幣)</th>
@@ -231,19 +370,24 @@ export class StockTrackerUI {
             </thead>
             <tbody>
               ${holdings.map((r) => {
+                const sym = r['代號'];
+                const isSelected = this.selectedSymbol === sym;
                 const pnl = Number(r['未實現(TWD)'] || 0);
                 const roi = Number(r['報酬率'] || 0);
                 const cls = pnl >= 0 ? 'text-emerald' : 'text-rose';
                 const sign = pnl >= 0 ? '+' : '';
                 const typeBadge = r['類型'] === '防禦型' ? 'pill-blue' : r['類型'] === '進攻型' ? 'pill-emerald' : 'pill-amber';
                 return `
-                  <tr>
+                  <tr data-click-symbol="${sym}" style="cursor:pointer; ${isSelected ? 'background:rgba(56, 189, 248, 0.14);' : ''}">
                     <td>
-                      <div style="font-weight:700; font-family:var(--font-mono);">${r['代號']}</div>
-                      <span class="pill" style="font-size:10px; background:rgba(255,255,255,0.06);">${r['市場']}</span>
+                      <div style="display:flex; align-items:center; gap:6px;">
+                        <span style="font-weight:800; font-family:var(--font-mono); color:var(--accent-blue); text-decoration:underline;">${sym}</span>
+                        <span class="pill" style="font-size:10px; background:rgba(255,255,255,0.06);">${r['市場']}</span>
+                      </div>
+                      <div style="font-size:10px; color:var(--text-secondary);">🔍 點此指定庫存交易</div>
                     </td>
                     <td><span class="pill ${typeBadge}">${r['類型'] || '-'}</span></td>
-                    <td class="font-mono">${fmtDec(r['剩餘股數'], 0)}</td>
+                    <td class="font-mono" style="font-weight:700;">${fmtDec(r['剩餘股數'], 0)}</td>
                     <td class="font-mono">${fmtDec(r['平均成本(原幣)'])}</td>
                     <td class="font-mono" style="font-weight:700;">${fmtDec(r['現價(原幣)'])}</td>
                     <td class="font-mono mask-amount">$${fmtInt(r['市值(TWD)'])}</td>
@@ -391,7 +535,7 @@ export class StockTrackerUI {
   }
 
   _renderHistoryTab(state, summary) {
-    const trades = (state?.stock?.recentTrades || []).slice().reverse().slice(0, 30);
+    const trades = (state?.stock?.recentTrades || []).slice().reverse().slice(0, 40);
 
     return `
       <div class="grid-2">
@@ -416,7 +560,7 @@ export class StockTrackerUI {
 
         <div class="card">
           <div class="card-header">
-            <div class="card-title">🕒 近期進場交易明細 (最新 30 筆)</div>
+            <div class="card-title">🕒 近期進場交易明細 (最新 40 筆)</div>
           </div>
           <div class="table-wrap" style="max-height:360px; overflow-y:auto;">
             <table class="data-table">
@@ -467,6 +611,86 @@ export class StockTrackerUI {
       });
     }
 
+    // Click any stock row in Holdings to inspect its open lots and trade against them
+    container.querySelectorAll('[data-click-symbol]').forEach((row) => {
+      row.addEventListener('click', () => {
+        const sym = row.getAttribute('data-click-symbol');
+        if (this.selectedSymbol === sym) {
+          this.selectedSymbol = null;
+          this.selectedLotId = null;
+        } else {
+          this.selectedSymbol = sym;
+          this.selectedLotId = null;
+          this.showBuyForSelected = false;
+          this.showClosedLots = false;
+        }
+        this.render(container, store.getState(), store, showToast);
+        if (this.selectedSymbol) {
+          const panel = container.querySelector('#lot-drilldown-panel');
+          if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      });
+    });
+
+    const closePanelBtn = container.querySelector('#btn-close-lots-panel');
+    if (closePanelBtn) {
+      closePanelBtn.addEventListener('click', () => {
+        this.selectedSymbol = null;
+        this.selectedLotId = null;
+        this.render(container, store.getState(), store, showToast);
+      });
+    }
+
+    const buySameBtn = container.querySelector('#btn-buy-same-symbol');
+    if (buySameBtn) {
+      buySameBtn.addEventListener('click', () => {
+        this.showBuyForSelected = !this.showBuyForSelected;
+        this.render(container, store.getState(), store, showToast);
+      });
+    }
+
+    const toggleClosedBtn = container.querySelector('#btn-toggle-closed-lots');
+    if (toggleClosedBtn) {
+      toggleClosedBtn.addEventListener('click', () => {
+        this.showClosedLots = !this.showClosedLots;
+        this.render(container, store.getState(), store, showToast);
+      });
+    }
+
+    // Select a specific lot to exit/sell
+    container.querySelectorAll('[data-select-lot]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const lotId = btn.getAttribute('data-select-lot');
+        this.selectedLotId = this.selectedLotId === lotId ? null : lotId;
+        this.render(container, store.getState(), store, showToast);
+      });
+    });
+
+    const cancelLotBtn = container.querySelector('#btn-cancel-lot-exit');
+    if (cancelLotBtn) {
+      cancelLotBtn.addEventListener('click', () => {
+        this.selectedLotId = null;
+        this.render(container, store.getState(), store, showToast);
+      });
+    }
+
+    const lotExitForm = container.querySelector('#form-lot-exit');
+    if (lotExitForm) {
+      lotExitForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        try {
+          const fd = new FormData(lotExitForm);
+          const rec = StockCore.addExit(store.getState(), Object.fromEntries(fd.entries()), store);
+          showToast(`✅ 已從指定批次賣出 ${rec['出場股數']} 股 @ ${rec['出場價']}！`);
+          this.selectedLotId = null;
+          this.render(container, store.getState(), store, showToast);
+        } catch (err) {
+          showToast(`⚠️ ${err.message}`);
+        }
+      });
+    }
+
     const mktEl = container.querySelector('#filter-market');
     if (mktEl) {
       mktEl.addEventListener('change', (e) => {
@@ -505,22 +729,8 @@ export class StockTrackerUI {
           const rec = StockCore.addTrade(store.getState(), Object.fromEntries(fd.entries()), store);
           showToast(`✅ 已新增買進 ${rec['代號']} (${rec['進場股數']} 股 @ ${rec['進場價']})`);
           this.showAddForm = false;
-          this.render(container, store.getState(), store, showToast);
-        } catch (err) {
-          showToast(`⚠️ ${err.message}`);
-        }
-      });
-    }
-
-    const addExitForm = container.querySelector('#form-add-exit');
-    if (addExitForm) {
-      addExitForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        try {
-          const fd = new FormData(addExitForm);
-          const rec = StockCore.addExit(store.getState(), Object.fromEntries(fd.entries()), store);
-          showToast(`✅ 已紀錄出場 (${rec['出場股數']} 股 @ ${rec['出場價']})`);
-          this.showAddForm = false;
+          this.showBuyForSelected = false;
+          this.selectedSymbol = rec['代號'];
           this.render(container, store.getState(), store, showToast);
         } catch (err) {
           showToast(`⚠️ ${err.message}`);
