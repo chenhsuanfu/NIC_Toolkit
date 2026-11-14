@@ -74,24 +74,51 @@ class LocalFirstStore {
         this.state = JSON.parse(cached);
         this.initialized = true;
         this._notify();
-        // Background refresh local-snapshot if cached was only demo seed
+        // Background refresh: if demo seed, try local snapshot or cloud GAS snapshot
         if (this.state.isDemoSeed) {
-          this._tryLoadLocalSnapshot();
+          const okLocal = await this._tryLoadLocalSnapshot();
+          if (!okLocal && this.config.gasUrl && this.config.apiToken) {
+            this.pullFromCloudSilently();
+          }
+        } else if (this.config.gasUrl && this.config.apiToken) {
+          // Stale-While-Revalidate: already rendered in 0.01s, silently revalidate in background
+          this.pullFromCloudSilently();
         }
         return this.state;
       }
     } catch (_) {}
 
-    // 3. First-time hydration: try local-snapshot.json (git-ignored real snapshot), fallback to SEED_DATA
+    // 3. First-time hydration: try local-snapshot.json, then cloud GAS if paired, fallback to SEED_DATA
     const loadedSnapshot = await this._tryLoadLocalSnapshot();
     if (!loadedSnapshot) {
       this.state = structuredClone(SEED_DATA);
       this._persistState();
+      if (this.config.gasUrl && this.config.apiToken) {
+        this.pullFromCloudSilently();
+      }
     }
 
     this.initialized = true;
     this._notify();
     return this.state;
+  }
+
+  async pullFromCloudSilently(forceRefresh = false) {
+    if (!this.config.gasUrl || !this.config.apiToken) return false;
+    try {
+      const url = new URL(this.config.gasUrl);
+      url.searchParams.set('action', 'snapshot');
+      url.searchParams.set('token', this.config.apiToken);
+      if (forceRefresh) url.searchParams.set('refresh', '1');
+      const res = await fetch(url.toString(), { method: 'GET', headers: { 'Accept': 'application/json' } });
+      if (!res.ok) return false;
+      const json = await res.json();
+      if (json && json.ok && json.data) {
+        this.replaceStateFromCloud(json.data);
+        return true;
+      }
+    } catch (_) {}
+    return false;
   }
 
   async _tryLoadLocalSnapshot() {

@@ -1,6 +1,5 @@
-# Private Personal Financial Snapshot (Local-Only Cache, Never Commit to Public Git)
-data/local-snapshot.json
-data/*.private.json
+# Private Personal Financial Snapshot & Local Ready-to-Paste Configs (Never Commit to Public Git)
+data/
 .env
 .env.*
 

@@ -210,9 +210,9 @@
       await store.init();
       renderShell();
 
-      // Subscribe to config/queue updates for topbar
+      // Subscribe to state/config/queue updates so background cloud sync refreshes UI seamlessly
       store.subscribe(() => {
-        updateTopbar();
+        renderShell();
       });
 
       // Register PWA Service Worker
