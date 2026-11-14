@@ -71,6 +71,7 @@ export class SettingsUI {
           </div>
 
           <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
+            <button class="btn btn-primary" id="btn-settings-pwa-update">🚀 手機 PWA 強制更新至最新版 (v1.8)</button>
             <button class="btn btn-emerald" id="btn-push-queue">☁️ 立即推送佇列至 Google Sheets (${queue.length})</button>
             <button class="btn btn-ghost" id="btn-pull-cloud">🔄 從雲端拉取最新試算表快照</button>
             <button class="btn btn-ghost" id="btn-export-json">📥 匯出本機完整 JSON 備份</button>
@@ -152,6 +153,16 @@ export class SettingsUI {
     }
 
     const pushBtn = container.querySelector('#btn-push-queue');
+    const pwaUpdateBtn = container.querySelector('#btn-settings-pwa-update');
+    if (pwaUpdateBtn) {
+      pwaUpdateBtn.addEventListener('click', (e) => {
+        if (window.NIC_ForceUpdatePWA) {
+          window.NIC_ForceUpdatePWA(e.currentTarget);
+        } else {
+          window.location.reload();
+        }
+      });
+    }
     if (pushBtn) {
       pushBtn.addEventListener('click', async () => {
         try {
