@@ -270,7 +270,9 @@ class LocalFirstStore {
         recentExpenses: ensureArr(raw.asset?.recentExpenses),
         snapshots: ensureArr(raw.asset?.snapshots),
         salaryHistory: ensureArr(raw.asset?.salaryHistory),
-        cashflowHistory: ensureArr(raw.asset?.cashflowHistory)
+        cashflowHistory: ensureArr(raw.asset?.cashflowHistory),
+        salaryRecords: Array.isArray(raw.asset?.salaryRecords) ? raw.asset.salaryRecords : [],
+        salaryAnnual: Array.isArray(raw.asset?.salaryAnnual) ? raw.asset.salaryAnnual : []
       }
     };
   }
