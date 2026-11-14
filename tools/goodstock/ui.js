@@ -21,6 +21,17 @@ export class GoodStockUI {
     this.pkCodeB = '2059';
     this.customPeBands = null;
     this.isFetchingLive = false;
+    this.isSyncingAllPrices = false;
+    this.showAdvancedFilters = false; // Collapsed by default for clean mobile & desktop layout
+
+    // Universal table sort state across all 5 screeners
+    this.tableSort = {
+      six_indicators: { col: 'avgScore', dir: 'desc' },
+      strong: { col: 'gain', dir: 'desc' },
+      financial: { col: 'doubleArrow', dir: 'desc' },
+      trend: { col: 'change10dPct', dir: 'desc' },
+      newhigh: { col: 'avgScore', dir: 'desc' }
+    };
 
     this.sixFilters = {
       scope: 'ALL',
@@ -90,9 +101,6 @@ export class GoodStockUI {
     };
   }
 
-  /**
-   * Allow external modules (e.g. StockTrackerUI) to jump directly to a stock's GoodStock workbench
-   */
   openStockInfo(rawCode, subView = 'all') {
     const clean = String(rawCode || '2330').replace(/\.TW$/i, '').trim();
     this.selectedCode = clean || '2330';
@@ -101,38 +109,90 @@ export class GoodStockUI {
     this.customPeBands = null;
   }
 
+  _toggleSort(mode, col, defaultDir = 'desc') {
+    const cur = this.tableSort[mode] || { col, dir: defaultDir };
+    if (cur.col === col) {
+      cur.dir = cur.dir === 'desc' ? 'asc' : 'desc';
+    } else {
+      cur.col = col;
+      cur.dir = defaultDir;
+    }
+    this.tableSort[mode] = cur;
+  }
+
+  _sortTh(mode, col, label, defaultDir = 'desc', align = 'right') {
+    const cur = this.tableSort[mode] || {};
+    const isAct = cur.col === col;
+    const arrow = isAct ? (cur.dir === 'desc' ? '▼' : '▲') : '↕';
+    const alignCss = align === 'right' ? 'text-align:right;' : '';
+    return `<th class="sortable ${isAct ? 'sort-active' : ''}" data-gs-sort-mode="${mode}" data-gs-sort-col="${col}" data-gs-sort-def="${defaultDir}" style="${alignCss}">${label}<span class="sort-indicator">${arrow}</span></th>`;
+  }
+
+  _sortResults(mode, list, lookbackDays = 5) {
+    const cfg = this.tableSort[mode] || { col: 'avgScore', dir: 'desc' };
+    const mul = cfg.dir === 'asc' ? 1 : -1;
+    const col = cfg.col;
+    return [...list].sort((a, b) => {
+      if (col === 'code') return String(a.code || '').localeCompare(String(b.code || '')) * mul;
+      if (col === 'industry') return String(a.industry || '').localeCompare(String(b.industry || '')) * mul;
+      if (col === 'price') return ((a.price || 0) - (b.price || 0)) * mul;
+      if (col === 'pe') return ((a.pe || 999) - (b.pe || 999)) * mul;
+      if (col === 'avgScore') return ((a.sixEval?.current?.avgScore || 0) - (b.sixEval?.current?.avgScore || 0)) * mul;
+      if (col === 'deltaMoM') return ((a.sixEval?.deltaMoM || 0) - (b.sixEval?.deltaMoM || 0)) * mul;
+      if (col === 'deltaQoQ') return ((a.sixEval?.deltaQoQ || 0) - (b.sixEval?.deltaQoQ || 0)) * mul;
+      if (col === 's0') return ((a.sixEval?.itemComparisons?.[0]?.score ?? -1) - (b.sixEval?.itemComparisons?.[0]?.score ?? -1)) * mul;
+      if (col === 's1') return ((a.sixEval?.itemComparisons?.[1]?.score ?? -1) - (b.sixEval?.itemComparisons?.[1]?.score ?? -1)) * mul;
+      if (col === 's2') return ((a.sixEval?.itemComparisons?.[2]?.score ?? -1) - (b.sixEval?.itemComparisons?.[2]?.score ?? -1)) * mul;
+      if (col === 's3') return ((a.sixEval?.itemComparisons?.[3]?.score ?? -1) - (b.sixEval?.itemComparisons?.[3]?.score ?? -1)) * mul;
+      if (col === 's4') return ((a.sixEval?.itemComparisons?.[4]?.score ?? -1) - (b.sixEval?.itemComparisons?.[4]?.score ?? -1)) * mul;
+      if (col === 's5') return ((a.sixEval?.itemComparisons?.[5]?.score ?? -1) - (b.sixEval?.itemComparisons?.[5]?.score ?? -1)) * mul;
+      if (col === 'landmines') return ((a.landmines?.hitCount || 0) - (b.landmines?.hitCount || 0)) * mul;
+      if (col === 'doubleArrow') return ((a.doubleArrow || 0) - (b.doubleArrow || 0)) * mul;
+      if (col === 'gain') {
+        const gA = lookbackDays >= 10 ? a.change10dPct : a.change5dPct;
+        const gB = lookbackDays >= 10 ? b.change10dPct : b.change5dPct;
+        return ((gA || 0) - (gB || 0)) * mul;
+      }
+      if (col === 'change1mPct') return ((a.change1mPct || 0) - (b.change1mPct || 0)) * mul;
+      if (col === 'change5dPct') return ((a.change5dPct || 0) - (b.change5dPct || 0)) * mul;
+      if (col === 'change10dPct') return ((a.change10dPct || 0) - (b.change10dPct || 0)) * mul;
+      if (col === 'change20dPct') return ((a.change20dPct || 0) - (b.change20dPct || 0)) * mul;
+      if (col === 'volumeLots') return ((a.volumeLots || 0) - (b.volumeLots || 0)) * mul;
+      if (col === 'latestOpMargin') return ((a.latestOpMargin || 0) - (b.latestOpMargin || 0)) * mul;
+      if (col === 'latestEps') return ((a.latestEps || 0) - (b.latestEps || 0)) * mul;
+      if (col === 'latestNetMargin') return ((a.latestNetMargin || 0) - (b.latestNetMargin || 0)) * mul;
+      if (col === 'latestRevYoY') return ((a.latestRevYoY || 0) - (b.latestRevYoY || 0)) * mul;
+      if (col === 'latestCumYoY') return ((a.latestCumYoY || 0) - (b.latestCumYoY || 0)) * mul;
+      if (col === 'revNewHighMonths') return ((a.revNewHighMonths || 0) - (b.revNewHighMonths || 0)) * mul;
+      return 0;
+    });
+  }
+
   render(container, state, store, showToast) {
     const universe = GoodStockCore.getEnrichedUniverse(state);
     const industries = Array.from(new Set(universe.map((s) => s.industry))).filter(Boolean);
 
     container.innerHTML = `
-      <!-- Top Hero & Main Module Switcher -->
-      <div class="card" style="margin-bottom:14px; background:linear-gradient(135deg, rgba(30,41,59,0.92), rgba(15,23,42,0.96)); border:1px solid rgba(56,189,248,0.28);">
-        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-          <div>
-            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-              <span class="pill pill-emerald">🎯 好股價 GoodStockPrice 完整旗艦版</span>
-              <span class="pill pill-blue">🇹🇼 0050 台灣50全成分股 + 你的持股 (${universe.length} 檔最新報價)</span>
-              <button class="btn btn-ghost btn-sm" id="btn-gs-sync-all-prices" style="padding:3px 10px; font-size:0.76rem; border:1px solid rgba(56,189,248,0.45); color:#38bdf8;">
-                ${this.isSyncingAllPrices ? '⏳ 同步證交所報價中...' : '🔄 同步證交所最新收盤價'}
-              </button>
-            </div>
-            <div style="font-size:1.05rem; font-weight:700; margin-top:6px;">
-              用 8 季財報、36 個月營收、財務六大指標與目標價區間，把選股與持股體檢標準化
-            </div>
-          </div>
+      <!-- Clean Compact Top Toolbar -->
+      <div class="action-toolbar">
+        <div class="action-toolbar-group">
+          <button class="btn ${this.mainTab === 'screener' ? 'btn-primary' : 'btn-ghost'}" data-gs-main="screener">
+            ① 選股功能 (5大引擎)
+          </button>
+          <button class="btn ${this.mainTab === 'stock_info' ? 'btn-primary' : 'btn-ghost'}" data-gs-main="stock_info">
+            ② 股票資訊 (${this.selectedCode})
+          </button>
+          <button class="btn ${this.mainTab === 'pk' ? 'btn-primary' : 'btn-ghost'}" data-gs-main="pk">
+            ③ 雙股PK (${this.pkCodeA} vs ${this.pkCodeB})
+          </button>
+        </div>
 
-          <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <button class="btn ${this.mainTab === 'screener' ? 'btn-primary' : 'btn-ghost'}" data-gs-main="screener">
-              ① 選股功能 (5大引擎)
-            </button>
-            <button class="btn ${this.mainTab === 'stock_info' ? 'btn-primary' : 'btn-ghost'}" data-gs-main="stock_info">
-              ② 股票資訊 (${this.selectedCode})
-            </button>
-            <button class="btn ${this.mainTab === 'pk' ? 'btn-primary' : 'btn-ghost'}" data-gs-main="pk">
-              ③ 雙股PK對比 (${this.pkCodeA} vs ${this.pkCodeB})
-            </button>
-          </div>
+        <div class="action-toolbar-group">
+          <input type="text" class="form-control font-mono" id="gs-quick-jump-input" placeholder="輸入代號/名稱 (如 3037)" style="width:148px; padding:5px 9px;" />
+          <button class="btn btn-ghost btn-sm" id="btn-gs-quick-jump">查詢</button>
+          <button class="btn btn-ghost btn-sm" id="btn-gs-sync-all-prices">
+            ${this.isSyncingAllPrices ? '同步中...' : `同步最新股價 (${universe.length}檔)`}
+          </button>
         </div>
       </div>
 
@@ -146,26 +206,23 @@ export class GoodStockUI {
     this._bindEvents(container, state, store, showToast);
   }
 
-  // ============================================================================
-  // ① 選股功能 (5 Sub-Tabs: 六大指標選股 / 近期強勢股 / 財務選股 / 趨勢選股 / 創新高選股)
-  // ============================================================================
   _renderScreenerMain(state, universe, industries) {
     return `
-      <div class="sub-tabs" style="margin-bottom:14px;">
+      <div class="sub-tabs">
         <button class="sub-tab ${this.screenerMode === 'six_indicators' ? 'active' : ''}" data-gs-screen="six_indicators">
-          🌟 六大指標選股 (含前月/前季比較)
+          六大指標選股 (含前月/前季比較)
         </button>
         <button class="sub-tab ${this.screenerMode === 'strong' ? 'active' : ''}" data-gs-screen="strong">
-          🔥 近期強勢股
+          近期強勢股
         </button>
         <button class="sub-tab ${this.screenerMode === 'financial' ? 'active' : ''}" data-gs-screen="financial">
-          📊 財務選股 (雙箭頭)
+          財務選股 (雙箭頭)
         </button>
         <button class="sub-tab ${this.screenerMode === 'trend' ? 'active' : ''}" data-gs-screen="trend">
-          📈 趨勢選股
+          趨勢選股
         </button>
         <button class="sub-tab ${this.screenerMode === 'newhigh' ? 'active' : ''}" data-gs-screen="newhigh">
-          🚀 創新高選股
+          創新高選股
         </button>
       </div>
 
@@ -180,20 +237,20 @@ export class GoodStockUI {
   _renderDeltaBadge(delta, prefix = '') {
     const d = Number(delta || 0);
     if (d > 0) {
-      return `<span class="pill pill-emerald" style="font-weight:700;">${prefix}▲ +${d.toFixed(2)}</span>`;
+      return `<span class="pill pill-emerald">${prefix}▲ +${d.toFixed(2)}</span>`;
     }
     if (d < 0) {
-      return `<span class="pill pill-rose" style="font-weight:700;">${prefix}▼ ${d.toFixed(2)}</span>`;
+      return `<span class="pill pill-rose">${prefix}▼ ${d.toFixed(2)}</span>`;
     }
-    return `<span class="pill" style="background:rgba(148,163,184,0.14); color:var(--text-muted);">${prefix}持平 0.00</span>`;
+    return `<span class="pill">${prefix}0.00</span>`;
   }
 
   _renderItemScoreCell(itemComp) {
     if (!itemComp || itemComp.score === null) {
-      return `<span class="text-muted" style="font-size:0.78rem;">不評分</span>`;
+      return `<span class="text-muted" style="font-size:11px;">-</span>`;
     }
     const s = itemComp.score;
-    const cls = s >= 3.5 ? 'text-emerald' : s >= 2.5 ? 'text-sky' : s >= 1.5 ? 'text-amber' : 'text-rose';
+    const cls = s >= 3.5 ? 'text-emerald' : s < 2.0 ? 'text-rose' : '';
     const arrows = [];
     if (itemComp.deltaMoM > 0) arrows.push(`<span class="text-emerald" title="較前月 +${itemComp.deltaMoM}">月▲</span>`);
     else if (itemComp.deltaMoM < 0) arrows.push(`<span class="text-rose" title="較前月 ${itemComp.deltaMoM}">月▼</span>`);
@@ -202,184 +259,158 @@ export class GoodStockUI {
     else if (itemComp.deltaQoQ < 0) arrows.push(`<span class="text-rose" title="較前季 ${itemComp.deltaQoQ}">季▼</span>`);
 
     return `
-      <div style="font-weight:700;" class="${cls}">${s.toFixed(1)}</div>
-      ${arrows.length ? `<div style="font-size:0.7rem; line-height:1.1;">${arrows.join(' ')}</div>` : ''}
+      <div class="font-mono ${cls}" style="font-weight:700;">${s.toFixed(1)}</div>
+      ${arrows.length ? `<div style="font-size:10px; line-height:1.1;">${arrows.join(' ')}</div>` : ''}
     `;
   }
 
   _renderSixIndicatorsScreener(state, industries) {
     const f = this.sixFilters;
-    const results = GoodStockCore.screenStocks(state, 'six_indicators', f);
+    const rawResults = GoodStockCore.screenStocks(state, 'six_indicators', f);
+    const results = this._sortResults('six_indicators', rawResults);
 
     return `
       <div class="card" style="margin-bottom:14px;">
-        <div class="card-header" style="flex-wrap:wrap; gap:8px;">
-          <div>
-            <div class="card-title">🌟 財務六大指標評分選股（支援「與前一個月 MoM」及「與前一季 QoQ」評分比較）</div>
-            <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">
-              依據《財務六大指標》試算表規則（0~4分制）自動評算當期 ($T_0$)、前一個月 ($M_{-1}$)、前一季 ($Q_{-1}$) 總均分與單項升降變化
-            </div>
+        <div class="action-toolbar" style="margin-bottom:0;">
+          <div class="action-toolbar-group">
+            <button class="btn btn-ghost btn-sm" data-six-preset="ETF_0050">0050 成分股 (50檔)</button>
+            <button class="btn btn-ghost btn-sm" data-six-preset="ALL_HIGH">資優高分 (≥3.0分)</button>
+            <button class="btn btn-ghost btn-sm" data-six-preset="MOM_UP">較前月轉強 (MoM ▲)</button>
+            <button class="btn btn-ghost btn-sm" data-six-preset="QOQ_UP">較前季躍進 (QoQ ▲)</button>
+            <button class="btn btn-ghost btn-sm" data-six-preset="DUAL_UP">雙重成長</button>
+            <button class="btn btn-ghost btn-sm" data-six-preset="MY_HOLDINGS">我的庫存台股</button>
+            <button class="btn btn-ghost btn-sm" data-six-preset="WEAKENING">評分轉弱 (▼)</button>
+            <button class="btn btn-ghost btn-sm" data-six-preset="RESET">↺ 重設</button>
           </div>
-          <!-- Quick Strategy Preset Buttons -->
-          <div style="display:flex; gap:6px; flex-wrap:wrap;">
-            <button class="btn btn-ghost btn-sm" data-six-preset="ETF_0050">🇹🇼 0050 成分股 (50檔)</button>
-            <button class="btn btn-ghost btn-sm" data-six-preset="ALL_HIGH">🏆 資優高分 (≥3.2分)</button>
-            <button class="btn btn-ghost btn-sm" data-six-preset="MOM_UP">🚀 較前月轉強 (MoM &gt; 0)</button>
-            <button class="btn btn-ghost btn-sm" data-six-preset="QOQ_UP">🔥 較前季躍進 (QoQ &gt; 0)</button>
-            <button class="btn btn-ghost btn-sm" data-six-preset="DUAL_UP">💎 雙重成長 (當期≥3.0 + 季/月進步)</button>
-            <button class="btn btn-ghost btn-sm" data-six-preset="MY_HOLDINGS">💼 我的庫存台股 (${state?.stock?.overview?.filter(r => String(r['代號']||'').includes('.TW') || r['市場']==='TW').length || 10}檔)</button>
-            <button class="btn btn-ghost btn-sm" data-six-preset="WEAKENING">⚠️ 評分轉弱 (&lt; 0)</button>
-            <button class="btn btn-ghost btn-sm" data-six-preset="RESET">↺ 重設條件</button>
-          </div>
+          <button class="btn ${this.showAdvancedFilters ? 'btn-primary' : 'btn-ghost'} btn-sm" id="btn-toggle-gs-filters">
+            ${this.showAdvancedFilters ? '▲ 收起進階篩選' : '▾ 進階篩選條件'}
+          </button>
         </div>
 
-        <!-- Row 1: Scope, Current Score, Landmine Filter, Sort -->
-        <div class="form-grid" style="margin-bottom:12px;">
-          <div class="form-group">
-            <label class="form-label">篩選範圍</label>
-            <select class="form-select" id="six-scope">
-              <option value="ALL" ${f.scope === 'ALL' ? 'selected' : ''}>全股票池 (0050 + 庫存共 ${GoodStockData.getAllStocks().length} 檔)</option>
-              <option value="ETF_0050" ${f.scope === 'ETF_0050' ? 'selected' : ''}>🇹🇼 0050 台灣50成分股 (50 檔)</option>
-              <option value="HOLDINGS" ${f.scope === 'HOLDINGS' ? 'selected' : ''}>💼 僅看我的庫存持股</option>
-              <option value="WATCHLIST" ${f.scope === 'WATCHLIST' ? 'selected' : ''}>👀 僅看我的觀察清單</option>
-            </select>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">產業別</label>
-            <select class="form-select" id="six-industry">
-              <option value="ALL">全部產業</option>
-              ${industries.map((ind) => `<option value="${ind}" ${f.industry === ind ? 'selected' : ''}>${ind}</option>`).join('')}
-            </select>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">🌟 當期總平均分門檻 (0~4)</label>
-            <select class="form-select" id="six-min-avg">
-              <option value="0" ${Number(f.minAvgScore) === 0 ? 'selected' : ''}>不限 (0.0+)</option>
-              <option value="2.5" ${Number(f.minAvgScore) === 2.5 ? 'selected' : ''}>≥ 2.5 分 (BB 穩健以上)</option>
-              <option value="3.0" ${Number(f.minAvgScore) === 3.0 ? 'selected' : ''}>≥ 3.0 分 (A 優良以上)</option>
-              <option value="3.5" ${Number(f.minAvgScore) === 3.5 ? 'selected' : ''}>≥ 3.5 分 (AA 頂級績優)</option>
-            </select>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">⚠️ 財務地雷上限 (共7項)</label>
-            <select class="form-select" id="six-max-landmines">
-              <option value="" ${f.maxLandmines === '' ? 'selected' : ''}>不限</option>
-              <option value="0" ${String(f.maxLandmines) === '0' ? 'selected' : ''}>0 項地雷 (完全無地雷)</option>
-              <option value="1" ${String(f.maxLandmines) === '1' ? 'selected' : ''}>≤ 1 項地雷</option>
-              <option value="2" ${String(f.maxLandmines) === '2' ? 'selected' : ''}>≤ 2 項地雷</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- Row 2: MoM & QoQ Historical Score Comparison Filters -->
-        <div style="background:rgba(14,165,233,0.08); border:1px solid rgba(56,189,248,0.25); border-radius:10px; padding:12px; margin-bottom:12px;">
-          <div style="font-size:0.84rem; font-weight:700; color:#38bdf8; margin-bottom:8px;">
-            📈 歷史評分動態比較篩選（與前一個月 MoM ／ 與前一季 QoQ 評分比較）
-          </div>
-          <div class="form-grid">
-            <div class="form-group">
-              <label class="form-label">📅 與前一個月評分比較 (ΔMoM)</label>
-              <select class="form-select" id="six-mom-mode">
-                <option value="ALL" ${f.momDeltaMode === 'ALL' ? 'selected' : ''}>不限</option>
-                <option value="UP" ${f.momDeltaMode === 'UP' ? 'selected' : ''}>▲ 較前月上升 (&gt; 0 分)</option>
-                <option value="UP_015" ${f.momDeltaMode === 'UP_015' ? 'selected' : ''}>🚀 較前月明顯上升 (≥ +0.15 分)</option>
-                <option value="NON_DEC" ${f.momDeltaMode === 'NON_DEC' ? 'selected' : ''}>✅ 較前月持平或上升 (≥ 0 分)</option>
-                <option value="DOWN" ${f.momDeltaMode === 'DOWN' ? 'selected' : ''}>▼ 較前月下降 (&lt; 0 分)</option>
-              </select>
+        ${this.showAdvancedFilters ? `
+          <div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border-color);">
+            <div class="form-grid" style="margin-bottom:10px;">
+              <div class="form-group">
+                <label class="form-label">篩選範圍</label>
+                <select class="form-select" id="six-scope">
+                  <option value="ALL" ${f.scope === 'ALL' ? 'selected' : ''}>全股票池 (${GoodStockData.getAllStocks().length} 檔)</option>
+                  <option value="ETF_0050" ${f.scope === 'ETF_0050' ? 'selected' : ''}>0050 台灣50成分股 (50 檔)</option>
+                  <option value="HOLDINGS" ${f.scope === 'HOLDINGS' ? 'selected' : ''}>僅看我的庫存持股</option>
+                  <option value="WATCHLIST" ${f.scope === 'WATCHLIST' ? 'selected' : ''}>僅看我的觀察清單</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">產業別</label>
+                <select class="form-select" id="six-industry">
+                  <option value="ALL">全部產業</option>
+                  ${industries.map((ind) => `<option value="${ind}" ${f.industry === ind ? 'selected' : ''}>${ind}</option>`).join('')}
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">當期總平均分門檻 (0~4)</label>
+                <select class="form-select" id="six-min-avg">
+                  <option value="0" ${Number(f.minAvgScore) === 0 ? 'selected' : ''}>不限 (0.0+)</option>
+                  <option value="2.5" ${Number(f.minAvgScore) === 2.5 ? 'selected' : ''}>≥ 2.5 分 (BB 以上)</option>
+                  <option value="3.0" ${Number(f.minAvgScore) === 3.0 ? 'selected' : ''}>≥ 3.0 分 (A 以上)</option>
+                  <option value="3.5" ${Number(f.minAvgScore) === 3.5 ? 'selected' : ''}>≥ 3.5 分 (AA 績優)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">財務地雷上限 (共7項)</label>
+                <select class="form-select" id="six-max-landmines">
+                  <option value="" ${f.maxLandmines === '' ? 'selected' : ''}>不限</option>
+                  <option value="0" ${String(f.maxLandmines) === '0' ? 'selected' : ''}>0 項地雷</option>
+                  <option value="1" ${String(f.maxLandmines) === '1' ? 'selected' : ''}>≤ 1 項地雷</option>
+                  <option value="2" ${String(f.maxLandmines) === '2' ? 'selected' : ''}>≤ 2 項地雷</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">與前一個月比較 (ΔMoM)</label>
+                <select class="form-select" id="six-mom-mode">
+                  <option value="ALL" ${f.momDeltaMode === 'ALL' ? 'selected' : ''}>不限</option>
+                  <option value="UP" ${f.momDeltaMode === 'UP' ? 'selected' : ''}>▲ 較前月上升 (&gt; 0)</option>
+                  <option value="UP_015" ${f.momDeltaMode === 'UP_015' ? 'selected' : ''}>▲ 較前月明顯上升 (≥ +0.15)</option>
+                  <option value="NON_DEC" ${f.momDeltaMode === 'NON_DEC' ? 'selected' : ''}>持平或上升 (≥ 0)</option>
+                  <option value="DOWN" ${f.momDeltaMode === 'DOWN' ? 'selected' : ''}>▼ 較前月下降 (&lt; 0)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">與前一季比較 (ΔQoQ)</label>
+                <select class="form-select" id="six-qoq-mode">
+                  <option value="ALL" ${f.qoqDeltaMode === 'ALL' ? 'selected' : ''}>不限</option>
+                  <option value="UP" ${f.qoqDeltaMode === 'UP' ? 'selected' : ''}>▲ 較前季上升 (&gt; 0)</option>
+                  <option value="UP_030" ${f.qoqDeltaMode === 'UP_030' ? 'selected' : ''}>▲ 較前季躍進 (≥ +0.30)</option>
+                  <option value="UP_050" ${f.qoqDeltaMode === 'UP_050' ? 'selected' : ''}>▲ 較前季大躍進 (≥ +0.50)</option>
+                  <option value="NON_DEC" ${f.qoqDeltaMode === 'NON_DEC' ? 'selected' : ''}>持平或上升 (≥ 0)</option>
+                  <option value="DOWN" ${f.qoqDeltaMode === 'DOWN' ? 'selected' : ''}>▼ 較前季下降 (&lt; 0)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">單項指標升等過濾</label>
+                <select class="form-select" id="six-improved-item">
+                  <option value="ALL" ${f.improvedItem === 'ALL' ? 'selected' : ''}>不限單項</option>
+                  <option value="revGrowth_MoM" ${f.improvedItem === 'revGrowth_MoM' ? 'selected' : ''}>營收成長性 較前月升等 (MoM ▲)</option>
+                  <option value="revGrowth_QoQ" ${f.improvedItem === 'revGrowth_QoQ' ? 'selected' : ''}>營收成長性 較前季升等 (QoQ ▲)</option>
+                  <option value="opMargin_QoQ" ${f.improvedItem === 'opMargin_QoQ' ? 'selected' : ''}>營業利益率 較前季升等 (QoQ ▲)</option>
+                  <option value="profitGrowth_QoQ" ${f.improvedItem === 'profitGrowth_QoQ' ? 'selected' : ''}>獲利成長性 較前季升等 (QoQ ▲)</option>
+                  <option value="eps_QoQ" ${f.improvedItem === 'eps_QoQ' ? 'selected' : ''}>獲利能力(EPS) 較前季升等 (QoQ ▲)</option>
+                  <option value="invTurnover_QoQ" ${f.improvedItem === 'invTurnover_QoQ' ? 'selected' : ''}>存貨周轉率 較前季升等 (QoQ ▲)</option>
+                  <option value="fcf_QoQ" ${f.improvedItem === 'fcf_QoQ' ? 'selected' : ''}>自由現金流 較前季升等 (QoQ ▲)</option>
+                </select>
+              </div>
             </div>
 
-            <div class="form-group">
-              <label class="form-label">📊 與前一季評分比較 (ΔQoQ)</label>
-              <select class="form-select" id="six-qoq-mode">
-                <option value="ALL" ${f.qoqDeltaMode === 'ALL' ? 'selected' : ''}>不限</option>
-                <option value="UP" ${f.qoqDeltaMode === 'UP' ? 'selected' : ''}>▲ 較前季上升 (&gt; 0 分)</option>
-                <option value="UP_030" ${f.qoqDeltaMode === 'UP_030' ? 'selected' : ''}>🔥 較前季躍進 (≥ +0.30 分)</option>
-                <option value="UP_050" ${f.qoqDeltaMode === 'UP_050' ? 'selected' : ''}>💎 較前季大躍進 (≥ +0.50 分)</option>
-                <option value="NON_DEC" ${f.qoqDeltaMode === 'NON_DEC' ? 'selected' : ''}>✅ 較前季持平或上升 (≥ 0 分)</option>
-                <option value="DOWN" ${f.qoqDeltaMode === 'DOWN' ? 'selected' : ''}>▼ 較前季下降 (&lt; 0 分)</option>
-              </select>
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">🎯 指定單項指標升等過濾</label>
-              <select class="form-select" id="six-improved-item">
-                <option value="ALL" ${f.improvedItem === 'ALL' ? 'selected' : ''}>不限單項</option>
-                <option value="revGrowth_MoM" ${f.improvedItem === 'revGrowth_MoM' ? 'selected' : ''}>營收成長性 較前月升等 (MoM ▲)</option>
-                <option value="revGrowth_QoQ" ${f.improvedItem === 'revGrowth_QoQ' ? 'selected' : ''}>營收成長性 較前季升等 (QoQ ▲)</option>
-                <option value="opMargin_QoQ" ${f.improvedItem === 'opMargin_QoQ' ? 'selected' : ''}>營業利益率 較前季升等 (QoQ ▲)</option>
-                <option value="profitGrowth_QoQ" ${f.improvedItem === 'profitGrowth_QoQ' ? 'selected' : ''}>獲利成長性 較前季升等 (QoQ ▲)</option>
-                <option value="eps_QoQ" ${f.improvedItem === 'eps_QoQ' ? 'selected' : ''}>獲利能力(EPS) 較前季升等 (QoQ ▲)</option>
-                <option value="invTurnover_QoQ" ${f.improvedItem === 'invTurnover_QoQ' ? 'selected' : ''}>存貨周轉率 較前季升等 (QoQ ▲)</option>
-                <option value="fcf_QoQ" ${f.improvedItem === 'fcf_QoQ' ? 'selected' : ''}>自由現金流 較前季升等 (QoQ ▲)</option>
-              </select>
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">🔃 排序依據</label>
-              <select class="form-select" id="six-sort-by">
-                <option value="avgScore" ${f.sortBy === 'avgScore' ? 'selected' : ''}>🌟 當期總平均分 (高→低)</option>
-                <option value="deltaMoM" ${f.sortBy === 'deltaMoM' ? 'selected' : ''}>📅 較前月進步幅度 ΔMoM (高→低)</option>
-                <option value="deltaQoQ" ${f.sortBy === 'deltaQoQ' ? 'selected' : ''}>📊 較前季進步幅度 ΔQoQ (高→低)</option>
-                <option value="doubleArrow" ${f.sortBy === 'doubleArrow' ? 'selected' : ''}>🏹 財務雙箭頭 (高→低)</option>
-                <option value="price" ${f.sortBy === 'price' ? 'selected' : ''}>💰 股價 (高→低)</option>
-              </select>
+            <div class="form-grid" style="grid-template-columns:repeat(auto-fit, minmax(135px, 1fr));">
+              ${[
+                ['six-min-rev', '① 營收成長最低分', f.minRevScore],
+                ['six-min-op', '② 營益率最低分', f.minOpScore],
+                ['six-min-profit', '③ 獲利成長最低分', f.minProfitScore],
+                ['six-min-eps', '④ EPS最低分', f.minEpsScore],
+                ['six-min-inv', '⑤ 存貨周轉最低分', f.minInvScore],
+                ['six-min-fcf', '⑥ 自由現金最低分', f.minFcfScore]
+              ].map(([id, label, val]) => `
+                <div class="form-group">
+                  <label class="form-label">${label}</label>
+                  <select class="form-select" id="${id}">
+                    <option value="0" ${Number(val) === 0 ? 'selected' : ''}>不限 (0+)</option>
+                    <option value="2" ${Number(val) === 2 ? 'selected' : ''}>≥ 2.0 分</option>
+                    <option value="3" ${Number(val) === 3 ? 'selected' : ''}>≥ 3.0 分</option>
+                    <option value="4" ${Number(val) === 4 ? 'selected' : ''}>= 4.0 滿分</option>
+                  </select>
+                </div>
+              `).join('')}
             </div>
           </div>
-        </div>
-
-        <!-- Row 3: Individual 6 Indicator Minimum Score Filters -->
-        <div class="form-grid" style="grid-template-columns:repeat(auto-fit, minmax(135px, 1fr));">
-          ${[
-            ['six-min-rev', '① 營收成長性最低分', f.minRevScore],
-            ['six-min-op', '② 營業利益率最低分', f.minOpScore],
-            ['six-min-profit', '③ 獲利成長性最低分', f.minProfitScore],
-            ['six-min-eps', '④ 獲利能力EPS最低分', f.minEpsScore],
-            ['six-min-inv', '⑤ 存貨周轉率最低分', f.minInvScore],
-            ['six-min-fcf', '⑥ 自由現金流最低分', f.minFcfScore]
-          ].map(([id, label, val]) => `
-            <div class="form-group">
-              <label class="form-label">${label}</label>
-              <select class="form-select" id="${id}">
-                <option value="0" ${Number(val) === 0 ? 'selected' : ''}>不限 (0+)</option>
-                <option value="2" ${Number(val) === 2 ? 'selected' : ''}>≥ 2.0 分</option>
-                <option value="3" ${Number(val) === 3 ? 'selected' : ''}>≥ 3.0 分</option>
-                <option value="4" ${Number(val) === 4 ? 'selected' : ''}>= 4.0 滿分</option>
-              </select>
-            </div>
-          `).join('')}
-        </div>
+        ` : ''}
       </div>
 
       <!-- Screener Results Table -->
       <div class="card">
-        <div class="card-header">
-          <div class="card-title">📋 六大指標篩選結果（共符合 <span class="text-sky">${results.length}</span> 檔）</div>
-          <div style="font-size:0.78rem; color:var(--text-muted);">
-            點擊股票代號可進入「股票資訊」查看完整 8 季財報、六大指標明細與目標價區間圖
+        <div class="card-header" style="flex-wrap:wrap;">
+          <div class="card-title">六大指標篩選結果（共 ${results.length} 檔）</div>
+          <div class="text-muted" style="font-size:12px;">
+            點擊任一欄位標題可切換排序；點擊股票代號進入「股票資訊」查看財報與目標價
           </div>
         </div>
 
         <div class="table-wrap">
-          <table>
+          <table class="data-table">
             <thead>
               <tr>
-                <th>代號 / 名稱</th>
-                <th>產業</th>
-                <th class="num">股價 (PE)</th>
-                <th class="num">🌟 當期總分</th>
-                <th class="num">📅 前月總分 (較前月 MoM)</th>
-                <th class="num">📊 前季總分 (較前季 QoQ)</th>
-                <th class="num">①營收</th>
-                <th class="num">②營益率</th>
-                <th class="num">③淨利成長</th>
-                <th class="num">④EPS</th>
-                <th class="num">⑤存貨</th>
-                <th class="num">⑥現金流</th>
-                <th class="num">⚠️地雷</th>
-                <th class="num">雙箭頭</th>
+                ${this._sortTh('six_indicators', 'code', '代號 / 名稱', 'asc', 'left')}
+                ${this._sortTh('six_indicators', 'industry', '產業', 'asc', 'left')}
+                ${this._sortTh('six_indicators', 'price', '股價 (PE)', 'desc', 'right')}
+                ${this._sortTh('six_indicators', 'avgScore', '當期總分', 'desc', 'right')}
+                ${this._sortTh('six_indicators', 'deltaMoM', '較前月 (MoM)', 'desc', 'right')}
+                ${this._sortTh('six_indicators', 'deltaQoQ', '較前季 (QoQ)', 'desc', 'right')}
+                ${this._sortTh('six_indicators', 's0', '①營收', 'desc', 'right')}
+                ${this._sortTh('six_indicators', 's1', '②營益率', 'desc', 'right')}
+                ${this._sortTh('six_indicators', 's2', '③淨利成長', 'desc', 'right')}
+                ${this._sortTh('six_indicators', 's3', '④EPS', 'desc', 'right')}
+                ${this._sortTh('six_indicators', 's4', '⑤存貨', 'desc', 'right')}
+                ${this._sortTh('six_indicators', 's5', '⑥現金流', 'desc', 'right')}
+                ${this._sortTh('six_indicators', 'landmines', '地雷', 'asc', 'right')}
+                ${this._sortTh('six_indicators', 'doubleArrow', '雙箭頭', 'desc', 'right')}
                 <th>操作</th>
               </tr>
             </thead>
@@ -388,56 +419,55 @@ export class GoodStockUI {
                 const ev = s.sixEval;
                 const cur = ev.current;
                 const comps = ev.itemComparisons;
-                const gradeCls = cur.grade === 'AA' || cur.grade === 'A' ? 'pill-emerald' : cur.grade === 'BB' ? 'pill-blue' : 'pill-amber';
                 return `
                   <tr>
                     <td>
-                      <div style="display:flex; align-items:center; gap:6px;">
-                        <button class="btn btn-ghost btn-sm" data-open-stock="${s.code}" style="font-weight:700; color:#38bdf8; padding:2px 7px;">
+                      <div style="display:flex; align-items:center; gap:5px;">
+                        <a href="javascript:void(0)" data-open-stock="${s.code}" class="font-mono" style="font-weight:700; color:var(--accent-blue); text-decoration:none;">
                           ${s.code} ${s.name}
-                        </button>
-                        ${s.isHolding ? '<span class="pill pill-purple" style="font-size:0.68rem;">庫存</span>' : ''}
+                        </a>
+                        ${s.isHolding ? '<span class="pill" style="font-size:10px;">庫存</span>' : ''}
                       </div>
                     </td>
-                    <td><span style="font-size:0.8rem; color:var(--text-muted);">${s.industry}</span></td>
-                    <td class="num">
+                    <td class="text-muted">${s.industry}</td>
+                    <td class="font-mono" style="text-align:right;">
                       <div style="font-weight:700;">${fmtNum(s.price, 1)}</div>
-                      <div style="font-size:0.72rem; color:var(--text-muted);">PE ${s.pe ?? '-'}</div>
+                      <div class="text-muted" style="font-size:11px;">PE ${s.pe ?? '-'}</div>
                     </td>
-                    <td class="num">
-                      <div style="font-size:1.02rem; font-weight:800; color:#38bdf8;">${cur.avgScore.toFixed(2)}</div>
-                      <span class="pill ${gradeCls}" style="font-size:0.68rem;">${cur.grade} (${cur.totalScore}/${cur.maxTotalScore})</span>
+                    <td class="font-mono" style="text-align:right;">
+                      <div style="font-weight:700;" class="${cur.avgScore >= 3.2 ? 'text-emerald' : ''}">${cur.avgScore.toFixed(2)}</div>
+                      <span class="pill" style="font-size:10px;">${cur.grade}</span>
                     </td>
-                    <td class="num">
-                      <div style="font-size:0.82rem; color:var(--text-muted);">前月 ${ev.prevMonth.avgScore.toFixed(2)}</div>
-                      <div style="margin-top:2px;">${this._renderDeltaBadge(ev.deltaMoM)}</div>
+                    <td class="font-mono" style="text-align:right;">
+                      <div class="text-muted" style="font-size:11px;">前月 ${ev.prevMonth.avgScore.toFixed(2)}</div>
+                      <div>${this._renderDeltaBadge(ev.deltaMoM)}</div>
                     </td>
-                    <td class="num">
-                      <div style="font-size:0.82rem; color:var(--text-muted);">前季 ${ev.prevQuarter.avgScore.toFixed(2)}</div>
-                      <div style="margin-top:2px;">${this._renderDeltaBadge(ev.deltaQoQ)}</div>
+                    <td class="font-mono" style="text-align:right;">
+                      <div class="text-muted" style="font-size:11px;">前季 ${ev.prevQuarter.avgScore.toFixed(2)}</div>
+                      <div>${this._renderDeltaBadge(ev.deltaQoQ)}</div>
                     </td>
-                    <td class="num">${this._renderItemScoreCell(comps[0])}</td>
-                    <td class="num">${this._renderItemScoreCell(comps[1])}</td>
-                    <td class="num">${this._renderItemScoreCell(comps[2])}</td>
-                    <td class="num">${this._renderItemScoreCell(comps[3])}</td>
-                    <td class="num">${this._renderItemScoreCell(comps[4])}</td>
-                    <td class="num">${this._renderItemScoreCell(comps[5])}</td>
-                    <td class="num">
-                      <span class="pill ${s.landmines.hitCount === 0 ? 'pill-emerald' : s.landmines.hitCount <= 1 ? 'pill-amber' : 'pill-rose'}">
+                    <td style="text-align:right;">${this._renderItemScoreCell(comps[0])}</td>
+                    <td style="text-align:right;">${this._renderItemScoreCell(comps[1])}</td>
+                    <td style="text-align:right;">${this._renderItemScoreCell(comps[2])}</td>
+                    <td style="text-align:right;">${this._renderItemScoreCell(comps[3])}</td>
+                    <td style="text-align:right;">${this._renderItemScoreCell(comps[4])}</td>
+                    <td style="text-align:right;">${this._renderItemScoreCell(comps[5])}</td>
+                    <td style="text-align:right;">
+                      <span class="pill ${s.landmines.hitCount === 0 ? 'pill-emerald' : s.landmines.hitCount >= 2 ? 'pill-rose' : ''}">
                         ${s.landmines.hitCount}/7
                       </span>
                     </td>
-                    <td class="num" style="font-weight:700; color:#f59e0b;">${fmtNum(s.doubleArrow, 1)}%</td>
+                    <td class="font-mono" style="text-align:right; font-weight:700;">${fmtNum(s.doubleArrow, 1)}%</td>
                     <td>
                       <div style="display:flex; gap:4px;">
-                        <button class="btn btn-ghost btn-sm" data-open-stock="${s.code}" title="查看財報與健診">🔍 健診</button>
-                        <button class="btn btn-ghost btn-sm" data-pk-select="${s.code}" title="設為雙股PK主角">⚔️ PK</button>
+                        <button class="btn btn-ghost btn-sm" data-open-stock="${s.code}">健診</button>
+                        <button class="btn btn-ghost btn-sm" data-pk-select="${s.code}">PK</button>
                       </div>
                     </td>
                   </tr>
                 `;
               }).join('')}
-              ${results.length === 0 ? `<tr><td colspan="15" style="text-align:center; padding:24px; color:var(--text-muted);">無符合篩選條件的股票，請放寬篩選門檻或點選上方「↺ 重設條件」</td></tr>` : ''}
+              ${results.length === 0 ? `<tr><td colspan="15" class="text-muted" style="text-align:center; padding:20px;">無符合篩選條件的股票</td></tr>` : ''}
             </tbody>
           </table>
         </div>
@@ -447,17 +477,14 @@ export class GoodStockUI {
 
   _renderStrongScreener(state) {
     const f = this.strongFilters;
-    const results = GoodStockCore.screenStocks(state, 'strong', f);
-    const maxGain = Math.max(10, ...results.map((s) => (f.lookbackDays >= 10 ? s.change10dPct : s.change5dPct)));
+    const rawResults = GoodStockCore.screenStocks(state, 'strong', f);
+    const results = this._sortResults('strong', rawResults, f.lookbackDays);
 
     return `
       <div class="card" style="margin-bottom:14px;">
-        <div class="card-header">
-          <div class="card-title">🔥 近期強勢股篩選（基本面過濾：股價≥${f.minPrice}、最新季營益率≥0%、成交量≥${f.minVolumeLots}張）</div>
-        </div>
         <div class="form-grid">
           <div class="form-group">
-            <label class="form-label">條件1：過去 N 個交易日</label>
+            <label class="form-label">觀察交易日數</label>
             <select class="form-select" id="strong-days">
               <option value="5" ${Number(f.lookbackDays) === 5 ? 'selected' : ''}>過去 5 個交易日</option>
               <option value="10" ${Number(f.lookbackDays) === 10 ? 'selected' : ''}>過去 10 個交易日</option>
@@ -465,66 +492,39 @@ export class GoodStockUI {
           </div>
           <div class="form-group">
             <label class="form-label">區間漲幅超過 (%)</label>
-            <input type="number" class="form-input" id="strong-min-gain" value="${f.minGainPct}" step="1" />
+            <input type="number" class="form-input font-mono" id="strong-min-gain" value="${f.minGainPct}" step="1" />
           </div>
           <div class="form-group">
-            <label class="form-label">條件2：5日均量較30日均量放大 (%)</label>
-            <input type="number" class="form-input" id="strong-vol-surge" value="${f.minVolSurgePct}" step="5" />
+            <label class="form-label">5日均量較30日均量放大 (%)</label>
+            <input type="number" class="form-input font-mono" id="strong-vol-surge" value="${f.minVolSurgePct}" step="5" />
           </div>
           <div class="form-group">
             <label class="form-label">最低股價門檻 (元)</label>
-            <input type="number" class="form-input" id="strong-min-price" value="${f.minPrice}" step="10" />
+            <input type="number" class="form-input font-mono" id="strong-min-price" value="${f.minPrice}" step="10" />
           </div>
-        </div>
-      </div>
-
-      <!-- Horizontal Bar Chart matching Screenshot -->
-      <div class="card" style="margin-bottom:14px;">
-        <div class="card-header">
-          <div class="card-title">📊 ${f.lookbackDays}日漲幅排名（符合條件共 ${results.length} 檔）</div>
-        </div>
-        <div style="display:flex; flex-direction:column; gap:8px; padding:4px 0;">
-          ${results.slice(0, 12).map((s) => {
-            const gain = f.lookbackDays >= 10 ? s.change10dPct : s.change5dPct;
-            const widthPct = Math.max(6, Math.min(100, (gain / maxGain) * 100));
-            return `
-              <div style="display:grid; grid-template-columns:115px 1fr 70px; align-items:center; gap:10px; font-size:0.84rem;">
-                <a href="javascript:void(0)" data-open-stock="${s.code}" style="color:#38bdf8; font-weight:700; text-decoration:none;">
-                  ${s.code} ${s.name}
-                </a>
-                <div style="background:rgba(148,163,184,0.12); height:18px; border-radius:4px; overflow:hidden;">
-                  <div style="width:${widthPct.toFixed(1)}%; height:100%; background:linear-gradient(90deg, #ef4444, #f97316); border-radius:4px;"></div>
-                </div>
-                <div class="num text-rose" style="font-weight:700;">+${gain.toFixed(2)}%</div>
-              </div>
-            `;
-          }).join('')}
         </div>
       </div>
 
       <div class="card">
+        <div class="card-header">
+          <div class="card-title">近期強勢股結果（共 ${results.length} 檔）</div>
+        </div>
         <div class="table-wrap">
-          <table>
+          <table class="data-table">
             <thead>
               <tr>
-                <th>代號</th>
-                <th>名稱</th>
-                <th>市場</th>
-                <th>產業</th>
-                <th class="num">${f.lookbackDays}日漲幅</th>
-                <th class="num">股價</th>
-                <th class="num">本益比</th>
-                <th class="num">月漲幅</th>
-                <th class="num">成交量(張)</th>
-                <th class="num">營益率</th>
-                <th class="num">EPS</th>
-                <th class="num">淨利率</th>
-                <th class="num">存貨周轉</th>
-                <th class="num">自由現金(百萬)</th>
-                <th class="num">營收(百萬)</th>
-                <th class="num">營收年增</th>
-                <th class="num">雙箭頭</th>
-                <th class="num">🌟六大總分</th>
+                ${this._sortTh('strong', 'code', '代號 / 名稱', 'asc', 'left')}
+                ${this._sortTh('strong', 'industry', '產業', 'asc', 'left')}
+                ${this._sortTh('strong', 'gain', `${f.lookbackDays}日漲幅`, 'desc', 'right')}
+                ${this._sortTh('strong', 'price', '股價', 'desc', 'right')}
+                ${this._sortTh('strong', 'pe', '本益比', 'asc', 'right')}
+                ${this._sortTh('strong', 'change1mPct', '月漲幅', 'desc', 'right')}
+                ${this._sortTh('strong', 'volumeLots', '成交量(張)', 'desc', 'right')}
+                ${this._sortTh('strong', 'latestOpMargin', '營益率', 'desc', 'right')}
+                ${this._sortTh('strong', 'latestEps', 'EPS', 'desc', 'right')}
+                ${this._sortTh('strong', 'latestRevYoY', '營收年增', 'desc', 'right')}
+                ${this._sortTh('strong', 'doubleArrow', '雙箭頭', 'desc', 'right')}
+                ${this._sortTh('strong', 'avgScore', '六大總分', 'desc', 'right')}
               </tr>
             </thead>
             <tbody>
@@ -532,24 +532,18 @@ export class GoodStockUI {
                 const gain = f.lookbackDays >= 10 ? s.change10dPct : s.change5dPct;
                 return `
                   <tr>
-                    <td><button class="btn btn-ghost btn-sm" data-open-stock="${s.code}" style="color:#38bdf8; font-weight:700;">${s.code}</button></td>
-                    <td style="font-weight:700;">${s.name}</td>
-                    <td>${s.market}</td>
-                    <td>${s.industry}</td>
-                    <td class="num text-rose" style="font-weight:700;">+${gain.toFixed(2)}%</td>
-                    <td class="num" style="font-weight:700;">${fmtNum(s.price, 1)}</td>
-                    <td class="num">${s.pe ?? '-'}</td>
-                    <td class="num text-rose">+${s.change1mPct.toFixed(2)}%</td>
-                    <td class="num">${fmtInt(s.volumeLots)}</td>
-                    <td class="num">${s.latestOpMargin.toFixed(2)}%</td>
-                    <td class="num">${s.latestEps.toFixed(2)}</td>
-                    <td class="num">${s.latestNetMargin.toFixed(2)}%</td>
-                    <td class="num">${s.latestInvTurnover ?? '-'}</td>
-                    <td class="num">${fmtInt(s.latestFcfM)}</td>
-                    <td class="num">${fmtInt(s.latestRevM)}</td>
-                    <td class="num text-rose">+${s.latestRevYoY.toFixed(2)}%</td>
-                    <td class="num" style="color:#f59e0b; font-weight:700;">${s.doubleArrow.toFixed(1)}%</td>
-                    <td class="num" style="color:#38bdf8; font-weight:700;">${s.sixEval.current.avgScore.toFixed(2)}</td>
+                    <td><a href="javascript:void(0)" data-open-stock="${s.code}" class="font-mono" style="color:var(--accent-blue); font-weight:700; text-decoration:none;">${s.code} ${s.name}</a></td>
+                    <td class="text-muted">${s.industry}</td>
+                    <td class="font-mono ${gain >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right; font-weight:700;">${gain >= 0 ? '▲ +' : '▼ '}${gain.toFixed(2)}%</td>
+                    <td class="font-mono" style="text-align:right; font-weight:700;">${fmtNum(s.price, 1)}</td>
+                    <td class="font-mono" style="text-align:right;">${s.pe ?? '-'}</td>
+                    <td class="font-mono ${s.change1mPct >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right;">${s.change1mPct >= 0 ? '+' : ''}${s.change1mPct.toFixed(2)}%</td>
+                    <td class="font-mono" style="text-align:right;">${fmtInt(s.volumeLots)}</td>
+                    <td class="font-mono" style="text-align:right;">${s.latestOpMargin.toFixed(2)}%</td>
+                    <td class="font-mono" style="text-align:right;">${s.latestEps.toFixed(2)}</td>
+                    <td class="font-mono ${s.latestRevYoY >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right;">${s.latestRevYoY >= 0 ? '+' : ''}${s.latestRevYoY.toFixed(2)}%</td>
+                    <td class="font-mono" style="text-align:right; font-weight:700;">${s.doubleArrow.toFixed(1)}%</td>
+                    <td class="font-mono" style="text-align:right; font-weight:700;">${s.sixEval.current.avgScore.toFixed(2)}</td>
                   </tr>
                 `;
               }).join('')}
@@ -560,18 +554,18 @@ export class GoodStockUI {
     `;
   }
 
-  _renderFinancialScreener(state, industries) {
+  _renderFinancialScreener(state) {
     const f = this.finFilters;
-    const results = GoodStockCore.screenStocks(state, 'financial', f);
+    const rawResults = GoodStockCore.screenStocks(state, 'financial', f);
+    const results = this._sortResults('financial', rawResults);
 
     return `
       <div class="card" style="margin-bottom:14px;">
-        <div class="card-header" style="flex-wrap:wrap; gap:8px;">
-          <div class="card-title">📊 財務選股（季報指標 + 月營收年增率 + 🔓 財務雙箭頭 & 千金股排序）</div>
-          <div style="display:flex; gap:6px; flex-wrap:wrap;">
-            <button class="btn btn-ghost btn-sm" data-fin-preset="DEFAULT">預設條件 (營益≥10、EPS≥1、年增≥20)</button>
-            <button class="btn btn-ghost btn-sm" data-fin-preset="DOUBLE_ARROW">🏹 財務雙箭頭 ≥ 65%</button>
-            <button class="btn btn-ghost btn-sm" data-fin-preset="HIGH_PRICE">👑 千金股營益率排行 (股價≥1000)</button>
+        <div class="action-toolbar" style="margin-bottom:10px;">
+          <div class="action-toolbar-group">
+            <button class="btn btn-ghost btn-sm" data-fin-preset="DEFAULT">預設 (營益≥10、EPS≥1、年增≥20)</button>
+            <button class="btn btn-ghost btn-sm" data-fin-preset="DOUBLE_ARROW">財務雙箭頭 ≥ 65%</button>
+            <button class="btn btn-ghost btn-sm" data-fin-preset="HIGH_PRICE">千金股排行 (股價≥1000)</button>
             <button class="btn btn-ghost btn-sm" data-fin-preset="CLEAR">清除條件</button>
           </div>
         </div>
@@ -580,111 +574,71 @@ export class GoodStockUI {
           <div class="form-group">
             <label class="form-label">營業利益率 (%) Min ~ Max</label>
             <div style="display:flex; gap:6px;">
-              <input type="number" class="form-input" id="fin-min-op" placeholder="最小" value="${f.minOpMargin}" />
-              <input type="number" class="form-input" id="fin-max-op" placeholder="最大" value="${f.maxOpMargin}" />
+              <input type="number" class="form-input font-mono" id="fin-min-op" placeholder="最小" value="${f.minOpMargin}" />
+              <input type="number" class="form-input font-mono" id="fin-max-op" placeholder="最大" value="${f.maxOpMargin}" />
             </div>
           </div>
           <div class="form-group">
             <label class="form-label">最新季 EPS (元) Min ~ Max</label>
             <div style="display:flex; gap:6px;">
-              <input type="number" class="form-input" id="fin-min-eps" placeholder="最小" value="${f.minEps}" />
-              <input type="number" class="form-input" id="fin-max-eps" placeholder="最大" value="${f.maxEps}" />
+              <input type="number" class="form-input font-mono" id="fin-min-eps" placeholder="最小" value="${f.minEps}" />
+              <input type="number" class="form-input font-mono" id="fin-max-eps" placeholder="最大" value="${f.maxEps}" />
             </div>
           </div>
           <div class="form-group">
             <label class="form-label">營收年增率 (%) Min ~ Max</label>
             <div style="display:flex; gap:6px;">
-              <input type="number" class="form-input" id="fin-min-revyoy" placeholder="最小" value="${f.minRevYoY}" />
-              <input type="number" class="form-input" id="fin-max-revyoy" placeholder="最大" value="${f.maxRevYoY}" />
+              <input type="number" class="form-input font-mono" id="fin-min-revyoy" placeholder="最小" value="${f.minRevYoY}" />
+              <input type="number" class="form-input font-mono" id="fin-max-revyoy" placeholder="最大" value="${f.maxRevYoY}" />
             </div>
           </div>
           <div class="form-group">
-            <label class="form-label">累計營收年增率 (%) Min ~ Max</label>
+            <label class="form-label">財務雙箭頭 (營收年增+營益率%)</label>
             <div style="display:flex; gap:6px;">
-              <input type="number" class="form-input" id="fin-min-cumyoy" placeholder="最小" value="${f.minCumYoY}" />
-              <input type="number" class="form-input" id="fin-max-cumyoy" placeholder="最大" value="${f.maxCumYoY}" />
+              <input type="number" class="form-input font-mono" id="fin-min-arrow" placeholder="最小" value="${f.minDoubleArrow}" />
+              <input type="number" class="form-input font-mono" id="fin-max-arrow" placeholder="最大" value="${f.maxDoubleArrow}" />
             </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">🔓 財務雙箭頭 (營收年增+營益率%)</label>
-            <div style="display:flex; gap:6px;">
-              <input type="number" class="form-input" id="fin-min-arrow" placeholder="最小" value="${f.minDoubleArrow}" />
-              <input type="number" class="form-input" id="fin-max-arrow" placeholder="最大" value="${f.maxDoubleArrow}" />
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">🔓 股價 (元，最新收盤)</label>
-            <div style="display:flex; gap:6px;">
-              <input type="number" class="form-input" id="fin-min-price" placeholder="最小" value="${f.minPrice}" />
-              <input type="number" class="form-input" id="fin-max-price" placeholder="最大" value="${f.maxPrice}" />
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">🔓 本益比 (最新股價÷近四季EPS)</label>
-            <div style="display:flex; gap:6px;">
-              <input type="number" class="form-input" id="fin-min-pe" placeholder="最小" value="${f.minPe}" />
-              <input type="number" class="form-input" id="fin-max-pe" placeholder="最大" value="${f.maxPe}" />
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">排序欄位</label>
-            <select class="form-select" id="fin-sort-by">
-              <option value="doubleArrow" ${f.sortBy === 'doubleArrow' ? 'selected' : ''}>財務雙箭頭 (高→低)</option>
-              <option value="latestOpMargin" ${f.sortBy === 'latestOpMargin' ? 'selected' : ''}>營業利益率 (高→低)</option>
-              <option value="price" ${f.sortBy === 'price' ? 'selected' : ''}>股價 (高→低)</option>
-              <option value="latestEps" ${f.sortBy === 'latestEps' ? 'selected' : ''}>最新季 EPS (高→低)</option>
-            </select>
           </div>
         </div>
       </div>
 
       <div class="card">
         <div class="card-header">
-          <div class="card-title">篩選結果（共 ${results.length} 檔）</div>
+          <div class="card-title">財務選股結果（共 ${results.length} 檔）</div>
         </div>
         <div class="table-wrap">
-          <table>
+          <table class="data-table">
             <thead>
               <tr>
-                <th>代號</th>
-                <th>名稱</th>
-                <th>產業</th>
-                <th class="num">股價</th>
-                <th class="num">本益比</th>
-                <th class="num">月漲幅</th>
-                <th class="num">成交量</th>
-                <th class="num">營益率 ▲</th>
-                <th class="num">EPS</th>
-                <th class="num">淨利率</th>
-                <th class="num">存貨周轉</th>
-                <th class="num">自由現金</th>
-                <th class="num">月營收</th>
-                <th class="num">營收年增</th>
-                <th class="num">累計年增</th>
-                <th class="num">🏹 雙箭頭</th>
-                <th class="num">🌟 六大總分</th>
+                ${this._sortTh('financial', 'code', '代號 / 名稱', 'asc', 'left')}
+                ${this._sortTh('financial', 'industry', '產業', 'asc', 'left')}
+                ${this._sortTh('financial', 'price', '股價', 'desc', 'right')}
+                ${this._sortTh('financial', 'pe', '本益比', 'asc', 'right')}
+                ${this._sortTh('financial', 'change1mPct', '月漲幅', 'desc', 'right')}
+                ${this._sortTh('financial', 'latestOpMargin', '營益率', 'desc', 'right')}
+                ${this._sortTh('financial', 'latestEps', 'EPS', 'desc', 'right')}
+                ${this._sortTh('financial', 'latestNetMargin', '淨利率', 'desc', 'right')}
+                ${this._sortTh('financial', 'latestRevYoY', '營收年增', 'desc', 'right')}
+                ${this._sortTh('financial', 'latestCumYoY', '累計年增', 'desc', 'right')}
+                ${this._sortTh('financial', 'doubleArrow', '雙箭頭', 'desc', 'right')}
+                ${this._sortTh('financial', 'avgScore', '六大總分', 'desc', 'right')}
               </tr>
             </thead>
             <tbody>
               ${results.map((s) => `
                 <tr>
-                  <td><button class="btn btn-ghost btn-sm" data-open-stock="${s.code}" style="color:#38bdf8; font-weight:700;">${s.code}</button></td>
-                  <td style="font-weight:700;">${s.name}</td>
-                  <td>${s.industry}</td>
-                  <td class="num" style="font-weight:700;">${fmtNum(s.price, 1)}</td>
-                  <td class="num">${s.pe ?? '-'}</td>
-                  <td class="num text-rose">+${s.change1mPct.toFixed(2)}%</td>
-                  <td class="num">${fmtInt(s.volumeLots)}</td>
-                  <td class="num" style="font-weight:700;">${s.latestOpMargin.toFixed(2)}%</td>
-                  <td class="num">${s.latestEps.toFixed(2)}</td>
-                  <td class="num">${s.latestNetMargin.toFixed(2)}%</td>
-                  <td class="num">${s.latestInvTurnover ?? '-'}</td>
-                  <td class="num">${fmtInt(s.latestFcfM)}</td>
-                  <td class="num">${fmtInt(s.latestRevM)}</td>
-                  <td class="num text-rose">+${s.latestRevYoY.toFixed(2)}%</td>
-                  <td class="num text-rose">+${s.latestCumYoY.toFixed(2)}%</td>
-                  <td class="num" style="color:#f59e0b; font-weight:800;">${s.doubleArrow.toFixed(2)}%</td>
-                  <td class="num" style="color:#38bdf8; font-weight:700;">${s.sixEval.current.avgScore.toFixed(2)}</td>
+                  <td><a href="javascript:void(0)" data-open-stock="${s.code}" class="font-mono" style="color:var(--accent-blue); font-weight:700; text-decoration:none;">${s.code} ${s.name}</a></td>
+                  <td class="text-muted">${s.industry}</td>
+                  <td class="font-mono" style="text-align:right; font-weight:700;">${fmtNum(s.price, 1)}</td>
+                  <td class="font-mono" style="text-align:right;">${s.pe ?? '-'}</td>
+                  <td class="font-mono ${s.change1mPct >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right;">${s.change1mPct >= 0 ? '+' : ''}${s.change1mPct.toFixed(2)}%</td>
+                  <td class="font-mono" style="text-align:right; font-weight:700;">${s.latestOpMargin.toFixed(2)}%</td>
+                  <td class="font-mono" style="text-align:right;">${s.latestEps.toFixed(2)}</td>
+                  <td class="font-mono" style="text-align:right;">${s.latestNetMargin.toFixed(2)}%</td>
+                  <td class="font-mono ${s.latestRevYoY >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right;">${s.latestRevYoY >= 0 ? '+' : ''}${s.latestRevYoY.toFixed(2)}%</td>
+                  <td class="font-mono ${s.latestCumYoY >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right;">${s.latestCumYoY >= 0 ? '+' : ''}${s.latestCumYoY.toFixed(2)}%</td>
+                  <td class="font-mono" style="text-align:right; font-weight:700;">${s.doubleArrow.toFixed(2)}%</td>
+                  <td class="font-mono" style="text-align:right; font-weight:700;">${s.sixEval.current.avgScore.toFixed(2)}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -696,13 +650,11 @@ export class GoodStockUI {
 
   _renderTrendScreener(state) {
     const f = this.trendFilters;
-    const results = GoodStockCore.screenStocks(state, 'trend', f);
+    const rawResults = GoodStockCore.screenStocks(state, 'trend', f);
+    const results = this._sortResults('trend', rawResults);
 
     return `
       <div class="card" style="margin-bottom:14px;">
-        <div class="card-header">
-          <div class="card-title">📈 趨勢選股（🔓 金卡會員功能：設定 N 日內漲跌幅超過 X% 與跌破前 M 日低點）</div>
-        </div>
         <div class="form-grid">
           <div class="form-group">
             <label class="form-label">觀察交易日數 (N 日)</label>
@@ -714,44 +666,42 @@ export class GoodStockUI {
           </div>
           <div class="form-group">
             <label class="form-label">區間漲跌幅超過 X (%)</label>
-            <input type="number" class="form-input" id="trend-move" value="${f.minMovePct}" />
+            <input type="number" class="form-input font-mono" id="trend-move" value="${f.minMovePct}" />
           </div>
         </div>
       </div>
 
       <div class="card">
         <div class="table-wrap">
-          <table>
+          <table class="data-table">
             <thead>
               <tr>
-                <th>代號</th>
-                <th>名稱</th>
-                <th>產業</th>
-                <th class="num">股價</th>
-                <th class="num">5日漲幅</th>
-                <th class="num">10日漲幅</th>
-                <th class="num">20日漲幅</th>
-                <th class="num">營益率</th>
-                <th class="num">EPS</th>
-                <th class="num">營收年增</th>
-                <th class="num">🌟 六大總分 (較前季)</th>
+                ${this._sortTh('trend', 'code', '代號 / 名稱', 'asc', 'left')}
+                ${this._sortTh('trend', 'industry', '產業', 'asc', 'left')}
+                ${this._sortTh('trend', 'price', '股價', 'desc', 'right')}
+                ${this._sortTh('trend', 'change5dPct', '5日漲幅', 'desc', 'right')}
+                ${this._sortTh('trend', 'change10dPct', '10日漲幅', 'desc', 'right')}
+                ${this._sortTh('trend', 'change20dPct', '20日漲幅', 'desc', 'right')}
+                ${this._sortTh('trend', 'latestOpMargin', '營益率', 'desc', 'right')}
+                ${this._sortTh('trend', 'latestEps', 'EPS', 'desc', 'right')}
+                ${this._sortTh('trend', 'latestRevYoY', '營收年增', 'desc', 'right')}
+                ${this._sortTh('trend', 'avgScore', '六大總分 (較前季)', 'desc', 'right')}
               </tr>
             </thead>
             <tbody>
               ${results.map((s) => `
                 <tr>
-                  <td><button class="btn btn-ghost btn-sm" data-open-stock="${s.code}" style="color:#38bdf8; font-weight:700;">${s.code}</button></td>
-                  <td style="font-weight:700;">${s.name}</td>
-                  <td>${s.industry}</td>
-                  <td class="num" style="font-weight:700;">${fmtNum(s.price, 1)}</td>
-                  <td class="num text-rose">+${s.change5dPct.toFixed(2)}%</td>
-                  <td class="num text-rose">+${s.change10dPct.toFixed(2)}%</td>
-                  <td class="num text-rose">+${s.change20dPct.toFixed(2)}%</td>
-                  <td class="num">${s.latestOpMargin.toFixed(2)}%</td>
-                  <td class="num">${s.latestEps.toFixed(2)}</td>
-                  <td class="num">+${s.latestRevYoY.toFixed(2)}%</td>
-                  <td class="num">
-                    <span style="font-weight:700; color:#38bdf8;">${s.sixEval.current.avgScore.toFixed(2)}</span>
+                  <td><a href="javascript:void(0)" data-open-stock="${s.code}" class="font-mono" style="color:var(--accent-blue); font-weight:700; text-decoration:none;">${s.code} ${s.name}</a></td>
+                  <td class="text-muted">${s.industry}</td>
+                  <td class="font-mono" style="text-align:right; font-weight:700;">${fmtNum(s.price, 1)}</td>
+                  <td class="font-mono ${s.change5dPct >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right;">${s.change5dPct >= 0 ? '+' : ''}${s.change5dPct.toFixed(2)}%</td>
+                  <td class="font-mono ${s.change10dPct >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right; font-weight:700;">${s.change10dPct >= 0 ? '+' : ''}${s.change10dPct.toFixed(2)}%</td>
+                  <td class="font-mono ${s.change20dPct >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right;">${s.change20dPct >= 0 ? '+' : ''}${s.change20dPct.toFixed(2)}%</td>
+                  <td class="font-mono" style="text-align:right;">${s.latestOpMargin.toFixed(2)}%</td>
+                  <td class="font-mono" style="text-align:right;">${s.latestEps.toFixed(2)}</td>
+                  <td class="font-mono ${s.latestRevYoY >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right;">${s.latestRevYoY >= 0 ? '+' : ''}${s.latestRevYoY.toFixed(2)}%</td>
+                  <td class="font-mono" style="text-align:right;">
+                    <span style="font-weight:700;">${s.sixEval.current.avgScore.toFixed(2)}</span>
                     ${this._renderDeltaBadge(s.sixEval.deltaQoQ)}
                   </td>
                 </tr>
@@ -765,69 +715,63 @@ export class GoodStockUI {
 
   _renderNewHighScreener(state) {
     const f = this.newHighFilters;
-    const results = GoodStockCore.screenStocks(state, 'newhigh', f);
+    const rawResults = GoodStockCore.screenStocks(state, 'newhigh', f);
+    const results = this._sortResults('newhigh', rawResults);
 
     return `
       <div class="card" style="margin-bottom:14px;">
-        <div class="card-header">
-          <div class="card-title">🚀 創新高選股（🔓 同時盯五個面向的「創新高」，找出基本面與量價同步轉強的股票）</div>
-        </div>
         <div class="form-grid">
           <div class="form-group">
-            <label class="form-label">營收創 N 個月新高 (0=留空)</label>
-            <input type="number" class="form-input" id="nh-rev" value="${f.revHighMonths}" />
+            <label class="form-label">營收創 N 個月新高</label>
+            <input type="number" class="form-input font-mono" id="nh-rev" value="${f.revHighMonths}" />
           </div>
           <div class="form-group">
             <label class="form-label">營業利益率創 N 季新高</label>
-            <input type="number" class="form-input" id="nh-op" value="${f.opHighQuarters}" />
+            <input type="number" class="form-input font-mono" id="nh-op" value="${f.opHighQuarters}" />
           </div>
           <div class="form-group">
             <label class="form-label">EPS 創 N 季新高</label>
-            <input type="number" class="form-input" id="nh-eps" value="${f.epsHighQuarters}" />
+            <input type="number" class="form-input font-mono" id="nh-eps" value="${f.epsHighQuarters}" />
           </div>
           <div class="form-group">
             <label class="form-label">股價創 N 日新高</label>
-            <input type="number" class="form-input" id="nh-price" value="${f.priceHighDays}" />
+            <input type="number" class="form-input font-mono" id="nh-price" value="${f.priceHighDays}" />
           </div>
           <div class="form-group">
             <label class="form-label">成交量創 N 日新高</label>
-            <input type="number" class="form-input" id="nh-vol" value="${f.volHighDays}" />
+            <input type="number" class="form-input font-mono" id="nh-vol" value="${f.volHighDays}" />
           </div>
         </div>
       </div>
 
       <div class="card">
         <div class="table-wrap">
-          <table>
+          <table class="data-table">
             <thead>
               <tr>
-                <th>代號</th>
-                <th>名稱</th>
-                <th>產業</th>
-                <th class="num">股價</th>
-                <th class="num">營收創高(月)</th>
-                <th class="num">營益率創高(季)</th>
-                <th class="num">EPS創高(季)</th>
-                <th class="num">股價創高(日)</th>
-                <th class="num">量創高(日)</th>
-                <th class="num">雙箭頭</th>
-                <th class="num">🌟 六大總分</th>
+                ${this._sortTh('newhigh', 'code', '代號 / 名稱', 'asc', 'left')}
+                ${this._sortTh('newhigh', 'industry', '產業', 'asc', 'left')}
+                ${this._sortTh('newhigh', 'price', '股價', 'desc', 'right')}
+                ${this._sortTh('newhigh', 'revNewHighMonths', '營收創高(月)', 'desc', 'right')}
+                <th style="text-align:right;">營益率創高(季)</th>
+                <th style="text-align:right;">EPS創高(季)</th>
+                <th style="text-align:right;">股價創高(日)</th>
+                ${this._sortTh('newhigh', 'doubleArrow', '雙箭頭', 'desc', 'right')}
+                ${this._sortTh('newhigh', 'avgScore', '六大總分', 'desc', 'right')}
               </tr>
             </thead>
             <tbody>
               ${results.map((s) => `
                 <tr>
-                  <td><button class="btn btn-ghost btn-sm" data-open-stock="${s.code}" style="color:#38bdf8; font-weight:700;">${s.code}</button></td>
-                  <td style="font-weight:700;">${s.name}</td>
-                  <td>${s.industry}</td>
-                  <td class="num" style="font-weight:700;">${fmtNum(s.price, 1)}</td>
-                  <td class="num"><span class="pill pill-emerald">${s.revNewHighMonths} 個月新高</span></td>
-                  <td class="num"><span class="pill pill-blue">${s.opMarginNewHighQuarters} 季新高</span></td>
-                  <td class="num"><span class="pill pill-blue">${s.epsNewHighQuarters} 季新高</span></td>
-                  <td class="num"><span class="pill pill-amber">${s.priceNewHighDays} 日新高</span></td>
-                  <td class="num">${s.volNewHighDays} 日新高</td>
-                  <td class="num" style="font-weight:700; color:#f59e0b;">${s.doubleArrow.toFixed(1)}%</td>
-                  <td class="num" style="font-weight:700; color:#38bdf8;">${s.sixEval.current.avgScore.toFixed(2)}</td>
+                  <td><a href="javascript:void(0)" data-open-stock="${s.code}" class="font-mono" style="color:var(--accent-blue); font-weight:700; text-decoration:none;">${s.code} ${s.name}</a></td>
+                  <td class="text-muted">${s.industry}</td>
+                  <td class="font-mono" style="text-align:right; font-weight:700;">${fmtNum(s.price, 1)}</td>
+                  <td style="text-align:right;"><span class="pill pill-emerald">${s.revNewHighMonths} 個月新高</span></td>
+                  <td style="text-align:right;"><span class="pill">${s.opMarginNewHighQuarters} 季新高</span></td>
+                  <td style="text-align:right;"><span class="pill">${s.epsNewHighQuarters} 季新高</span></td>
+                  <td style="text-align:right;"><span class="pill">${s.priceNewHighDays} 日新高</span></td>
+                  <td class="font-mono" style="text-align:right; font-weight:700;">${s.doubleArrow.toFixed(1)}%</td>
+                  <td class="font-mono" style="text-align:right; font-weight:700;">${s.sixEval.current.avgScore.toFixed(2)}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -837,9 +781,6 @@ export class GoodStockUI {
     `;
   }
 
-  // ============================================================================
-  // ② 股票資訊 (Single Stock Workbench: 財報查詢 / 財務健診 / 推估今年與三年目標價)
-  // ============================================================================
   _renderStockInfoMain(state, universe) {
     const stock = universe.find((s) => s.code === this.selectedCode || s.name === this.selectedCode) || universe[0];
     const q8 = (stock.quarters || []).slice(-8);
@@ -857,65 +798,59 @@ export class GoodStockUI {
     });
 
     return `
-      <!-- Stock Search & Quick Portfolio Switcher Bar -->
       <div class="card" style="margin-bottom:14px;">
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
           <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-            <input type="text" class="form-input" id="gs-stock-search-input" value="${stock.code}" placeholder="輸入台股代號或名稱 (如 2330)" style="width:170px;" />
-            <button class="btn btn-primary btn-sm" id="btn-gs-search-stock">🔍 查詢個股</button>
+            <input type="text" class="form-input font-mono" id="gs-stock-search-input" value="${stock.code}" placeholder="代號或名稱 (如 2330)" style="width:150px;" />
+            <button class="btn btn-primary btn-sm" id="btn-gs-search-stock">查詢個股</button>
             <button class="btn btn-ghost btn-sm" id="btn-gs-fetch-live" ${this.isFetchingLive ? 'disabled' : ''}>
-              ${this.isFetchingLive ? '⏳ 連線 FinMind 中...' : '🌐 即時抓取 FinMind 最新公開資料'}
+              ${this.isFetchingLive ? '連線中...' : '即時抓取 FinMind'}
             </button>
           </div>
 
-          <div style="display:flex; gap:5px; flex-wrap:wrap; align-items:center;">
-            <span style="font-size:0.76rem; color:var(--text-muted);">快速切換：</span>
-            ${universe.slice(0, 14).map((s) => `
-              <button class="btn ${s.code === stock.code ? 'btn-primary' : 'btn-ghost'} btn-sm" data-open-stock="${s.code}" style="padding:3px 8px; font-size:0.76rem;">
+          <div style="display:flex; gap:4px; flex-wrap:wrap; align-items:center;">
+            ${universe.slice(0, 12).map((s) => `
+              <button class="btn ${s.code === stock.code ? 'btn-primary' : 'btn-ghost'} btn-sm" data-open-stock="${s.code}" style="padding:3px 7px; font-size:11.5px;">
                 ${s.code} ${s.name}
               </button>
             `).join('')}
           </div>
         </div>
 
-        <!-- Stock Header Summary matching screenshot -->
-        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-top:14px; padding-top:12px; border-top:1px solid var(--border);">
-          <div>
-            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-              <span style="font-size:1.35rem; font-weight:800;">${stock.code} ${stock.name}</span>
-              <span class="pill pill-blue">${stock.market} · ${stock.industry}</span>
-              <span style="font-size:0.86rem; color:var(--text-muted);">財報:${stock.latestQuarter} ｜ 營收:${stock.latestMonth}</span>
-              <span class="pill ${landmines.hitCount === 0 ? 'pill-emerald' : 'pill-amber'}" style="font-weight:700;">
-                留意 ${landmines.hitCount}/${landmines.totalCount} 項地雷
-              </span>
-              <span class="pill pill-emerald" style="font-weight:700;">
-                🌟 六大指標 ${sixEval.current.avgScore.toFixed(2)} 分 (${sixEval.current.grade})
-              </span>
-            </div>
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-top:12px; padding-top:12px; border-top:1px solid var(--border-color);">
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <span style="font-size:18px; font-weight:800;">${stock.code} ${stock.name}</span>
+            <span class="pill">${stock.market} · ${stock.industry}</span>
+            <span class="text-muted" style="font-size:12px;">財報:${stock.latestQuarter} ｜ 營收:${stock.latestMonth}</span>
+            <span class="pill ${landmines.hitCount === 0 ? 'pill-emerald' : 'pill-rose'}">
+              地雷 ${landmines.hitCount}/${landmines.totalCount}
+            </span>
+            <span class="pill pill-emerald">
+              六大指標 ${sixEval.current.avgScore.toFixed(2)} 分 (${sixEval.current.grade})
+            </span>
           </div>
-          <div style="display:flex; gap:18px; align-items:baseline;">
+          <div style="display:flex; gap:16px; align-items:baseline; flex-wrap:wrap;">
             <div>
-              <span style="font-size:0.78rem; color:var(--text-muted);">最新收盤價</span>
-              <span style="font-size:1.35rem; font-weight:800; color:#38bdf8; margin-left:6px;">${fmtNum(stock.price, 1)} 元</span>
+              <span class="text-muted" style="font-size:12px;">收盤價</span>
+              <span class="font-mono" style="font-size:18px; font-weight:800; margin-left:4px;">${fmtNum(stock.price, 1)} 元</span>
             </div>
             <div>
-              <span style="font-size:0.78rem; color:var(--text-muted);">近四季EPS</span>
-              <span style="font-weight:700; margin-left:4px;">${stock.ttmEps.toFixed(2)} 元 (PE ${stock.pe ?? '-'})</span>
+              <span class="text-muted" style="font-size:12px;">近四季EPS</span>
+              <span class="font-mono" style="font-weight:700; margin-left:4px;">${stock.ttmEps.toFixed(2)} 元 (PE ${stock.pe ?? '-'})</span>
             </div>
             <div>
-              <span style="font-size:0.78rem; color:var(--text-muted);">財務雙箭頭</span>
-              <span style="font-weight:700; color:#f59e0b; margin-left:4px;">${stock.doubleArrow.toFixed(1)}%</span>
+              <span class="text-muted" style="font-size:12px;">雙箭頭</span>
+              <span class="font-mono" style="font-weight:700; margin-left:4px;">${stock.doubleArrow.toFixed(1)}%</span>
             </div>
           </div>
         </div>
 
-        <!-- Section Navigation Tabs matching screenshot -->
-        <div class="sub-tabs" style="margin-top:12px; margin-bottom:0;">
-          <button class="sub-tab ${this.infoSection === 'all' ? 'active' : ''}" data-gs-info-sec="all">📋 全部同頁總覽</button>
-          <button class="sub-tab ${this.infoSection === 'report' ? 'active' : ''}" data-gs-info-sec="report">📊 財報查詢 (8季+36月)</button>
-          <button class="sub-tab ${this.infoSection === 'health' ? 'active' : ''}" data-gs-info-sec="health">🩺 財務健診 (地雷/六大指標/成長力)</button>
-          <button class="sub-tab ${this.infoSection === 'target1y' ? 'active' : ''}" data-gs-info-sec="target1y">🔓 推估今年目標價</button>
-          <button class="sub-tab ${this.infoSection === 'target3y' ? 'active' : ''}" data-gs-info-sec="target3y">🔓 推估三年目標價</button>
+        <div class="sub-tabs" style="margin-top:10px; margin-bottom:0;">
+          <button class="sub-tab ${this.infoSection === 'all' ? 'active' : ''}" data-gs-info-sec="all">全部總覽</button>
+          <button class="sub-tab ${this.infoSection === 'report' ? 'active' : ''}" data-gs-info-sec="report">財報查詢 (8季+36月)</button>
+          <button class="sub-tab ${this.infoSection === 'health' ? 'active' : ''}" data-gs-info-sec="health">財務健診 (地雷/六大指標/成長力)</button>
+          <button class="sub-tab ${this.infoSection === 'target1y' ? 'active' : ''}" data-gs-info-sec="target1y">推估今年目標價</button>
+          <button class="sub-tab ${this.infoSection === 'target3y' ? 'active' : ''}" data-gs-info-sec="target3y">推估三年目標價</button>
         </div>
       </div>
 
@@ -929,20 +864,17 @@ export class GoodStockUI {
     return `
       <div class="card" style="margin-bottom:14px;">
         <div class="card-header" style="flex-wrap:wrap; gap:8px;">
-          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-            <div class="card-title">🩺 財務健診 — ${stock.code} ${stock.name}</div>
-            <span class="pill ${landmines.hitCount === 0 ? 'pill-emerald' : 'pill-amber'}">留意 ${landmines.hitCount}/7 項地雷</span>
-          </div>
+          <div class="card-title">財務健診 — ${stock.code} ${stock.name}</div>
           <div class="sub-tabs" style="margin-bottom:0; border-bottom:none;">
-            <button class="sub-tab ${this.healthTab === 'landmines' ? 'active' : ''}" data-gs-health-tab="landmines">⚠️ 財務地雷 (${landmines.hitCount}/7)</button>
-            <button class="sub-tab ${this.healthTab === 'six' ? 'active' : ''}" data-gs-health-tab="six">🔓 六大指標 (${sixEval.current.avgScore.toFixed(2)}分 · 含前月/前季比較)</button>
-            <button class="sub-tab ${this.healthTab === 'growth' ? 'active' : ''}" data-gs-health-tab="growth">📈 成長力分析 (QoQ/YoY)</button>
+            <button class="sub-tab ${this.healthTab === 'landmines' ? 'active' : ''}" data-gs-health-tab="landmines">財務地雷 (${landmines.hitCount}/7)</button>
+            <button class="sub-tab ${this.healthTab === 'six' ? 'active' : ''}" data-gs-health-tab="six">六大指標 (${sixEval.current.avgScore.toFixed(2)}分)</button>
+            <button class="sub-tab ${this.healthTab === 'growth' ? 'active' : ''}" data-gs-health-tab="growth">成長力分析 (QoQ/YoY)</button>
           </div>
         </div>
 
         ${this.healthTab === 'landmines' ? `
           <div class="table-wrap">
-            <table>
+            <table class="data-table">
               <thead>
                 <tr>
                   <th>財務地雷指標</th>
@@ -956,8 +888,8 @@ export class GoodStockUI {
                     <td style="font-weight:700;">${item.label}</td>
                     <td>
                       ${item.hit
-                        ? '<span style="color:#f59e0b; font-weight:800;">⚠️ 命中</span>'
-                        : '<span style="color:#10b981; font-weight:800;">✅ 正常</span>'}
+                        ? '<span class="pill pill-rose">▼ 命中</span>'
+                        : '<span class="pill pill-emerald">✓ 正常</span>'}
                     </td>
                     <td>${item.detail}</td>
                   </tr>
@@ -965,73 +897,63 @@ export class GoodStockUI {
               </tbody>
             </table>
           </div>
-          <div style="font-size:0.76rem; color:var(--text-muted); margin-top:8px;">
-            註：命中越多代表財務體質越需留意；本健診僅為機械式指標篩檢，非投資建議。
-          </div>
         ` : ''}
 
         ${this.healthTab === 'six' ? `
-          <!-- Summary Comparison Banner (Current vs Prev Month vs Prev Quarter) -->
           <div class="grid-kpi" style="margin-bottom:14px;">
-            <div class="card" style="background:rgba(15,23,42,0.55);">
+            <div class="card">
               <div class="kpi-label">
-                <span>🌟 當期六大指標總均分 (${sixEval.current.refQuarter} / ${sixEval.current.refMonth})</span>
+                <span>當期六大指標總均分 (${sixEval.current.refQuarter})</span>
                 <span class="pill pill-emerald">${sixEval.current.grade} 級</span>
               </div>
-              <div class="kpi-value" style="color:#38bdf8;">${sixEval.current.avgScore.toFixed(2)} <span style="font-size:0.9rem; font-weight:500;">/ 4.00 分</span></div>
-              <div class="kpi-sub">總分 ${sixEval.current.totalScore} / ${sixEval.current.maxTotalScore} (評算 ${sixEval.current.scoredCount} 項)</div>
+              <div class="kpi-value">${sixEval.current.avgScore.toFixed(2)} <span style="font-size:13px; font-weight:500;">/ 4.00</span></div>
+              <div class="kpi-sub">總分 ${sixEval.current.totalScore} / ${sixEval.current.maxTotalScore}</div>
             </div>
 
-            <div class="card" style="background:rgba(15,23,42,0.55);">
+            <div class="card">
               <div class="kpi-label">
-                <span>📅 與前一個月比較 (${sixEval.prevMonth.refMonth})</span>
+                <span>與前一個月比較 (${sixEval.prevMonth.refMonth})</span>
                 ${this._renderDeltaBadge(sixEval.deltaMoM, 'MoM ')}
               </div>
-              <div class="kpi-value" style="font-size:1.35rem;">前月 ${sixEval.prevMonth.avgScore.toFixed(2)} 分 → 當期 ${sixEval.current.avgScore.toFixed(2)} 分</div>
-              <div class="kpi-sub">反映最新月營收公佈後對「營收成長性」與總均分之拉動</div>
+              <div class="kpi-value" style="font-size:17px;">前月 ${sixEval.prevMonth.avgScore.toFixed(2)} → 當期 ${sixEval.current.avgScore.toFixed(2)}</div>
+              <div class="kpi-sub">反映最新月營收對營收成長性之拉動</div>
             </div>
 
-            <div class="card" style="background:rgba(15,23,42,0.55);">
+            <div class="card">
               <div class="kpi-label">
-                <span>📊 與前一季比較 (${sixEval.prevQuarter.refQuarter})</span>
+                <span>與前一季比較 (${sixEval.prevQuarter.refQuarter})</span>
                 ${this._renderDeltaBadge(sixEval.deltaQoQ, 'QoQ ')}
               </div>
-              <div class="kpi-value" style="font-size:1.35rem;">前季 ${sixEval.prevQuarter.avgScore.toFixed(2)} 分 → 當期 ${sixEval.current.avgScore.toFixed(2)} 分</div>
-              <div class="kpi-sub">反映最新一季財報出爐後六大指標整體體質升降</div>
+              <div class="kpi-value" style="font-size:17px;">前季 ${sixEval.prevQuarter.avgScore.toFixed(2)} → 當期 ${sixEval.current.avgScore.toFixed(2)}</div>
+              <div class="kpi-sub">反映最新一季財報整體體質升降</div>
             </div>
           </div>
 
           <div class="table-wrap">
-            <table>
+            <table class="data-table">
               <thead>
                 <tr>
                   <th>六大指標項目</th>
-                  <th class="num">🌟 當期得分</th>
-                  <th class="num">📅 前月得分 (月變化)</th>
-                  <th class="num">📊 前季得分 (季變化)</th>
-                  <th>《財務六大指標》試算表評分標準與當期數值依據</th>
+                  <th style="text-align:right;">當期得分</th>
+                  <th style="text-align:right;">前月得分 (月變化)</th>
+                  <th style="text-align:right;">前季得分 (季變化)</th>
+                  <th>評分標準與當期數值依據</th>
                 </tr>
               </thead>
               <tbody>
                 ${sixEval.itemComparisons.map((it) => `
                   <tr>
                     <td style="font-weight:700;">${it.label}</td>
-                    <td class="num">
-                      ${it.score === null
-                        ? '<span class="pill">不評分</span>'
-                        : `<span style="font-size:1.05rem; font-weight:800; color:${it.score >= 3.5 ? '#10b981' : it.score >= 2.5 ? '#38bdf8' : '#f59e0b'};">${it.score.toFixed(1)} 分</span>`}
+                    <td class="font-mono" style="text-align:right; font-weight:700;">
+                      ${it.score === null ? '<span class="pill">不評分</span>' : `${it.score.toFixed(1)} 分`}
                     </td>
-                    <td class="num">
-                      ${it.prevMonthScore === null
-                        ? '-'
-                        : `<span>${it.prevMonthScore.toFixed(1)}</span> ${this._renderDeltaBadge(it.deltaMoM)}`}
+                    <td class="font-mono" style="text-align:right;">
+                      ${it.prevMonthScore === null ? '-' : `${it.prevMonthScore.toFixed(1)} ${this._renderDeltaBadge(it.deltaMoM)}`}
                     </td>
-                    <td class="num">
-                      ${it.prevQuarterScore === null
-                        ? '-'
-                        : `<span>${it.prevQuarterScore.toFixed(1)}</span> ${this._renderDeltaBadge(it.deltaQoQ)}`}
+                    <td class="font-mono" style="text-align:right;">
+                      ${it.prevQuarterScore === null ? '-' : `${it.prevQuarterScore.toFixed(1)} ${this._renderDeltaBadge(it.deltaQoQ)}`}
                     </td>
-                    <td style="font-size:0.84rem; color:var(--text-main);">${it.reason}</td>
+                    <td class="text-muted">${it.reason}</td>
                   </tr>
                 `).join('')}
               </tbody>
@@ -1040,38 +962,31 @@ export class GoodStockUI {
         ` : ''}
 
         ${this.healthTab === 'growth' ? `
-          <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:10px;">
-            最近一季 <strong>${growth.latestQ}</strong> ｜ QoQ＝對上一季 <strong>${growth.prevQ}</strong> ｜ YoY＝對去年同季 <strong>${growth.prevYearQ}</strong>
-          </div>
           <div class="table-wrap">
-            <table>
+            <table class="data-table">
               <thead>
                 <tr>
                   <th>項目</th>
-                  <th class="num">最近一季 (${growth.latestQ})</th>
-                  <th class="num">QoQ (對上一季)</th>
-                  <th class="num">YoY (對去年同季)</th>
+                  <th style="text-align:right;">最近一季 (${growth.latestQ})</th>
+                  <th style="text-align:right;">QoQ (對上一季 ${growth.prevQ})</th>
+                  <th style="text-align:right;">YoY (對去年同季 ${growth.prevYearQ})</th>
                 </tr>
               </thead>
               <tbody>
                 ${growth.rows.map((r) => `
                   <tr>
                     <td style="font-weight:700;">${r.label}</td>
-                    <td class="num" style="font-weight:700;">${r.latestVal}</td>
-                    <td class="num ${r.qoq >= 0 ? 'text-emerald' : 'text-rose'}" style="font-weight:700;">
+                    <td class="font-mono" style="text-align:right; font-weight:700;">${r.latestVal}</td>
+                    <td class="font-mono ${r.qoq >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right; font-weight:700;">
                       ${r.qoq >= 0 ? '▲ +' : '▼ '}${r.qoq.toFixed(2)}${r.unit}
                     </td>
-                    <td class="num ${r.yoy >= 0 ? 'text-emerald' : 'text-rose'}" style="font-weight:700;">
+                    <td class="font-mono ${r.yoy >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right; font-weight:700;">
                       ${r.yoy >= 0 ? '▲ +' : '▼ '}${r.yoy.toFixed(2)}${r.unit}
                     </td>
                   </tr>
                 `).join('')}
               </tbody>
             </table>
-          </div>
-          <div style="font-size:0.78rem; color:var(--text-muted); margin-top:8px;">
-            利益率 / 淨利率以百分點(pp)變化表示，營收 / EPS 以百分比變化表示；<span class="text-emerald">綠 ▲ 成長</span>、<span class="text-rose">紅 ▼ 衰退</span>。<br/>
-            註：淨利率(歸母)計算方式為 歸屬母公司稅後淨利 ÷ 營收
           </div>
         ` : ''}
       </div>
@@ -1080,87 +995,84 @@ export class GoodStockUI {
 
   _renderFinancialReportBlock(stock, q8, q8Desc, m36, m12Desc) {
     return `
-      <!-- 8-Quarter Financial Table & Combo Chart -->
       <div class="card" style="margin-bottom:14px;">
         <div class="card-header">
-          <div class="card-title">📊 最近八季財報 — ${stock.code} ${stock.name}</div>
-          <div style="font-size:0.78rem; color:var(--text-muted);">單位：百萬新台幣 / % / 元</div>
+          <div class="card-title">最近八季財報 — ${stock.code} ${stock.name}</div>
+          <div class="text-muted" style="font-size:12px;">單位：百萬新台幣 / % / 元</div>
         </div>
 
-        <div class="table-wrap" style="margin-bottom:16px;">
-          <table>
+        <div class="table-wrap" style="margin-bottom:14px;">
+          <table class="data-table">
             <thead>
               <tr>
                 <th>項目 \\ 季度</th>
-                ${q8Desc.map((q) => `<th class="num">${q.q}</th>`).join('')}
+                ${q8Desc.map((q) => `<th style="text-align:right;">${q.q}</th>`).join('')}
               </tr>
             </thead>
             <tbody>
               <tr>
                 <td style="font-weight:700;">營收年增率</td>
-                ${q8Desc.map((q) => `<td class="num ${q.revYoY >= 0 ? 'text-rose' : 'text-emerald'}">${q.revYoY.toFixed(2)}%</td>`).join('')}
+                ${q8Desc.map((q) => `<td class="font-mono ${q.revYoY >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right;">${q.revYoY >= 0 ? '+' : ''}${q.revYoY.toFixed(2)}%</td>`).join('')}
               </tr>
               <tr>
                 <td style="font-weight:700;">營業利益率</td>
-                ${q8Desc.map((q) => `<td class="num" style="font-weight:700;">${q.opMargin.toFixed(2)}%</td>`).join('')}
+                ${q8Desc.map((q) => `<td class="font-mono" style="text-align:right; font-weight:700;">${q.opMargin.toFixed(2)}%</td>`).join('')}
               </tr>
               <tr>
                 <td style="font-weight:700;">淨利率(歸母)</td>
-                ${q8Desc.map((q) => `<td class="num">${q.netMargin.toFixed(2)}%</td>`).join('')}
+                ${q8Desc.map((q) => `<td class="font-mono" style="text-align:right;">${q.netMargin.toFixed(2)}%</td>`).join('')}
               </tr>
               <tr>
                 <td style="font-weight:700;">EPS (元)</td>
-                ${q8Desc.map((q) => `<td class="num" style="font-weight:700; color:#38bdf8;">${q.eps.toFixed(2)}</td>`).join('')}
+                ${q8Desc.map((q) => `<td class="font-mono" style="text-align:right; font-weight:700;">${q.eps.toFixed(2)}</td>`).join('')}
               </tr>
               <tr>
                 <td style="font-weight:700;">存貨周轉率</td>
-                ${q8Desc.map((q) => `<td class="num">${q.invTurnover !== null && q.invTurnover !== undefined ? q.invTurnover.toFixed(2) : '-'}</td>`).join('')}
+                ${q8Desc.map((q) => `<td class="font-mono" style="text-align:right;">${q.invTurnover !== null && q.invTurnover !== undefined ? q.invTurnover.toFixed(2) : '-'}</td>`).join('')}
               </tr>
               <tr>
                 <td style="font-weight:700;">自由現金流量(百萬)</td>
-                ${q8Desc.map((q) => `<td class="num">${fmtInt(q.fcfM)}</td>`).join('')}
+                ${q8Desc.map((q) => `<td class="font-mono" style="text-align:right;">${fmtInt(q.fcfM)}</td>`).join('')}
               </tr>
             </tbody>
           </table>
         </div>
 
-        <!-- SVG 8-Quarter Combo Chart (Bars=EPS, Red Line=OpMargin, Green Line=NetMargin) -->
-        <div style="background:rgba(15,23,42,0.55); border:1px solid var(--border); border-radius:10px; padding:12px;">
-          <div style="text-align:center; font-weight:700; margin-bottom:8px;">八季財報趨勢（柱＝EPS(元) 右軸；紅線＝營業利益率(%)、綠線＝淨利率(歸母)(%) 左軸）</div>
+        <div style="background:var(--bg-subtle); border:1px solid var(--border-color); border-radius:8px; padding:12px;">
+          <div style="text-align:center; font-weight:700; margin-bottom:8px; font-size:13px;">八季財報趨勢（柱＝EPS(元) 右軸；藍線＝營業利益率(%)、綠線＝淨利率(%) 左軸）</div>
           ${this._renderSvg8QuarterChart(q8)}
         </div>
       </div>
 
-      <!-- 12-Month Revenue Table & 36-Month Revenue Trend Chart -->
       <div class="card" style="margin-bottom:14px;">
         <div class="card-header">
-          <div class="card-title">📈 最近一年營收 & 三年營收趨勢 — ${stock.code} ${stock.name}</div>
+          <div class="card-title">最近一年營收 & 三年營收趨勢 — ${stock.code} ${stock.name}</div>
         </div>
 
-        <div style="background:rgba(15,23,42,0.55); border:1px solid var(--border); border-radius:10px; padding:12px; margin-bottom:14px;">
-          <div style="text-align:center; font-weight:700; margin-bottom:8px;">三年（36個月）營收趨勢（藍柱＝當月營收(百萬) 左軸；紅線＝年增率(%) 右軸）</div>
+        <div style="background:var(--bg-subtle); border:1px solid var(--border-color); border-radius:8px; padding:12px; margin-bottom:14px;">
+          <div style="text-align:center; font-weight:700; margin-bottom:8px; font-size:13px;">三年（36個月）營收趨勢（藍柱＝當月營收(百萬) 左軸；綠線＝年增率(%) 右軸）</div>
           ${this._renderSvg36MonthRevChart(m36)}
         </div>
 
         <div class="table-wrap">
-          <table>
+          <table class="data-table">
             <thead>
               <tr>
                 <th>月份</th>
-                <th class="num">當月營收(百萬)</th>
-                <th class="num">月增率 (MoM)</th>
-                <th class="num">年增率 (YoY)</th>
-                <th class="num">累計營收年增率</th>
+                <th style="text-align:right;">當月營收(百萬)</th>
+                <th style="text-align:right;">月增率 (MoM)</th>
+                <th style="text-align:right;">年增率 (YoY)</th>
+                <th style="text-align:right;">累計營收年增率</th>
               </tr>
             </thead>
             <tbody>
               ${m12Desc.map((m) => `
                 <tr>
-                  <td style="font-weight:700;">${m.ym}</td>
-                  <td class="num" style="font-weight:700;">${fmtInt(m.revM)}</td>
-                  <td class="num ${m.mom >= 0 ? 'text-rose' : 'text-emerald'}">${m.mom >= 0 ? '+' : ''}${m.mom.toFixed(2)}%</td>
-                  <td class="num ${m.yoy >= 0 ? 'text-rose' : 'text-emerald'}" style="font-weight:700;">${m.yoy >= 0 ? '+' : ''}${m.yoy.toFixed(2)}%</td>
-                  <td class="num ${m.cumYoY >= 0 ? 'text-rose' : 'text-emerald'}">${m.cumYoY >= 0 ? '+' : ''}${m.cumYoY.toFixed(2)}%</td>
+                  <td class="font-mono" style="font-weight:700;">${m.ym}</td>
+                  <td class="font-mono" style="text-align:right; font-weight:700;">${fmtInt(m.revM)}</td>
+                  <td class="font-mono ${m.mom >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right;">${m.mom >= 0 ? '+' : ''}${m.mom.toFixed(2)}%</td>
+                  <td class="font-mono ${m.yoy >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right; font-weight:700;">${m.yoy >= 0 ? '+' : ''}${m.yoy.toFixed(2)}%</td>
+                  <td class="font-mono ${m.cumYoY >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right;">${m.cumYoY >= 0 ? '+' : ''}${m.cumYoY.toFixed(2)}%</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -1178,41 +1090,36 @@ export class GoodStockUI {
       <div class="card" style="margin-bottom:14px;">
         <div class="card-header" style="flex-wrap:wrap; gap:8px;">
           <div>
-            <div class="card-title">🎯 股價走勢 vs 目標價（${targetData.horizon === 3 ? '推估三年目標價' : '推估今年目標價'} · 9 條情境目標線）</div>
-            <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">
-              近四季累積 EPS ${targetData.ttmEps} 元 ｜ 預估${targetData.horizon}年後 EPS：樂觀 ${sc.optimistic.eps} 元 (+${sc.optimistic.growthPct}%/年) · 中性 ${sc.neutral.eps} 元 (+${sc.neutral.growthPct}%/年) · 悲觀 ${sc.pessimistic.eps} 元 (${sc.pessimistic.growthPct}%/年)
+            <div class="card-title">股價走勢 vs 目標價（${targetData.horizon === 3 ? '推估三年目標價' : '推估今年目標價'} · 9 條情境目標線）</div>
+            <div class="text-muted" style="font-size:12px; margin-top:2px;">
+              近四季 EPS ${targetData.ttmEps} 元 ｜ 預估${targetData.horizon}年後 EPS：樂觀 ${sc.optimistic.eps} 元 · 中性 ${sc.neutral.eps} 元 · 悲觀 ${sc.pessimistic.eps} 元
             </div>
           </div>
 
           <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
-            <span style="font-size:0.78rem; color:var(--text-muted);">自訂三組本益比 (PE)：</span>
-            <input type="number" class="form-input" id="gs-pe-1" value="${peBands[0]}" style="width:68px; padding:4px 8px;" />
-            <input type="number" class="form-input" id="gs-pe-2" value="${peBands[1]}" style="width:68px; padding:4px 8px;" />
-            <input type="number" class="form-input" id="gs-pe-3" value="${peBands[2]}" style="width:68px; padding:4px 8px;" />
+            <span class="text-muted" style="font-size:12px;">自訂 PE：</span>
+            <input type="number" class="form-input font-mono" id="gs-pe-1" value="${peBands[0]}" style="width:64px; padding:4px 8px;" />
+            <input type="number" class="form-input font-mono" id="gs-pe-2" value="${peBands[1]}" style="width:64px; padding:4px 8px;" />
+            <input type="number" class="form-input font-mono" id="gs-pe-3" value="${peBands[2]}" style="width:64px; padding:4px 8px;" />
             <button class="btn btn-primary btn-sm" id="btn-gs-apply-pe">套用 PE</button>
           </div>
         </div>
 
-        <!-- SVG Price vs 9 Target Price Lines Chart matching screenshot -->
-        <div style="background:rgba(15,23,42,0.58); border:1px solid var(--border); border-radius:10px; padding:14px; margin-bottom:12px;">
-          <div style="text-align:center; font-weight:700; margin-bottom:8px;">
-            ${stock.code} ${stock.name} 近年股價走勢 vs ${targetData.horizon === 3 ? '三年' : '今年'}目標價
-          </div>
+        <div style="background:var(--bg-subtle); border:1px solid var(--border-color); border-radius:8px; padding:12px; margin-bottom:12px;">
           ${this._renderSvgTargetPriceChart(stock, targetData)}
         </div>
 
-        <!-- 9 Target Price Legend Matrix -->
         <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(185px, 1fr)); gap:8px;">
           ${targetData.lines.map((ln) => {
             const diffPct = (((ln.targetPrice - stock.price) / stock.price) * 100).toFixed(1);
             return `
-              <div style="background:rgba(30,41,59,0.65); border-left:4px solid ${ln.color}; border-radius:6px; padding:8px 10px; display:flex; justify-content:space-between; align-items:center;">
+              <div style="background:var(--bg-subtle); border-left:3px solid ${ln.color}; border-radius:6px; padding:8px 10px; display:flex; justify-content:space-between; align-items:center;">
                 <div>
-                  <div style="font-size:0.78rem; color:var(--text-muted);">PE=${ln.pe} ${ln.scenario}</div>
-                  <div style="font-size:1rem; font-weight:800;">${fmtInt(ln.targetPrice)} 元</div>
+                  <div class="text-muted" style="font-size:11.5px;">PE=${ln.pe} ${ln.scenario}</div>
+                  <div class="font-mono" style="font-size:15px; font-weight:700;">${fmtInt(ln.targetPrice)} 元</div>
                 </div>
-                <span class="pill ${Number(diffPct) >= 0 ? 'pill-emerald' : 'pill-rose'}" style="font-size:0.72rem;">
-                  潛在 ${Number(diffPct) >= 0 ? '+' : ''}${diffPct}%
+                <span class="pill ${Number(diffPct) >= 0 ? 'pill-emerald' : 'pill-rose'}">
+                  ${Number(diffPct) >= 0 ? '▲ +' : '▼ '}${diffPct}%
                 </span>
               </div>
             `;
@@ -1222,9 +1129,6 @@ export class GoodStockUI {
     `;
   }
 
-  // ============================================================================
-  // ③ 雙股 PK 對比 (Stock-vs-Stock Comparison: 股價與價差、八季財報、三年營收、六大指標對決)
-  // ============================================================================
   _renderPkMain(state, universe) {
     const pk = GoodStockCore.compareDualStocks(state, this.pkCodeA, this.pkCodeB);
     const { stockA, stockB, priceSeries, quarterSeries, revenueSeries } = pk;
@@ -1232,31 +1136,25 @@ export class GoodStockUI {
     return `
       <div class="card" style="margin-bottom:14px;">
         <div class="card-header" style="flex-wrap:wrap; gap:10px;">
-          <div>
-            <div class="card-title">⚔️ 雙股 PK 對比 — <span style="color:#3b82f6;">① ${stockA.code} ${stockA.name}</span> vs <span style="color:#f97316;">② ${stockB.code} ${stockB.name}</span></div>
-            <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">
-              同畫面比較兩家公司的月收盤價與價差、近八季營業利益率與 EPS、近三年月營收與財務六大指標評分
-            </div>
-          </div>
-
+          <div class="card-title">雙股 PK 對比 — ① ${stockA.code} ${stockA.name} vs ② ${stockB.code} ${stockB.name}</div>
           <div style="display:flex; gap:6px; flex-wrap:wrap;">
-            <button class="btn btn-ghost btn-sm" data-pk-pair="5274,2059">👑 信驊 vs 川湖</button>
-            <button class="btn btn-ghost btn-sm" data-pk-pair="3037,8046">🔬 欣興 vs 南電</button>
-            <button class="btn btn-ghost btn-sm" data-pk-pair="2330,2454">💎 台積電 vs 聯發科</button>
-            <button class="btn btn-ghost btn-sm" data-pk-pair="3017,3324">❄️ 奇鋐 vs 雙鴻</button>
-            <button class="btn btn-ghost btn-sm" data-pk-pair="2382,6669">🖥️ 廣達 vs 緯穎</button>
+            <button class="btn btn-ghost btn-sm" data-pk-pair="5274,2059">信驊 vs 川湖</button>
+            <button class="btn btn-ghost btn-sm" data-pk-pair="3037,8046">欣興 vs 南電</button>
+            <button class="btn btn-ghost btn-sm" data-pk-pair="2330,2454">台積電 vs 聯發科</button>
+            <button class="btn btn-ghost btn-sm" data-pk-pair="3017,3324">奇鋐 vs 雙鴻</button>
+            <button class="btn btn-ghost btn-sm" data-pk-pair="2382,6669">廣達 vs 緯穎</button>
           </div>
         </div>
 
         <div class="form-grid">
           <div class="form-group">
-            <label class="form-label" style="color:#60a5fa; font-weight:700;">🔵 股票 ① (藍線 / 藍柱)</label>
+            <label class="form-label">股票 ① (藍線 / 藍柱)</label>
             <select class="form-select" id="pk-select-a">
               ${universe.map((s) => `<option value="${s.code}" ${s.code === stockA.code ? 'selected' : ''}>${s.code} ${s.name} (${s.industry} · $${s.price})</option>`).join('')}
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label" style="color:#fb923c; font-weight:700;">🟠 股票 ② (橘線 / 橘柱)</label>
+            <label class="form-label">股票 ② (橘線 / 橘柱)</label>
             <select class="form-select" id="pk-select-b">
               ${universe.map((s) => `<option value="${s.code}" ${s.code === stockB.code ? 'selected' : ''}>${s.code} ${s.name} (${s.industry} · $${s.price})</option>`).join('')}
             </select>
@@ -1264,72 +1162,65 @@ export class GoodStockUI {
         </div>
       </div>
 
-      <!-- Chart 1: Price & Spread Comparison (Matches 5274 信驊 vs 2059 川湖 screenshot) -->
       <div class="card" style="margin-bottom:14px;">
         <div class="card-header">
-          <div class="card-title">${stockA.code} ${stockA.name} ⚖️ ${stockB.code} ${stockB.name} — 股價與價差對比</div>
+          <div class="card-title">${stockA.code} ${stockA.name} vs ${stockB.code} ${stockB.name} — 股價與價差對比</div>
         </div>
-        <div style="background:rgba(15,23,42,0.58); border:1px solid var(--border); border-radius:10px; padding:14px;">
-          <div style="text-align:center; font-weight:700; margin-bottom:8px;">
-            股價對比（柱＝①−②價差，紅＝①較高／綠＝②較高；線＝月收盤價）
-          </div>
+        <div style="background:var(--bg-subtle); border:1px solid var(--border-color); border-radius:8px; padding:12px;">
           ${this._renderSvgPkPriceChart(stockA, stockB, priceSeries)}
         </div>
       </div>
 
-      <!-- Chart 2: 8-Quarter Financials Comparison (Matches 3037 欣興 vs 8046 南電 screenshot) -->
       <div class="card" style="margin-bottom:14px;">
         <div class="card-header">
-          <div class="card-title">📊 八季財報趨勢對比（柱＝EPS(元) 右軸；線＝營業利益率(%) 左軸）</div>
+          <div class="card-title">八季財報趨勢對比（柱＝EPS(元) 右軸；線＝營業利益率(%) 左軸）</div>
         </div>
-        <div style="background:rgba(15,23,42,0.58); border:1px solid var(--border); border-radius:10px; padding:14px;">
+        <div style="background:var(--bg-subtle); border:1px solid var(--border-color); border-radius:8px; padding:12px;">
           ${this._renderSvgPkQuarterChart(stockA, stockB, quarterSeries)}
         </div>
       </div>
 
-      <!-- Chart 3: 3-Year Monthly Revenue Comparison -->
       <div class="card" style="margin-bottom:14px;">
         <div class="card-header">
-          <div class="card-title">📈 三年營收趨勢對比（柱＝當月營收(百萬) 左軸；線＝營收年增率(%) 右軸）</div>
+          <div class="card-title">三年營收趨勢對比（柱＝當月營收(百萬) 左軸；線＝營收年增率(%) 右軸）</div>
         </div>
-        <div style="background:rgba(15,23,42,0.58); border:1px solid var(--border); border-radius:10px; padding:14px;">
+        <div style="background:var(--bg-subtle); border:1px solid var(--border-color); border-radius:8px; padding:12px;">
           ${this._renderSvgPkRevenueChart(stockA, stockB, revenueSeries)}
         </div>
       </div>
 
-      <!-- Table 4: Six Indicators Head-to-Head Table -->
       <div class="card">
         <div class="card-header">
-          <div class="card-title">🏆 財務六大指標 & 估值正面對決</div>
+          <div class="card-title">財務六大指標 & 估值正面對決</div>
         </div>
         <div class="table-wrap">
-          <table>
+          <table class="data-table">
             <thead>
               <tr>
                 <th>比較維度</th>
-                <th class="num" style="color:#60a5fa;">🔵 ① ${stockA.code} ${stockA.name}</th>
-                <th class="num" style="color:#fb923c;">🟠 ② ${stockB.code} ${stockB.name}</th>
+                <th style="text-align:right;">① ${stockA.code} ${stockA.name}</th>
+                <th style="text-align:right;">② ${stockB.code} ${stockB.name}</th>
                 <th>勝出方</th>
               </tr>
             </thead>
             <tbody>
               <tr>
-                <td style="font-weight:700;">🌟 六大指標當期總均分</td>
-                <td class="num" style="font-weight:800; color:#38bdf8;">${stockA.sixEval.current.avgScore.toFixed(2)} (${stockA.sixEval.current.grade})</td>
-                <td class="num" style="font-weight:800; color:#38bdf8;">${stockB.sixEval.current.avgScore.toFixed(2)} (${stockB.sixEval.current.grade})</td>
-                <td>${stockA.sixEval.current.avgScore >= stockB.sixEval.current.avgScore ? `🔵 ${stockA.name}` : `🟠 ${stockB.name}`}</td>
+                <td style="font-weight:700;">六大指標當期總均分</td>
+                <td class="font-mono" style="text-align:right; font-weight:700;">${stockA.sixEval.current.avgScore.toFixed(2)} (${stockA.sixEval.current.grade})</td>
+                <td class="font-mono" style="text-align:right; font-weight:700;">${stockB.sixEval.current.avgScore.toFixed(2)} (${stockB.sixEval.current.grade})</td>
+                <td>${stockA.sixEval.current.avgScore >= stockB.sixEval.current.avgScore ? stockA.name : stockB.name}</td>
               </tr>
               <tr>
-                <td style="font-weight:700;">📅 較前月評分變化 (ΔMoM)</td>
-                <td class="num">${this._renderDeltaBadge(stockA.sixEval.deltaMoM)}</td>
-                <td class="num">${this._renderDeltaBadge(stockB.sixEval.deltaMoM)}</td>
-                <td>${stockA.sixEval.deltaMoM >= stockB.sixEval.deltaMoM ? `🔵 ${stockA.name}` : `🟠 ${stockB.name}`}</td>
+                <td style="font-weight:700;">較前月評分變化 (ΔMoM)</td>
+                <td style="text-align:right;">${this._renderDeltaBadge(stockA.sixEval.deltaMoM)}</td>
+                <td style="text-align:right;">${this._renderDeltaBadge(stockB.sixEval.deltaMoM)}</td>
+                <td>${stockA.sixEval.deltaMoM >= stockB.sixEval.deltaMoM ? stockA.name : stockB.name}</td>
               </tr>
               <tr>
-                <td style="font-weight:700;">📊 較前季評分變化 (ΔQoQ)</td>
-                <td class="num">${this._renderDeltaBadge(stockA.sixEval.deltaQoQ)}</td>
-                <td class="num">${this._renderDeltaBadge(stockB.sixEval.deltaQoQ)}</td>
-                <td>${stockA.sixEval.deltaQoQ >= stockB.sixEval.deltaQoQ ? `🔵 ${stockA.name}` : `🟠 ${stockB.name}`}</td>
+                <td style="font-weight:700;">較前季評分變化 (ΔQoQ)</td>
+                <td style="text-align:right;">${this._renderDeltaBadge(stockA.sixEval.deltaQoQ)}</td>
+                <td style="text-align:right;">${this._renderDeltaBadge(stockB.sixEval.deltaQoQ)}</td>
+                <td>${stockA.sixEval.deltaQoQ >= stockB.sixEval.deltaQoQ ? stockA.name : stockB.name}</td>
               </tr>
               ${stockA.sixEval.current.items.map((itA, idx) => {
                 const itB = stockB.sixEval.current.items[idx];
@@ -1338,17 +1229,17 @@ export class GoodStockUI {
                 return `
                   <tr>
                     <td>${itA.label}</td>
-                    <td class="num" style="font-weight:700;">${itA.score !== null ? `${itA.score.toFixed(1)} 分` : '不評分'}</td>
-                    <td class="num" style="font-weight:700;">${itB.score !== null ? `${itB.score.toFixed(1)} 分` : '不評分'}</td>
-                    <td>${sA === sB ? '🤝 平手' : sA > sB ? `🔵 ${stockA.name}` : `🟠 ${stockB.name}`}</td>
+                    <td class="font-mono" style="text-align:right;">${itA.score !== null ? `${itA.score.toFixed(1)} 分` : '-'}</td>
+                    <td class="font-mono" style="text-align:right;">${itB.score !== null ? `${itB.score.toFixed(1)} 分` : '-'}</td>
+                    <td>${sA === sB ? '平手' : sA > sB ? stockA.name : stockB.name}</td>
                   </tr>
                 `;
               }).join('')}
               <tr>
-                <td style="font-weight:700;">⚠️ 財務地雷命中數 (越少越好)</td>
-                <td class="num">${stockA.landmines.hitCount} / 7 項</td>
-                <td class="num">${stockB.landmines.hitCount} / 7 項</td>
-                <td>${stockA.landmines.hitCount <= stockB.landmines.hitCount ? `🔵 ${stockA.name}` : `🟠 ${stockB.name}`}</td>
+                <td style="font-weight:700;">財務地雷命中數 (越少越好)</td>
+                <td class="font-mono" style="text-align:right;">${stockA.landmines.hitCount} / 7</td>
+                <td class="font-mono" style="text-align:right;">${stockB.landmines.hitCount} / 7</td>
+                <td>${stockA.landmines.hitCount <= stockB.landmines.hitCount ? stockA.name : stockB.name}</td>
               </tr>
             </tbody>
           </table>
@@ -1357,11 +1248,8 @@ export class GoodStockUI {
     `;
   }
 
-  // ============================================================================
-  // Pure SVG Chart Renderers (Zero external library dependencies, crisp on Retina)
-  // ============================================================================
   _renderSvg8QuarterChart(q8) {
-    const W = 760, H = 260, padL = 48, padR = 48, padT = 20, padB = 42;
+    const W = 760, H = 250, padL = 48, padR = 48, padT = 20, padB = 38;
     const plotW = W - padL - padR;
     const plotH = H - padT - padB;
 
@@ -1378,50 +1266,37 @@ export class GoodStockUI {
     const netPoints = q8.map((q, i) => `${xAt(i)},${yMargin(q.netMargin)}`).join(' ');
 
     return `
-      <svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; max-height:280px; display:block;">
-        <!-- Horizontal Grid Lines -->
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; max-height:260px; display:block;">
         ${[0, 0.25, 0.5, 0.75, 1].map((t) => {
           const y = padT + plotH * (1 - t);
           const mVal = (minM + (maxM - minM) * t).toFixed(0);
           const eVal = (maxEps * t).toFixed(1);
           return `
-            <line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="rgba(148,163,184,0.16)" stroke-dasharray="3,3" />
-            <text x="${padL - 6}" y="${y + 4}" text-anchor="end" fill="#94a3b8" font-size="11">${mVal}%</text>
-            <text x="${W - padR + 6}" y="${y + 4}" text-anchor="start" fill="#60a5fa" font-size="11">${eVal}元</text>
+            <line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="var(--border-color)" stroke-dasharray="3,3" />
+            <text x="${padL - 6}" y="${y + 4}" text-anchor="end" fill="var(--text-muted)" font-size="10">${mVal}%</text>
+            <text x="${W - padR + 6}" y="${y + 4}" text-anchor="start" fill="var(--text-muted)" font-size="10">${eVal}元</text>
           `;
         }).join('')}
 
-        <!-- EPS Bars -->
         ${q8.map((q, i) => {
           const cx = xAt(i);
-          const bw = Math.min(38, (plotW / q8.length) * 0.52);
+          const bw = Math.min(36, (plotW / q8.length) * 0.5);
           const yTop = yEps(q.eps);
           const bh = Math.max(2, padT + plotH - yTop);
           return `
-            <rect x="${cx - bw / 2}" y="${yTop}" width="${bw}" height="${bh}" fill="rgba(96,165,250,0.35)" stroke="#60a5fa" stroke-width="1.2" rx="3" />
-            <text x="${cx}" y="${padT + plotH + 18}" text-anchor="middle" fill="#cbd5e1" font-size="11">${q.q}</text>
+            <rect x="${cx - bw / 2}" y="${yTop}" width="${bw}" height="${bh}" fill="var(--accent-blue-soft)" stroke="var(--accent-blue)" stroke-width="1.2" rx="2" />
+            <text x="${cx}" y="${padT + plotH + 16}" text-anchor="middle" fill="var(--text-secondary)" font-size="10.5">${q.q}</text>
           `;
         }).join('')}
 
-        <!-- Operating Margin Line (Red) & Net Margin Line (Green) -->
-        <polyline fill="none" stroke="#ef4444" stroke-width="2.6" points="${opPoints}" />
-        <polyline fill="none" stroke="#10b981" stroke-width="2.6" points="${netPoints}" />
-
-        ${q8.map((q, i) => `
-          <circle cx="${xAt(i)}" cy="${yMargin(q.opMargin)}" r="4" fill="#ef4444" />
-          <circle cx="${xAt(i)}" cy="${yMargin(q.netMargin)}" r="4" fill="#10b981" />
-        `).join('')}
+        <polyline fill="none" stroke="var(--accent-blue)" stroke-width="2.4" points="${opPoints}" />
+        <polyline fill="none" stroke="var(--accent-emerald)" stroke-width="2.4" points="${netPoints}" />
       </svg>
-      <div style="display:flex; justify-content:center; gap:18px; font-size:0.78rem; margin-top:4px;">
-        <span><span style="display:inline-block;width:12px;height:10px;background:#ef4444;margin-right:4px;"></span>營業利益率(%)</span>
-        <span><span style="display:inline-block;width:12px;height:10px;background:#10b981;margin-right:4px;"></span>淨利率(歸母)(%)</span>
-        <span><span style="display:inline-block;width:12px;height:10px;background:rgba(96,165,250,0.5);border:1px solid #60a5fa;margin-right:4px;"></span>EPS(元)</span>
-      </div>
     `;
   }
 
   _renderSvg36MonthRevChart(m36) {
-    const W = 760, H = 240, padL = 54, padR = 46, padT = 18, padB = 38;
+    const W = 760, H = 230, padL = 54, padR = 46, padT = 18, padB = 34;
     const plotW = W - padL - padR;
     const plotH = H - padT - padB;
 
@@ -1437,13 +1312,13 @@ export class GoodStockUI {
     const yoyPoints = m36.map((m, i) => `${xAt(i)},${yYoY(m.yoy)}`).join(' ');
 
     return `
-      <svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; max-height:250px; display:block;">
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; max-height:240px; display:block;">
         ${[0, 0.5, 1].map((t) => {
           const y = padT + plotH * (1 - t);
           return `
-            <line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="rgba(148,163,184,0.15)" stroke-dasharray="3,3" />
-            <text x="${padL - 6}" y="${y + 4}" text-anchor="end" fill="#94a3b8" font-size="10">${Math.round(maxRev * t).toLocaleString()}</text>
-            <text x="${W - padR + 6}" y="${y + 4}" text-anchor="start" fill="#f87171" font-size="10">${Math.round(minY + (maxY - minY) * t)}%</text>
+            <line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="var(--border-color)" stroke-dasharray="3,3" />
+            <text x="${padL - 6}" y="${y + 4}" text-anchor="end" fill="var(--text-muted)" font-size="10">${Math.round(maxRev * t).toLocaleString()}</text>
+            <text x="${W - padR + 6}" y="${y + 4}" text-anchor="start" fill="var(--text-muted)" font-size="10">${Math.round(minY + (maxY - minY) * t)}%</text>
           `;
         }).join('')}
 
@@ -1454,18 +1329,18 @@ export class GoodStockUI {
           const bh = Math.max(2, padT + plotH - yTop);
           const showLabel = i % 6 === 0 || i === m36.length - 1;
           return `
-            <rect x="${cx - bw / 2}" y="${yTop}" width="${bw}" height="${bh}" fill="rgba(56,189,248,0.38)" />
-            ${showLabel ? `<text x="${cx}" y="${padT + plotH + 16}" text-anchor="middle" fill="#cbd5e1" font-size="10">${m.ym}</text>` : ''}
+            <rect x="${cx - bw / 2}" y="${yTop}" width="${bw}" height="${bh}" fill="var(--accent-blue)" opacity="0.45" />
+            ${showLabel ? `<text x="${cx}" y="${padT + plotH + 16}" text-anchor="middle" fill="var(--text-secondary)" font-size="10">${m.ym}</text>` : ''}
           `;
         }).join('')}
 
-        <polyline fill="none" stroke="#ef4444" stroke-width="2.2" points="${yoyPoints}" />
+        <polyline fill="none" stroke="var(--accent-emerald)" stroke-width="2" points="${yoyPoints}" />
       </svg>
     `;
   }
 
   _renderSvgTargetPriceChart(stock, targetData) {
-    const W = 780, H = 300, padL = 52, padR = 90, padT = 18, padB = 38;
+    const W = 780, H = 290, padL = 52, padR = 90, padT = 18, padB = 34;
     const plotW = W - padL - padR;
     const plotH = H - padT - padB;
 
@@ -1483,39 +1358,35 @@ export class GoodStockUI {
     const closePoints = prices.map((p, i) => `${xAt(i)},${yAt(p.close)}`).join(' ');
 
     return `
-      <svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; max-height:320px; display:block;">
-        <!-- Y Axis Grid -->
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; max-height:300px; display:block;">
         ${[0, 0.25, 0.5, 0.75, 1].map((t) => {
           const v = Math.round(minP + (maxP - minP) * t);
           const y = yAt(v);
           return `
-            <line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="rgba(148,163,184,0.12)" />
-            <text x="${padL - 6}" y="${y + 4}" text-anchor="end" fill="#94a3b8" font-size="10">${v}</text>
+            <line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="var(--border-color)" />
+            <text x="${padL - 6}" y="${y + 4}" text-anchor="end" fill="var(--text-muted)" font-size="10">${v}</text>
           `;
         }).join('')}
 
-        <!-- 9 Horizontal Dashed Target Price Lines -->
         ${targetData.lines.map((ln) => {
           const y = yAt(ln.targetPrice);
           return `
-            <line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="${ln.color}" stroke-width="1.5" stroke-dasharray="5,4" />
+            <line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="${ln.color}" stroke-width="1.4" stroke-dasharray="5,4" />
             <text x="${W - padR + 4}" y="${y + 3}" fill="${ln.color}" font-size="9.5" font-weight="600">PE${ln.pe}${ln.scenario} ${ln.targetPrice}</text>
           `;
         }).join('')}
 
-        <!-- Closing Price Solid Line -->
-        <polyline fill="none" stroke="#f8fafc" stroke-width="2.6" points="${closePoints}" />
+        <polyline fill="none" stroke="var(--text-primary)" stroke-width="2.4" points="${closePoints}" />
 
-        <!-- X Axis Date Labels -->
         ${prices.map((p, i) => (i % 6 === 0 || i === prices.length - 1) ? `
-          <text x="${xAt(i)}" y="${padT + plotH + 18}" text-anchor="middle" fill="#cbd5e1" font-size="10">${p.ym}</text>
+          <text x="${xAt(i)}" y="${padT + plotH + 16}" text-anchor="middle" fill="var(--text-secondary)" font-size="10">${p.ym}</text>
         ` : '').join('')}
       </svg>
     `;
   }
 
   _renderSvgPkPriceChart(stockA, stockB, priceSeries) {
-    const W = 780, H = 270, padL = 56, padR = 56, padT = 18, padB = 38;
+    const W = 780, H = 260, padL = 56, padR = 56, padT = 18, padB = 34;
     const plotW = W - padL - padR;
     const plotH = H - padT - padB;
 
@@ -1530,46 +1401,39 @@ export class GoodStockUI {
     const ptsB = priceSeries.map((p, i) => `${xAt(i)},${yClose(p.closeB)}`).join(' ');
 
     return `
-      <svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; max-height:285px; display:block;">
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; max-height:270px; display:block;">
         ${[0, 0.5, 1].map((t) => {
           const y = padT + plotH * (1 - t);
           return `
-            <line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="rgba(148,163,184,0.14)" stroke-dasharray="3,3" />
-            <text x="${padL - 6}" y="${y + 4}" text-anchor="end" fill="#f87171" font-size="10">${Math.round(maxSpread * t).toLocaleString()}</text>
-            <text x="${W - padR + 6}" y="${y + 4}" text-anchor="start" fill="#94a3b8" font-size="10">${Math.round(maxClose * t).toLocaleString()}</text>
+            <line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="var(--border-color)" stroke-dasharray="3,3" />
+            <text x="${padL - 6}" y="${y + 4}" text-anchor="end" fill="var(--text-muted)" font-size="10">${Math.round(maxSpread * t).toLocaleString()}</text>
+            <text x="${W - padR + 6}" y="${y + 4}" text-anchor="start" fill="var(--text-muted)" font-size="10">${Math.round(maxClose * t).toLocaleString()}</text>
           `;
         }).join('')}
 
-        <!-- Spread Bars (Red if A >= B, Green if B > A) -->
         ${priceSeries.map((p, i) => {
           const cx = xAt(i);
-          const bw = Math.max(6, (plotW / priceSeries.length) * 0.64);
+          const bw = Math.max(6, (plotW / priceSeries.length) * 0.62);
           const yTop = ySpread(p.spread);
           const bh = Math.max(2, padT + plotH - yTop);
           const isAHigher = p.spread >= 0;
-          const fill = isAHigher ? 'rgba(248,113,113,0.48)' : 'rgba(52,211,153,0.48)';
-          const stroke = isAHigher ? '#ef4444' : '#10b981';
+          const fill = isAHigher ? 'var(--accent-emerald-soft)' : 'var(--accent-rose-soft)';
+          const stroke = isAHigher ? 'var(--accent-emerald)' : 'var(--accent-rose)';
           const showLabel = i % 5 === 0 || i === priceSeries.length - 1;
           return `
             <rect x="${cx - bw / 2}" y="${yTop}" width="${bw}" height="${bh}" fill="${fill}" stroke="${stroke}" stroke-width="1" />
-            ${showLabel ? `<text x="${cx}" y="${padT + plotH + 16}" text-anchor="middle" fill="#cbd5e1" font-size="10">${p.ym}</text>` : ''}
+            ${showLabel ? `<text x="${cx}" y="${padT + plotH + 16}" text-anchor="middle" fill="var(--text-secondary)" font-size="10">${p.ym}</text>` : ''}
           `;
         }).join('')}
 
-        <!-- Dual Closing Price Lines -->
-        <polyline fill="none" stroke="#2563eb" stroke-width="2.5" points="${ptsA}" />
-        <polyline fill="none" stroke="#ea580c" stroke-width="2.5" points="${ptsB}" />
+        <polyline fill="none" stroke="#2563eb" stroke-width="2.4" points="${ptsA}" />
+        <polyline fill="none" stroke="#ea580c" stroke-width="2.4" points="${ptsB}" />
       </svg>
-      <div style="display:flex; justify-content:center; gap:18px; font-size:0.78rem; margin-top:6px;">
-        <span><span style="display:inline-block;width:14px;height:10px;background:#2563eb;margin-right:4px;"></span>${stockA.name} 月收盤(元)</span>
-        <span><span style="display:inline-block;width:14px;height:10px;background:#ea580c;margin-right:4px;"></span>${stockB.name} 月收盤(元)</span>
-        <span><span style="display:inline-block;width:14px;height:10px;background:rgba(248,113,113,0.55);border:1px solid #ef4444;margin-right:4px;"></span>${stockA.name} − ${stockB.name} 價差(元)</span>
-      </div>
     `;
   }
 
   _renderSvgPkQuarterChart(stockA, stockB, quarterSeries) {
-    const W = 760, H = 250, padL = 48, padR = 48, padT = 18, padB = 38;
+    const W = 760, H = 240, padL = 48, padR = 48, padT = 18, padB = 34;
     const plotW = W - padL - padR;
     const plotH = H - padT - padB;
 
@@ -1586,31 +1450,27 @@ export class GoodStockUI {
     const opPtsB = quarterSeries.map((q, i) => `${xAt(i)},${yM(q.opMarginB)}`).join(' ');
 
     return `
-      <svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; max-height:260px; display:block;">
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; max-height:250px; display:block;">
         ${quarterSeries.map((q, i) => {
           const cx = xAt(i);
-          const bw = 16;
+          const bw = 15;
           const yEA = yE(q.epsA);
           const yEB = yE(q.epsB);
           return `
-            <rect x="${cx - bw - 2}" y="${yEA}" width="${bw}" height="${Math.max(2, padT + plotH - yEA)}" fill="rgba(59,130,246,0.42)" stroke="#3b82f6" />
-            <rect x="${cx + 2}" y="${yEB}" width="${bw}" height="${Math.max(2, padT + plotH - yEB)}" fill="rgba(249,115,22,0.42)" stroke="#f97316" />
-            <text x="${cx}" y="${padT + plotH + 16}" text-anchor="middle" fill="#cbd5e1" font-size="11">${q.q}</text>
+            <rect x="${cx - bw - 2}" y="${yEA}" width="${bw}" height="${Math.max(2, padT + plotH - yEA)}" fill="rgba(59,130,246,0.35)" stroke="#3b82f6" />
+            <rect x="${cx + 2}" y="${yEB}" width="${bw}" height="${Math.max(2, padT + plotH - yEB)}" fill="rgba(249,115,22,0.35)" stroke="#f97316" />
+            <text x="${cx}" y="${padT + plotH + 16}" text-anchor="middle" fill="var(--text-secondary)" font-size="10.5">${q.q}</text>
           `;
         }).join('')}
 
-        <polyline fill="none" stroke="#3b82f6" stroke-width="2.5" points="${opPtsA}" />
-        <polyline fill="none" stroke="#f97316" stroke-width="2.5" points="${opPtsB}" />
+        <polyline fill="none" stroke="#3b82f6" stroke-width="2.4" points="${opPtsA}" />
+        <polyline fill="none" stroke="#f97316" stroke-width="2.4" points="${opPtsB}" />
       </svg>
-      <div style="display:flex; justify-content:center; gap:16px; font-size:0.78rem; margin-top:4px;">
-        <span style="color:#60a5fa;">■ ${stockA.name} 營業利益率(%) / EPS(元)</span>
-        <span style="color:#fb923c;">■ ${stockB.name} 營業利益率(%) / EPS(元)</span>
-      </div>
     `;
   }
 
   _renderSvgPkRevenueChart(stockA, stockB, revenueSeries) {
-    const W = 760, H = 240, padL = 54, padR = 48, padT = 18, padB = 38;
+    const W = 760, H = 230, padL = 54, padR = 48, padT = 18, padB = 34;
     const plotW = W - padL - padR;
     const plotH = H - padT - padB;
 
@@ -1627,7 +1487,7 @@ export class GoodStockUI {
     const ptsYB = revenueSeries.map((r, i) => `${xAt(i)},${yYoY(r.yoyB)}`).join(' ');
 
     return `
-      <svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; max-height:250px; display:block;">
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; max-height:240px; display:block;">
         ${revenueSeries.map((r, i) => {
           const cx = xAt(i);
           const bw = 5;
@@ -1637,7 +1497,7 @@ export class GoodStockUI {
           return `
             <rect x="${cx - bw}" y="${yA}" width="${bw}" height="${Math.max(2, padT + plotH - yA)}" fill="rgba(59,130,246,0.38)" />
             <rect x="${cx}" y="${yB}" width="${bw}" height="${Math.max(2, padT + plotH - yB)}" fill="rgba(249,115,22,0.38)" />
-            ${showLbl ? `<text x="${cx}" y="${padT + plotH + 16}" text-anchor="middle" fill="#cbd5e1" font-size="10">${r.ym}</text>` : ''}
+            ${showLbl ? `<text x="${cx}" y="${padT + plotH + 16}" text-anchor="middle" fill="var(--text-secondary)" font-size="10">${r.ym}</text>` : ''}
           `;
         }).join('')}
 
@@ -1647,13 +1507,9 @@ export class GoodStockUI {
     `;
   }
 
-  // ============================================================================
-  // Event Binding
-  // ============================================================================
   _bindEvents(container, state, store, showToast) {
     const rerender = () => this.render(container, store.getState(), store, showToast);
 
-    // Top main tab switcher
     container.querySelectorAll('[data-gs-main]').forEach((btn) => {
       btn.addEventListener('click', () => {
         this.mainTab = btn.getAttribute('data-gs-main');
@@ -1661,7 +1517,6 @@ export class GoodStockUI {
       });
     });
 
-    // Screener mode switcher
     container.querySelectorAll('[data-gs-screen]').forEach((btn) => {
       btn.addEventListener('click', () => {
         this.screenerMode = btn.getAttribute('data-gs-screen');
@@ -1669,7 +1524,43 @@ export class GoodStockUI {
       });
     });
 
-    // Open single stock info
+    // Toggle advanced filters drawer
+    const advBtn = container.querySelector('#btn-toggle-gs-filters');
+    if (advBtn) {
+      advBtn.addEventListener('click', () => {
+        this.showAdvancedFilters = !this.showAdvancedFilters;
+        rerender();
+      });
+    }
+
+    // Universal column sorting across all 5 screeners
+    container.querySelectorAll('th[data-gs-sort-mode]').forEach((th) => {
+      th.addEventListener('click', () => {
+        const mode = th.getAttribute('data-gs-sort-mode');
+        const col = th.getAttribute('data-gs-sort-col');
+        const def = th.getAttribute('data-gs-sort-def') || 'desc';
+        this._toggleSort(mode, col, def);
+        rerender();
+      });
+    });
+
+    // Quick Jump Input in Top Toolbar
+    const qJumpBtn = container.querySelector('#btn-gs-quick-jump');
+    const qJumpInp = container.querySelector('#gs-quick-jump-input');
+    if (qJumpBtn && qJumpInp) {
+      const doJump = () => {
+        const v = qJumpInp.value.trim();
+        if (v) {
+          this.openStockInfo(v, 'all');
+          rerender();
+        }
+      };
+      qJumpBtn.addEventListener('click', doJump);
+      qJumpInp.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') doJump();
+      });
+    }
+
     container.querySelectorAll('[data-open-stock]').forEach((btn) => {
       btn.addEventListener('click', () => {
         this.openStockInfo(btn.getAttribute('data-open-stock'), 'all');
@@ -1677,7 +1568,6 @@ export class GoodStockUI {
       });
     });
 
-    // Select for PK
     container.querySelectorAll('[data-pk-select]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const code = btn.getAttribute('data-pk-select');
@@ -1690,7 +1580,6 @@ export class GoodStockUI {
       });
     });
 
-    // Six Indicators Quick Presets
     container.querySelectorAll('[data-six-preset]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const p = btn.getAttribute('data-six-preset');
@@ -1707,15 +1596,15 @@ export class GoodStockUI {
           this.sixFilters.maxLandmines = '1';
         } else if (p === 'MOM_UP') {
           this.sixFilters.momDeltaMode = 'UP';
-          this.sixFilters.sortBy = 'deltaMoM';
+          this.tableSort.six_indicators = { col: 'deltaMoM', dir: 'desc' };
         } else if (p === 'QOQ_UP') {
           this.sixFilters.qoqDeltaMode = 'UP';
-          this.sixFilters.sortBy = 'deltaQoQ';
+          this.tableSort.six_indicators = { col: 'deltaQoQ', dir: 'desc' };
         } else if (p === 'DUAL_UP') {
           this.sixFilters.minAvgScore = 3.0;
           this.sixFilters.momDeltaMode = 'NON_DEC';
           this.sixFilters.qoqDeltaMode = 'UP';
-          this.sixFilters.sortBy = 'deltaQoQ';
+          this.tableSort.six_indicators = { col: 'deltaQoQ', dir: 'desc' };
         } else if (p === 'MY_HOLDINGS') {
           this.sixFilters.scope = 'HOLDINGS';
         } else if (p === 'WEAKENING') {
@@ -1725,7 +1614,6 @@ export class GoodStockUI {
       });
     });
 
-    // Bind Six Indicator Filter Inputs
     const bindSelect = (id, targetObj, key) => {
       const el = container.querySelector(`#${id}`);
       if (el) {
@@ -1743,7 +1631,6 @@ export class GoodStockUI {
     bindSelect('six-mom-mode', this.sixFilters, 'momDeltaMode');
     bindSelect('six-qoq-mode', this.sixFilters, 'qoqDeltaMode');
     bindSelect('six-improved-item', this.sixFilters, 'improvedItem');
-    bindSelect('six-sort-by', this.sixFilters, 'sortBy');
     bindSelect('six-min-rev', this.sixFilters, 'minRevScore');
     bindSelect('six-min-op', this.sixFilters, 'minOpScore');
     bindSelect('six-min-profit', this.sixFilters, 'minProfitScore');
@@ -1751,13 +1638,11 @@ export class GoodStockUI {
     bindSelect('six-min-inv', this.sixFilters, 'minInvScore');
     bindSelect('six-min-fcf', this.sixFilters, 'minFcfScore');
 
-    // Strong Screener Inputs
     bindSelect('strong-days', this.strongFilters, 'lookbackDays');
     bindSelect('strong-min-gain', this.strongFilters, 'minGainPct');
     bindSelect('strong-vol-surge', this.strongFilters, 'minVolSurgePct');
     bindSelect('strong-min-price', this.strongFilters, 'minPrice');
 
-    // Financial Screener Presets & Inputs
     container.querySelectorAll('[data-fin-preset]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const p = btn.getAttribute('data-fin-preset');
@@ -1773,12 +1658,14 @@ export class GoodStockUI {
           });
         } else if (p === 'DOUBLE_ARROW') {
           Object.assign(this.finFilters, {
-            minOpMargin: 15, minEps: 2, minRevYoY: 25, minCumYoY: 20, minDoubleArrow: 65, sortBy: 'doubleArrow'
+            minOpMargin: 15, minEps: 2, minRevYoY: 25, minCumYoY: 20, minDoubleArrow: 65
           });
+          this.tableSort.financial = { col: 'doubleArrow', dir: 'desc' };
         } else if (p === 'HIGH_PRICE') {
           Object.assign(this.finFilters, {
-            minOpMargin: 10, minEps: 5, minRevYoY: 15, minCumYoY: 15, minPrice: 1000, sortBy: 'latestOpMargin'
+            minOpMargin: 10, minEps: 5, minRevYoY: 15, minCumYoY: 15, minPrice: 1000
           });
+          this.tableSort.financial = { col: 'latestOpMargin', dir: 'desc' };
         }
         rerender();
       });
@@ -1790,17 +1677,9 @@ export class GoodStockUI {
     bindSelect('fin-max-eps', this.finFilters, 'maxEps');
     bindSelect('fin-min-revyoy', this.finFilters, 'minRevYoY');
     bindSelect('fin-max-revyoy', this.finFilters, 'maxRevYoY');
-    bindSelect('fin-min-cumyoy', this.finFilters, 'minCumYoY');
-    bindSelect('fin-max-cumyoy', this.finFilters, 'maxCumYoY');
     bindSelect('fin-min-arrow', this.finFilters, 'minDoubleArrow');
     bindSelect('fin-max-arrow', this.finFilters, 'maxDoubleArrow');
-    bindSelect('fin-min-price', this.finFilters, 'minPrice');
-    bindSelect('fin-max-price', this.finFilters, 'maxPrice');
-    bindSelect('fin-min-pe', this.finFilters, 'minPe');
-    bindSelect('fin-max-pe', this.finFilters, 'maxPe');
-    bindSelect('fin-sort-by', this.finFilters, 'sortBy');
 
-    // Trend & NewHigh Inputs
     bindSelect('trend-days', this.trendFilters, 'trendDays');
     bindSelect('trend-move', this.trendFilters, 'minMovePct');
     bindSelect('nh-rev', this.newHighFilters, 'revHighMonths');
@@ -1809,7 +1688,6 @@ export class GoodStockUI {
     bindSelect('nh-price', this.newHighFilters, 'priceHighDays');
     bindSelect('nh-vol', this.newHighFilters, 'volHighDays');
 
-    // Single Stock Info Section & Health Tabs
     container.querySelectorAll('[data-gs-info-sec]').forEach((btn) => {
       btn.addEventListener('click', () => {
         this.infoSection = btn.getAttribute('data-gs-info-sec');
@@ -1824,7 +1702,6 @@ export class GoodStockUI {
       });
     });
 
-    // Search single stock
     const searchBtn = container.querySelector('#btn-gs-search-stock');
     const searchInput = container.querySelector('#gs-stock-search-input');
     if (searchBtn && searchInput) {
@@ -1841,7 +1718,6 @@ export class GoodStockUI {
       });
     }
 
-    // Live FinMind Fetch
     const liveBtn = container.querySelector('#btn-gs-fetch-live');
     if (liveBtn) {
       liveBtn.addEventListener('click', async () => {
@@ -1853,11 +1729,11 @@ export class GoodStockUI {
           this.selectedCode = res.stock.code;
           if (showToast) {
             showToast(res.source === 'finmind-live'
-              ? `✅ 已從 FinMind 即時更新 ${res.stock.code} ${res.stock.name} 最新收盤價 (${res.stock.price}) 與財報`
-              : `⚡ 已載入 ${res.stock.code} ${res.stock.name} 內建完整財報快取 (${res.stock.price})`);
+              ? `已從 FinMind 更新 ${res.stock.code} ${res.stock.name} 最新收盤價 (${res.stock.price})`
+              : `已載入 ${res.stock.code} ${res.stock.name} 內建財報快取 (${res.stock.price})`);
           }
         } catch (err) {
-          if (showToast) showToast(`⚠️ ${err.message}`);
+          if (showToast) showToast(`錯誤：${err.message}`);
         } finally {
           this.isFetchingLive = false;
           rerender();
@@ -1865,7 +1741,6 @@ export class GoodStockUI {
       });
     }
 
-    // Sync All Latest Closing Prices from TWSE OpenAPI / FinMind
     const syncAllBtn = container.querySelector('#btn-gs-sync-all-prices');
     if (syncAllBtn) {
       syncAllBtn.addEventListener('click', async () => {
@@ -1876,11 +1751,11 @@ export class GoodStockUI {
           const res = await GoodStockData.syncAllLatestPrices();
           if (showToast) {
             showToast(res.updatedCount > 0
-              ? `✅ 已同步證交所最新收盤價（共更新 ${res.updatedCount} 檔）`
-              : `⚡ 目前全股票池 (${GoodStockData.getAllStocks().length} 檔) 已是最新收盤價`);
+              ? `已同步證交所最新收盤價（共更新 ${res.updatedCount} 檔）`
+              : `目前全股票池 (${GoodStockData.getAllStocks().length} 檔) 已是最新收盤價`);
           }
         } catch (err) {
-          if (showToast) showToast(`⚠️ 同步報價失敗：${err.message}`);
+          if (showToast) showToast(`同步報價失敗：${err.message}`);
         } finally {
           this.isSyncingAllPrices = false;
           rerender();
@@ -1888,7 +1763,6 @@ export class GoodStockUI {
       });
     }
 
-    // Custom PE Bands
     const applyPeBtn = container.querySelector('#btn-gs-apply-pe');
     if (applyPeBtn) {
       applyPeBtn.addEventListener('click', () => {
@@ -1900,7 +1774,6 @@ export class GoodStockUI {
       });
     }
 
-    // PK Pair Switchers
     container.querySelectorAll('[data-pk-pair]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const [a, b] = btn.getAttribute('data-pk-pair').split(',');

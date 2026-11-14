@@ -104,17 +104,17 @@ export class SettingsUI {
       </div>
 
       <!-- AI Agent Headless Console (Human-to-Agent Dual-Track Verification) -->
-      <div class="card" style="margin-top:20px; border-color: rgba(168, 85, 247, 0.35);">
+      <div class="card" style="margin-top:16px;">
         <div class="card-header" style="flex-wrap:wrap;">
-          <div class="card-title">🤖 AI Agent 無頭調用測試台 (Headless Function Calling & JSON Schema)</div>
-          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <div class="card-title">AI Agent 無頭調用測試台 (Headless Function Calling & JSON Schema)</div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap;">
             <button class="btn btn-ghost btn-sm" data-agent-cmd="manifest">1. 檢視工具 JSON Schema</button>
             <button class="btn btn-ghost btn-sm" data-agent-cmd="stock-summary">2. 測試 Agent 讀取股票總覽</button>
             <button class="btn btn-ghost btn-sm" data-agent-cmd="asset-summary">3. 測試 Agent 讀取資產淨值</button>
             <button class="btn btn-ghost btn-sm" data-agent-cmd="val-calc">4. 測試 Agent 推算台積電好股價</button>
           </div>
         </div>
-        <pre class="font-mono" style="background:var(--bg-input); padding:14px; border-radius:10px; border:1px solid var(--border-color); font-size:12px; max-height:320px; overflow:auto; color:#e2e8f0;">${this.agentOutput}</pre>
+        <pre class="font-mono" style="background:var(--bg-input); padding:14px; border-radius:8px; border:1px solid var(--border-color); font-size:12px; max-height:320px; overflow:auto; color:var(--text-primary);">${this.agentOutput}</pre>
       </div>
     `;
 

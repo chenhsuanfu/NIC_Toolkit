@@ -1,5 +1,5 @@
 import { StockCore } from '../stock-tracker/core.js';
-import { AssetCore } from '../asset-tracker/core.js';
+import { AssetCore, FS_SHEET_URL } from '../asset-tracker/core.js';
 
 const toNum = (v, fallback = 0) => {
   if (v === null || v === undefined || v === '') return fallback;
@@ -22,167 +22,171 @@ export class HubUI {
   constructor(navigateFn) {
     this.navigate = navigateFn;
     this.showAddExternal = false;
+    this.topSort = { col: 'market', dir: 'desc' };
   }
 
   render(container, state, store, showToast) {
     const stockSum = StockCore.getSummary(state);
     const assetSum = AssetCore.getSummary(state);
+    const salData = AssetCore.getSalaryData(state);
     const config = store.getConfig();
     const queue = store.getSyncQueue();
 
-    const topHoldings = (state?.stock?.overview || []).slice(0, 5);
+    const holdings = [...(state?.stock?.overview || [])];
+    const dirMul = this.topSort.dir === 'asc' ? 1 : -1;
+    holdings.sort((a, b) => {
+      if (this.topSort.col === 'code') return String(a['代號'] || '').localeCompare(String(b['代號'] || '')) * dirMul;
+      if (this.topSort.col === 'pnl') return (toNum(a['未實現(TWD)'], 0) - toNum(b['未實現(TWD)'], 0)) * dirMul;
+      if (this.topSort.col === 'roi') return (toRatio(a['報酬率']) - toRatio(b['報酬率'])) * dirMul;
+      return (toNum(a['市值(TWD)'], 0) - toNum(b['市值(TWD)'], 0)) * dirMul;
+    });
+    const topHoldings = holdings.slice(0, 6);
+
     const externalTools = config.externalTools || [];
     const needsPairing = Boolean(state?.isDemoSeed && !config.gasUrl);
 
+    const sortTh = (col, label, align = 'left') => {
+      const isAct = this.topSort.col === col;
+      const arrow = isAct ? (this.topSort.dir === 'desc' ? '▼' : '▲') : '↕';
+      return `<th class="sortable ${isAct ? 'sort-active' : ''}" data-hub-sort="${col}" style="${align === 'right' ? 'text-align:right;' : ''}">${label}<span class="sort-indicator">${arrow}</span></th>`;
+    };
+
     container.innerHTML = `
       ${needsPairing ? `
-        <div class="card" style="margin-bottom:16px; border-color: rgba(245, 158, 11, 0.5); background: rgba(245, 158, 11, 0.08);">
-          <div class="card-header" style="margin-bottom:8px;">
-            <div class="card-title" style="color:var(--accent-amber);">🔐 iPhone 主畫面快速解鎖雲端同步</div>
+        <div class="card" style="margin-bottom:16px; border-color:var(--accent-blue);">
+          <div class="card-header" style="margin-bottom:6px;">
+            <div class="card-title">iPhone / 新裝置快速解鎖雲端同步</div>
           </div>
           <p class="text-muted" style="font-size:12px; margin-bottom:10px;">
-            只需輸入您的<strong>4 位數個人解鎖碼（預設：<code>2026</code>）</strong>，即可一鍵解鎖雲端連線並自動載入真實持股與資產（記憶後永久免重輸）：
+            輸入您的 <strong>4 位數個人解鎖碼（預設：<code>2026</code>）</strong>，即可一鍵解鎖雲端連線並載入真實持股與資產（記憶後免重輸）：
           </p>
           <form id="form-quick-pair" style="display:flex; gap:8px; flex-wrap:wrap;">
-            <input class="form-control" name="pairInput" placeholder="輸入 4 位解鎖碼 (2026) 或貼上配對連結" style="flex:1; min-width:160px;" required />
-            <button type="submit" class="btn btn-primary">⚡ 一鍵解鎖雲端</button>
+            <input class="form-control" name="pairInput" placeholder="輸入 4 位解鎖碼 (2026) 或配對連結" style="flex:1; min-width:160px;" required />
+            <button type="submit" class="btn btn-primary">一鍵解鎖</button>
           </form>
         </div>
       ` : ''}
 
-      <!-- Combined Executive KPI Banner -->
+      <!-- Clean Minimalist Executive KPI Banner -->
       <div class="grid-kpi">
-        <div class="card" style="border-color: rgba(56, 189, 248, 0.35);">
+        <div class="card">
           <div class="kpi-label">
-            <span>個人總淨值 (含不動產扣負債)</span>
-            <span class="pill pill-blue">F&S 總覽</span>
+            <span>個人總淨值 (F&S 含不動產扣負債)</span>
+            <span class="pill">淨值</span>
           </div>
           <div class="kpi-value mask-amount">$${fmtInt(assetSum.netWorthTwd)}</div>
-          <div class="kpi-sub mask-amount">金融資產 $${fmtInt(assetSum.totalFinancialAssetsTwd)} ｜ 目標達成 ${(assetSum.goalProgress * 100).toFixed(1)}%</div>
+          <div class="kpi-sub mask-amount">金融資產 $${fmtInt(assetSum.totalFinancialAssetsTwd)} ｜ 目標 ${(assetSum.goalProgress * 100).toFixed(1)}%</div>
         </div>
 
-        <div class="card" style="border-color: rgba(16, 185, 129, 0.35);">
+        <div class="card">
           <div class="kpi-label">
             <span>N_BD_C 股票持倉總市值</span>
-            <span class="pill pill-emerald">${stockSum.holdingCount} 檔標的</span>
+            <span class="pill">${stockSum.holdingCount} 檔</span>
           </div>
-          <div class="kpi-value mask-amount text-emerald">$${fmtInt(stockSum.totalMarketTwd)}</div>
-          <div class="kpi-sub mask-amount">
-            未實現 ${stockSum.unrealizedTwd >= 0 ? '+' : ''}$${fmtInt(stockSum.unrealizedTwd)} (${fmtPct(stockSum.returnRate)})
+          <div class="kpi-value mask-amount">$${fmtInt(stockSum.totalMarketTwd)}</div>
+          <div class="kpi-sub mask-amount ${stockSum.unrealizedTwd >= 0 ? 'text-emerald' : 'text-rose'}">
+            未實現 ${stockSum.unrealizedTwd >= 0 ? '▲ +' : '▼ '}$${fmtInt(stockSum.unrealizedTwd)} (${fmtPct(stockSum.returnRate)})
           </div>
         </div>
 
         <div class="card">
           <div class="kpi-label">
-            <span>流動現金 + 保障預備金</span>
-            <span class="pill pill-purple">${assetSum.accountCount} 個銀行帳戶</span>
+            <span>流動儲蓄 + 保障預備金</span>
+            <span class="pill">${assetSum.accountCount} 帳戶</span>
           </div>
           <div class="kpi-value mask-amount">$${fmtInt(assetSum.liquidSavingsTwd + assetSum.protectionTwd)}</div>
-          <div class="kpi-sub mask-amount">隨時可動用儲蓄 $${fmtInt(assetSum.liquidSavingsTwd)}</div>
+          <div class="kpi-sub mask-amount">可動用儲蓄 $${fmtInt(assetSum.liquidSavingsTwd)}</div>
         </div>
 
         <div class="card">
           <div class="kpi-label">
-            <span>系統運行與同步狀態</span>
-            <span class="pill ${config.mode === 'cloud' ? 'pill-emerald' : 'pill-amber'}">
-              ${config.mode === 'cloud' ? '雲端同步模式' : '本機安全沙盒'}
-            </span>
+            <span>${salData.latestAnnual?.year || 2026} 年度累計實領薪資 (N_薪資)</span>
+            <span class="pill pill-emerald">▲ ${salData.totalGrowthMultiple.toFixed(2)}x</span>
           </div>
-          <div class="kpi-value" style="font-size:18px; margin-top:4px;">
-            ⚡ 0.05s 極速快取就緒
-          </div>
-          <div class="kpi-sub">
-            待同步變更：<strong>${queue.length} 筆</strong>
-            ${state?.isDemoSeed ? ' (Demo 預設資料)' : ' (已載入真實試算表快照)'}
+          <div class="kpi-value mask-amount">$${fmtInt(salData.latestAnnual?.annualSalary || 0)}</div>
+          <div class="kpi-sub mask-amount">
+            預估年薪 $${fmtInt(salData.latestAnnual?.estimatedAnnual || 0)} ｜ 待同步 ${queue.length} 筆
           </div>
         </div>
       </div>
 
-      <!-- Section 1: Built-in Core Tools & External Quant Portal Wall -->
-      <div class="card" style="margin-bottom:22px;">
+      <!-- Section 1: Core Tool Modules -->
+      <div class="card" style="margin-bottom:16px;">
         <div class="card-header">
-          <div class="card-title">🧰 個人工具集啟動牆（支援內建模組 & 外部量化系統插拔）</div>
+          <div class="card-title">核心工具模組與外部系統</div>
           <button class="btn btn-ghost btn-sm" id="btn-toggle-ext-tool">
-            ${this.showAddExternal ? '✕ 取消新增' : '＋ 掛載新外部工具連結'}
+            ${this.showAddExternal ? '✕ 取消新增' : '＋ 新增外部連結'}
           </button>
         </div>
 
         ${this.showAddExternal ? `
-          <form id="form-add-ext" class="form-grid" style="margin-bottom:16px; padding:14px; background:rgba(255,255,255,0.03); border-radius:12px;">
-            <input class="form-control" name="name" placeholder="工具名稱 (如 TradingView / FinMind)" required />
-            <input class="form-control" name="subtitle" placeholder="功能簡述 (如 技術線圖與籌碼分析)" required />
+          <form id="form-add-ext" class="form-grid" style="margin-bottom:14px; padding:12px; background:var(--bg-subtle); border-radius:8px;">
+            <input class="form-control" name="name" placeholder="工具名稱 (如 TradingView)" required />
+            <input class="form-control" name="subtitle" placeholder="功能簡述" required />
             <input class="form-control" type="url" name="url" placeholder="https://..." required />
-            <button type="submit" class="btn btn-primary">✓ 確認掛載至工具牆</button>
+            <button type="submit" class="btn btn-primary">確認新增</button>
           </form>
         ` : ''}
 
         <div class="grid-3" style="margin-bottom:0;">
-          <!-- Built-in Tool 1 -->
           <div class="tool-card" data-goto="stock-tracker">
             <div>
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                <span style="font-size:24px;">📈</span>
-                <span class="pill pill-emerald">內建核心模組 · N_BD_C</span>
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <span style="font-weight:700; font-size:15px;">股票庫存與風控配置</span>
+                <span class="pill">N_BD_C</span>
               </div>
-              <div style="font-weight:700; font-size:16px; margin-bottom:4px;">股票庫存與目標價估值</div>
-              <div class="text-muted" style="font-size:13px;">
-                管理台美股 ${stockSum.holdingCount} 檔持倉、防禦/進攻/樂透風控配置、進出場紀錄，內建「好股價 EPS 目標價推估引擎」。
+              <div class="text-muted" style="font-size:12.5px;">
+                台美股 ${stockSum.holdingCount} 檔持倉、進攻/防禦/樂透雙層權重比較、分批明細與目標價估值。
               </div>
             </div>
-            <div style="display:flex; justify-content:space-between; align-items:center; padding-top:10px; border-top:1px solid var(--border-color); font-size:12px; color:var(--accent-blue);">
-              <span>立即進入操作</span>
+            <div style="display:flex; justify-content:space-between; align-items:center; padding-top:8px; border-top:1px solid var(--border-color); font-size:12px; color:var(--accent-blue);">
+              <span>進入股票庫存</span>
               <span>→</span>
             </div>
           </div>
 
-          <!-- Built-in Tool 1b: GoodStockPrice -->
           <div class="tool-card" data-goto="goodstock">
             <div>
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                <span style="font-size:24px;">🎯</span>
-                <span class="pill pill-emerald">內建核心模組 · 好股價旗艦版</span>
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <span style="font-weight:700; font-size:15px;">好股價選股與六大指標</span>
+                <span class="pill">0050 + 持股</span>
               </div>
-              <div style="font-weight:700; font-size:16px; margin-bottom:4px;">好股價選股與財務六大指標健診</div>
-              <div class="text-muted" style="font-size:13px;">
-                完整內建「財務六大指標評分選股 (含較前月 MoM / 較前季 QoQ 評分比較)」、7 大財務地雷、8 季財報與 36 月營收圖、目標價 9 線圖與雙股 PK 對比。
+              <div class="text-muted" style="font-size:12.5px;">
+                財務六大指標評分選股 (含較前月 MoM / 較前季 QoQ 比較)、7 大地雷、8 季財報與雙股 PK。
               </div>
             </div>
-            <div style="display:flex; justify-content:space-between; align-items:center; padding-top:10px; border-top:1px solid var(--border-color); font-size:12px; color:var(--accent-blue);">
-              <span>立即進入選股與健診</span>
+            <div style="display:flex; justify-content:space-between; align-items:center; padding-top:8px; border-top:1px solid var(--border-color); font-size:12px; color:var(--accent-blue);">
+              <span>進入好股價選股</span>
               <span>→</span>
             </div>
           </div>
 
-          <!-- Built-in Tool 2 -->
           <div class="tool-card" data-goto="asset-tracker">
             <div>
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                <span style="font-size:24px;">🏦</span>
-                <span class="pill pill-blue">內建核心模組 · F&S V2</span>
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <span style="font-weight:700; font-size:15px;">家庭資產、分析圖與薪資</span>
+                <span class="pill">F&S V2</span>
               </div>
-              <div style="font-weight:700; font-size:16px; margin-bottom:4px;">資產與日常收支紀錄</div>
-              <div class="text-muted" style="font-size:13px;">
-                跨幣別 ${assetSum.accountCount} 個銀行/券商帳戶總覽、消費主子類別自動連動記帳、log_V2 流水與房貸信貸處置追蹤。
+              <div class="text-muted" style="font-size:12.5px;">
+                ${assetSum.accountCount} 個帳戶一鍵對帳校正、長期淨值分析圖、N_薪資歷年薪資獎金追蹤與日常開銷。
               </div>
             </div>
-            <div style="display:flex; justify-content:space-between; align-items:center; padding-top:10px; border-top:1px solid var(--border-color); font-size:12px; color:var(--accent-blue);">
-              <span>立即進入記帳</span>
+            <div style="display:flex; justify-content:space-between; align-items:center; padding-top:8px; border-top:1px solid var(--border-color); font-size:12px; color:var(--accent-blue);">
+              <span>進入家庭資產</span>
               <span>→</span>
             </div>
           </div>
 
-          <!-- External Connected Portals (MVP-QAS, GoodStockPrice, etc.) -->
           ${externalTools.map((ext) => `
             <div class="tool-card" data-ext-url="${ext.url}">
               <div>
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                  <span style="font-size:24px;">🚀</span>
-                  <span class="pill pill-purple">${ext.badge || '外部連動系統'}</span>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                  <span style="font-weight:700; font-size:15px;">${ext.name}</span>
+                  <span class="pill">${ext.badge || '外部系統'}</span>
                 </div>
-                <div style="font-weight:700; font-size:16px; margin-bottom:4px;">${ext.name}</div>
-                <div class="text-muted" style="font-size:13px;">${ext.subtitle}</div>
+                <div class="text-muted" style="font-size:12.5px;">${ext.subtitle}</div>
               </div>
-              <div style="display:flex; justify-content:space-between; align-items:center; padding-top:10px; border-top:1px solid var(--border-color); font-size:12px; color:var(--accent-amber);">
+              <div style="display:flex; justify-content:space-between; align-items:center; padding-top:8px; border-top:1px solid var(--border-color); font-size:12px; color:var(--text-secondary);">
                 <span class="font-mono" style="font-size:11px;">${ext.url}</span>
                 <span>↗ 開啟</span>
               </div>
@@ -195,18 +199,18 @@ export class HubUI {
       <div class="grid-2">
         <div class="card">
           <div class="card-header">
-            <div class="card-title">🔥 前五大核心持股部位 (N_BD_C)</div>
-            <button class="btn btn-ghost btn-sm" data-goto="stock-tracker">查看全部 →</button>
+            <div class="card-title">核心持股部位速覽 (N_BD_C)</div>
+            <button class="btn btn-ghost btn-sm" data-goto="stock-tracker">全部持倉 →</button>
           </div>
           <div class="table-wrap">
             <table class="data-table">
               <thead>
                 <tr>
-                  <th>代號</th>
-                  <th>類型</th>
-                  <th>市值 (TWD)</th>
-                  <th>未實現損益</th>
-                  <th>報酬率</th>
+                  ${sortTh('code', '代號')}
+                  <th>屬性</th>
+                  ${sortTh('market', '市值 (TWD)', 'right')}
+                  ${sortTh('pnl', '未實現損益', 'right')}
+                  ${sortTh('roi', '報酬率', 'right')}
                 </tr>
               </thead>
               <tbody>
@@ -216,10 +220,14 @@ export class HubUI {
                   return `
                     <tr>
                       <td class="font-mono" style="font-weight:700;">${r['代號']}</td>
-                      <td><span class="pill pill-blue">${r['類型']}</span></td>
-                      <td class="font-mono mask-amount">$${fmtInt(r['市值(TWD)'])}</td>
-                      <td class="font-mono mask-amount ${pnl >= 0 ? 'text-emerald' : 'text-rose'}">${pnl >= 0 ? '+' : ''}$${fmtInt(pnl)}</td>
-                      <td><span class="pill ${pnl >= 0 ? 'pill-emerald' : 'pill-rose'}">${fmtPct(roi)}</span></td>
+                      <td><span class="pill">${r['類型']}</span></td>
+                      <td class="font-mono mask-amount" style="text-align:right;">$${fmtInt(r['市值(TWD)'])}</td>
+                      <td class="font-mono mask-amount ${pnl >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right; font-weight:600;">
+                        ${pnl >= 0 ? '+' : ''}$${fmtInt(pnl)}
+                      </td>
+                      <td style="text-align:right;">
+                        <span class="pill ${pnl >= 0 ? 'pill-emerald' : 'pill-rose'}">${pnl >= 0 ? '▲ ' : '▼ '}${fmtPct(roi)}</span>
+                      </td>
                     </tr>
                   `;
                 }).join('')}
@@ -230,22 +238,22 @@ export class HubUI {
 
         <div class="card">
           <div class="card-header">
-            <div class="card-title">🤖 人機雙軌架構狀態 (Human-to-Agent Ready)</div>
-            <button class="btn btn-ghost btn-sm" data-goto="settings">開啟 Agent 控制台 →</button>
+            <div class="card-title">快速連結與試算表直達</div>
+            <button class="btn btn-ghost btn-sm" data-goto="settings">連線與同步設定 →</button>
           </div>
-          <div style="font-size:13px; color:var(--text-secondary); display:flex; flex-direction:column; gap:10px;">
-            <p>
-              本平台已完成 <strong>UI 介面層</strong> 與 <strong>Core 純業務邏輯層</strong> 100% 解耦：
-            </p>
-            <div style="background:var(--bg-input); padding:12px; border-radius:8px; border:1px solid var(--border-color);" class="font-mono">
-              <div style="color:var(--accent-blue);">// 瀏覽器或 AI Agent 可直接無頭呼叫：</div>
-              <div>await window.NIC_Agent.invoke("stock-tracker", "getSummary")</div>
-              <div>await window.NIC_Agent.invoke("asset-tracker", "addExpense", { amount: 150, category: "餐費", title: "午餐" })</div>
+          <div style="display:flex; flex-direction:column; gap:10px; font-size:13px; color:var(--text-secondary);">
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <a class="btn btn-ghost" href="https://docs.google.com/spreadsheets/d/18zTY4jjQ8Q1BRmqp_meYS24OOLE0GOkbn_56DWdwQrM/edit" target="_blank" rel="noopener">
+                ↗ 開啟 N_BD_C 股票庫存試算表
+              </a>
+              <a class="btn btn-ghost" href="${FS_SHEET_URL}" target="_blank" rel="noopener">
+                ↗ 開啟 F&S Asset Report_V2 試算表
+              </a>
             </div>
-            <p>
-              • <strong>iPhone / 電腦人工操作</strong>：透過上方卡片與底部導覽列 0 秒切換。<br/>
-              • <strong>未來 AI Agent / iOS 捷徑接管</strong>：透過標準 JSON Schema 與 CLI 腳本直接自動化讀寫。
-            </p>
+            <div style="padding:10px 12px; background:var(--bg-subtle); border-radius:8px; border:1px solid var(--border-color); font-size:12px;">
+              <div>• <strong>介面規範</strong>：全站統一採用美股慣例（<span class="text-emerald">綠漲 / 獲利 / 成長 ▲</span>、<span class="text-rose">紅跌 / 虧損 / 警示 ▼</span>），頂部可一鍵切換淺色與深色主題。</div>
+              <div style="margin-top:4px;">• <strong>手機與電腦通用</strong>：所有表格皆支援點擊標題排序，且首欄於手機橫滑時自動凍結固定。</div>
+            </div>
           </div>
         </div>
       </div>
@@ -259,6 +267,19 @@ export class HubUI {
       el.addEventListener('click', () => {
         const target = el.getAttribute('data-goto');
         if (typeof this.navigate === 'function') this.navigate(target);
+      });
+    });
+
+    container.querySelectorAll('[data-hub-sort]').forEach((th) => {
+      th.addEventListener('click', () => {
+        const col = th.getAttribute('data-hub-sort');
+        if (this.topSort.col === col) {
+          this.topSort.dir = this.topSort.dir === 'desc' ? 'asc' : 'desc';
+        } else {
+          this.topSort.col = col;
+          this.topSort.dir = col === 'code' ? 'asc' : 'desc';
+        }
+        this.render(container, store.getState(), store, showToast);
       });
     });
 
@@ -284,10 +305,10 @@ export class HubUI {
         const fd = new FormData(quickPairForm);
         const ok = store.applyPairingInput(fd.get('pairInput'));
         if (ok) {
-          showToast('🎉 配對成功！正在從雲端試算表載入您的真實資料...');
+          showToast('配對成功！正在從雲端試算表載入您的真實資料...');
           this.render(container, store.getState(), store, showToast);
         } else {
-          showToast('⚠️ 配對連結格式不正確，請確認複製完整網址');
+          showToast('配對連結或解鎖碼格式不正確');
         }
       });
     }
@@ -304,12 +325,12 @@ export class HubUI {
           name: String(fd.get('name')).trim(),
           subtitle: String(fd.get('subtitle')).trim(),
           url: String(fd.get('url')).trim(),
-          badge: '自訂外部工具',
+          badge: '自訂連結',
           category: 'custom'
         });
         store.saveConfig({ externalTools: list });
         this.showAddExternal = false;
-        showToast('✅ 已將新工具掛載至首頁工具牆！');
+        showToast('已新增外部連結');
         this.render(container, store.getState(), store, showToast);
       });
     }

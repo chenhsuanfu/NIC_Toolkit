@@ -262,6 +262,29 @@ try {
           }
         } 0
       }
+      "getSalarySummary" {
+        $extraFile = Get-Content -Raw -Encoding UTF8 (Join-Path $RootDir "tools\asset-tracker\data.js")
+        $jsonPart = ($extraFile -replace '^[\s\S]*?export const ASSET_EXTRA_DATA = ', '') -replace ';\s*$', ''
+        $extraObj = $jsonPart | ConvertFrom-Json
+        $recCount = $extraObj.salaryRecords.Count
+        $annCount = $extraObj.salaryAnnual.Count
+        $latestAnn = $extraObj.salaryAnnual | Sort-Object year -Descending | Select-Object -First 1
+        Write-AgentJson @{
+          ok = $true
+          exitCode = 0
+          module = "asset-tracker"
+          action = "getSalarySummary"
+          data = @{
+            recordCount = $recCount
+            annualYearsCount = $annCount
+            latestYear = $latestAnn.year
+            latestAnnualSalary = $latestAnn.annualSalary
+            latestEstimatedAnnual = $latestAnn.estimatedAnnual
+            snapshotCount = $extraObj.snapshots.Count
+            cashflowMonthsCount = $extraObj.cashflowHistory.Count
+          }
+        } 0
+      }
       default {
         Write-AgentJson @{ ok = $false; exitCode = 404; error = "Unsupported asset-tracker action: $Action" } 404
       }

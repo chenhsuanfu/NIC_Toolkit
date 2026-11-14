@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <meta name="theme-color" content="#0b1120" />
+  <meta name="theme-color" content="#0b1120" id="meta-theme-color" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="NIC工具集" />
@@ -19,15 +19,15 @@
         <div class="brand-logo">NIC</div>
         <div>
           <div class="brand-title">NIC Toolkit</div>
-          <div class="brand-sub">Local-First · 雙軌演進平台</div>
+          <div class="brand-sub">個人財務與量化平台</div>
         </div>
       </div>
 
       <nav class="nav-list" id="sidebar-nav"></nav>
 
       <div class="sidebar-footer">
-        <div>⚡ Local-First 0.05s 快取引擎</div>
-        <div style="margin-top:4px;">🤖 window.NIC_Agent 已就緒</div>
+        <div>Local-First 快取引擎</div>
+        <div style="margin-top:2px;">US 綠漲紅跌 · 雙軌架構</div>
       </div>
     </aside>
 
@@ -36,24 +36,27 @@
       <header class="topbar">
         <div class="topbar-left">
           <h1 class="page-title" id="topbar-title">工具集總覽</h1>
-          <span class="mode-badge sandbox" id="topbar-mode-badge">🛡️ 本機安全沙盒</span>
+          <span class="mode-badge sandbox" id="topbar-mode-badge">本機沙盒</span>
         </div>
 
         <div class="topbar-actions">
-          <button class="btn btn-ghost btn-sm" id="btn-pwa-update" title="清除舊版快取並強制更新 PWA 至最新版本">
-            🚀 更新版本
+          <button class="btn btn-ghost btn-sm" id="btn-theme-toggle" title="切換淺色 / 深色主題">
+            ☀ 淺色
           </button>
           <button class="btn btn-ghost btn-sm" id="btn-privacy-toggle" title="切換金額隱私遮罩">
-            👁️ 隱藏金額
+            遮罩
           </button>
-          <button class="btn btn-ghost btn-sm" id="btn-quick-sync" title="檢視同步狀態">
-            🔄 待同步: <span id="sync-count-badge">0</span>
+          <button class="btn btn-ghost btn-sm" id="btn-quick-sync" title="檢視雲端同步狀態">
+            同步(<span id="sync-count-badge">0</span>)
+          </button>
+          <button class="btn btn-ghost btn-sm" id="btn-pwa-update" title="清除快取並更新版本">
+            更新
           </button>
         </div>
       </header>
 
       <main class="view-container" id="app-view">
-        <div class="card">正在從本機快取載入...</div>
+        <div class="card">正在載入資料...</div>
       </main>
     </div>
 
@@ -74,6 +77,19 @@
     import { SettingsUI } from './tools/settings/ui.js';
 
     let currentToolId = 'hub';
+
+    // Initialize Theme (Default: Dark, or user saved preference)
+    const THEME_KEY = 'nic_toolkit_theme';
+    function applyTheme(theme) {
+      const isLight = theme === 'light';
+      document.body.classList.toggle('theme-light', isLight);
+      const btn = document.getElementById('btn-theme-toggle');
+      if (btn) btn.textContent = isLight ? '🌙 深色' : '☀ 淺色';
+      const metaTheme = document.getElementById('meta-theme-color');
+      if (metaTheme) metaTheme.setAttribute('content', isLight ? '#f8fafc' : '#0b1120');
+      localStorage.setItem(THEME_KEY, isLight ? 'light' : 'dark');
+    }
+    applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
 
     function showToast(msg) {
       const wrap = document.getElementById('toast-container');
@@ -107,7 +123,7 @@
       id: 'hub',
       name: '工具集總覽',
       shortName: '總覽',
-      icon: '🧭',
+      icon: '◈',
       order: 1,
       ui: hubInstance
     });
@@ -116,7 +132,7 @@
       id: 'stock-tracker',
       name: '股票庫存 (N_BD_C)',
       shortName: '股票庫存',
-      icon: '📈',
+      icon: '▤',
       order: 2,
       ui: stockInstance
     });
@@ -125,25 +141,25 @@
       id: 'goodstock',
       name: '好股價選股與健診',
       shortName: '好股價',
-      icon: '🎯',
+      icon: '◎',
       order: 3,
       ui: goodstockInstance
     });
 
     registry.register({
       id: 'asset-tracker',
-      name: '資產紀錄 (F&S)',
-      shortName: '資產記帳',
-      icon: '🏦',
+      name: '家庭資產 (F&S)',
+      shortName: '家庭資產',
+      icon: '◫',
       order: 4,
       ui: assetInstance
     });
 
     registry.register({
       id: 'settings',
-      name: '設定與 AI 雙軌中心',
-      shortName: '設定/AI',
-      icon: '⚙️',
+      name: '設定與同步中心',
+      shortName: '設定',
+      icon: '⚙',
       order: 5,
       ui: settingsInstance
     });
@@ -182,10 +198,10 @@
       const badge = document.getElementById('topbar-mode-badge');
       if (cfg.mode === 'cloud') {
         badge.className = 'mode-badge cloud';
-        badge.textContent = '☁️ 正式雲端同步';
+        badge.textContent = '● 雲端同步';
       } else {
         badge.className = 'mode-badge sandbox';
-        badge.textContent = '🛡️ 本機安全沙盒';
+        badge.textContent = '○ 本機沙盒';
       }
 
       document.getElementById('sync-count-badge').textContent = String(queue.length);
@@ -193,10 +209,10 @@
       const privBtn = document.getElementById('btn-privacy-toggle');
       if (cfg.privacyMask) {
         document.body.classList.add('privacy-masked');
-        privBtn.textContent = '🙈 已隱藏金額';
+        privBtn.textContent = '已遮罩';
       } else {
         document.body.classList.remove('privacy-masked');
-        privBtn.textContent = '👁️ 隱藏金額';
+        privBtn.textContent = '遮罩';
       }
     }
 
@@ -211,12 +227,18 @@
     }
 
     // Bind Topbar Actions
+    document.getElementById('btn-theme-toggle').addEventListener('click', () => {
+      const next = document.body.classList.contains('theme-light') ? 'dark' : 'light';
+      applyTheme(next);
+      renderShell();
+    });
+
     async function forceUpdatePWA(triggerBtn) {
       if (triggerBtn) {
         triggerBtn.disabled = true;
-        triggerBtn.textContent = '⏳ 更新中...';
+        triggerBtn.textContent = '更新中...';
       }
-      showToast('🚀 正在清除舊版 PWA 快取並更新至最新版本...');
+      showToast('正在清除舊版快取並更新至最新版本...');
       try {
         if ('serviceWorker' in navigator) {
           const regs = await navigator.serviceWorker.getRegistrations();
