@@ -198,10 +198,37 @@ class LocalFirstStore {
   }
 
   _normalizeSnapshot(raw) {
+    const cleanCellVal = (key, val) => {
+      if (typeof val !== 'string') return val;
+      const s = val.trim();
+      if (!s) return s;
+      // Do not touch list settings (e.g. "B, S, F, C")
+      if (key === '值' || key === '券商分佈' || key === '備註' || key === '名目') return s;
+      // Convert formatted percentage strings (e.g. "48.08%", "-4.01%") to ratio string ("0.4808") unless column is explicitly a % number like "利率%"
+      if (/^[+-]?\s*\d[\d,]*(?:\.\d+)?\s*%$/.test(s)) {
+        const num = parseFloat(s.replace(/[,%\s]/g, ''));
+        if (Number.isFinite(num)) {
+          return key.includes('%') ? String(num) : String(num / 100);
+        }
+      }
+      // Convert currency/comma formatted numbers (e.g. "100,000", "1,580.20", "$327,424", "NT$100,000")
+      if (/^[+-]?\s*(?:NT\$|US\$|\$)?\s*[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/i.test(s)) {
+        return s.replace(/(?:NT\$|US\$|[$,\s])/gi, '');
+      }
+      return s;
+    };
     const ensureArr = (v) => {
-      if (Array.isArray(v)) return v;
-      if (v && typeof v === 'object' && Object.keys(v).length > 0) return [v];
-      return [];
+      let arr = [];
+      if (Array.isArray(v)) arr = v;
+      else if (v && typeof v === 'object' && Object.keys(v).length > 0) arr = [v];
+      return arr.map((row) => {
+        if (!row || typeof row !== 'object') return row;
+        const out = {};
+        for (const [k, val] of Object.entries(row)) {
+          out[k] = cleanCellVal(k, val);
+        }
+        return out;
+      });
     };
     const rawTrades = ensureArr(raw.stock?.recentTrades);
     const baseline = this._getBaselineLots();

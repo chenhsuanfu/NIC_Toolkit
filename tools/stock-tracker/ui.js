@@ -1,8 +1,22 @@
 import { StockCore } from './core.js';
 
-const fmtInt = (n) => Number(n || 0).toLocaleString('zh-TW', { maximumFractionDigits: 0 });
-const fmtDec = (n, d = 2) => Number(n || 0).toLocaleString('zh-TW', { minimumFractionDigits: d, maximumFractionDigits: d });
-const fmtPct = (n) => `${(Number(n || 0) * 100).toFixed(2)}%`;
+const toNum = (v, fallback = 0) => {
+  if (v === null || v === undefined || v === '') return fallback;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : fallback;
+  const cleaned = String(v).replace(/(?:NT\$|US\$|[$,%\s,])/gi, '');
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : fallback;
+};
+const toRatio = (v) => {
+  if (v === null || v === undefined || v === '') return 0;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+  const s = String(v).trim();
+  const num = toNum(s, 0);
+  return s.includes('%') ? num / 100 : num;
+};
+const fmtInt = (n) => toNum(n, 0).toLocaleString('zh-TW', { maximumFractionDigits: 0 });
+const fmtDec = (n, d = 2) => toNum(n, 0).toLocaleString('zh-TW', { minimumFractionDigits: d, maximumFractionDigits: d });
+const fmtPct = (n) => `${(toRatio(n) * 100).toFixed(2)}%`;
 
 export class StockTrackerUI {
   constructor() {
@@ -372,8 +386,8 @@ export class StockTrackerUI {
               ${holdings.map((r) => {
                 const sym = r['代號'];
                 const isSelected = this.selectedSymbol === sym;
-                const pnl = Number(r['未實現(TWD)'] || 0);
-                const roi = Number(r['報酬率'] || 0);
+                const pnl = toNum(r['未實現(TWD)'], 0);
+                const roi = toRatio(r['報酬率']);
                 const cls = pnl >= 0 ? 'text-emerald' : 'text-rose';
                 const sign = pnl >= 0 ? '+' : '';
                 const typeBadge = r['類型'] === '防禦型' ? 'pill-blue' : r['類型'] === '進攻型' ? 'pill-emerald' : 'pill-amber';
@@ -434,8 +448,8 @@ export class StockTrackerUI {
               </thead>
               <tbody>
                 ${watchlist.map((w) => {
-                  const fair = Number(w['公允價格'] || 0);
-                  const cur = Number(w['採用價'] || w['自動價'] || 0);
+                  const fair = toNum(w['公允價格'], 0);
+                  const cur = toNum(w['採用價'] || w['自動價'], 0);
                   const diffPct = (fair > 0 && cur > 0) ? ((cur - fair) / fair) : null;
                   const isUndervalued = diffPct !== null && diffPct <= 0;
                   return `

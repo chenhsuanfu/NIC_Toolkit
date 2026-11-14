@@ -215,9 +215,18 @@
         renderShell();
       });
 
-      // Register PWA Service Worker
+      // Register PWA Service Worker & auto-refresh when a new SW version takes over
       if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-        navigator.serviceWorker.register('./sw.js').catch(() => {});
+        let refreshing = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (!refreshing) {
+            refreshing = true;
+            window.location.reload();
+          }
+        });
+        navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then((reg) => {
+          reg.update().catch(() => {});
+        }).catch(() => {});
       }
     })();
   </script>

@@ -1,8 +1,22 @@
 import { StockCore } from '../stock-tracker/core.js';
 import { AssetCore } from '../asset-tracker/core.js';
 
-const fmtInt = (n) => Number(n || 0).toLocaleString('zh-TW', { maximumFractionDigits: 0 });
-const fmtPct = (n) => `${(Number(n || 0) * 100).toFixed(2)}%`;
+const toNum = (v, fallback = 0) => {
+  if (v === null || v === undefined || v === '') return fallback;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : fallback;
+  const cleaned = String(v).replace(/(?:NT\$|US\$|[$,%\s,])/gi, '');
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : fallback;
+};
+const toRatio = (v) => {
+  if (v === null || v === undefined || v === '') return 0;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+  const s = String(v).trim();
+  const num = toNum(s, 0);
+  return s.includes('%') ? num / 100 : num;
+};
+const fmtInt = (n) => toNum(n, 0).toLocaleString('zh-TW', { maximumFractionDigits: 0 });
+const fmtPct = (n) => `${(toRatio(n) * 100).toFixed(2)}%`;
 
 export class HubUI {
   constructor(navigateFn) {
@@ -179,8 +193,8 @@ export class HubUI {
               </thead>
               <tbody>
                 ${topHoldings.map((r) => {
-                  const pnl = Number(r['未實現(TWD)'] || 0);
-                  const roi = Number(r['報酬率'] || 0);
+                  const pnl = toNum(r['未實現(TWD)'], 0);
+                  const roi = toRatio(r['報酬率']);
                   return `
                     <tr>
                       <td class="font-mono" style="font-weight:700;">${r['代號']}</td>

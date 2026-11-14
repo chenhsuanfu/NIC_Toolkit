@@ -2,7 +2,8 @@ import { agentBridge } from '../../core/agent-bridge.js';
 
 const toNum = (v, fallback = 0) => {
   if (v === null || v === undefined || v === '') return fallback;
-  const cleaned = String(v).replace(/[$,%\s,]/g, '');
+  if (typeof v === 'number') return Number.isFinite(v) ? v : fallback;
+  const cleaned = String(v).replace(/(?:NT\$|US\$|[$,%\s,])/gi, '');
   const n = Number(cleaned);
   return Number.isFinite(n) ? n : fallback;
 };

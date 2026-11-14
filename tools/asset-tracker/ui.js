@@ -1,7 +1,14 @@
 import { AssetCore } from './core.js';
 
-const fmtInt = (n) => Number(n || 0).toLocaleString('zh-TW', { maximumFractionDigits: 0 });
-const fmtDec = (n, d = 2) => Number(n || 0).toLocaleString('zh-TW', { minimumFractionDigits: d, maximumFractionDigits: d });
+const toNum = (v, fallback = 0) => {
+  if (v === null || v === undefined || v === '') return fallback;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : fallback;
+  const cleaned = String(v).replace(/(?:NT\$|US\$|[$,%\s,])/gi, '');
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : fallback;
+};
+const fmtInt = (n) => toNum(n, 0).toLocaleString('zh-TW', { maximumFractionDigits: 0 });
+const fmtDec = (n, d = 2) => toNum(n, 0).toLocaleString('zh-TW', { minimumFractionDigits: d, maximumFractionDigits: d });
 
 export class AssetTrackerUI {
   constructor() {
@@ -215,7 +222,7 @@ export class AssetTrackerUI {
             <tbody>
               ${accounts.map((acc) => {
                 const cur = acc['幣別'] || 'TWD';
-                const bal = Number(acc['目前餘額(自動)'] || 0);
+                const bal = toNum(acc['目前餘額(自動)'], 0);
                 const rate = opts.fxMap[cur] || 1;
                 const twd = Math.round(bal * rate);
                 const badge = acc['屬性'] === '儲蓄' ? 'pill-emerald' : acc['屬性'] === '股票' ? 'pill-blue' : 'pill-amber';
@@ -368,7 +375,7 @@ export class AssetTrackerUI {
               </thead>
               <tbody>
                 ${salaries.map((s) => {
-                  const annual = Number(s['年薪'] || 0);
+                  const annual = toNum(s['年薪'], 0);
                   return `
                     <tr>
                       <td class="font-mono" style="font-weight:700;">${fmtInt(s['年'])} 年</td>
