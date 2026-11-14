@@ -20,12 +20,21 @@ export const StockCore = {
     const fxRow = Array.isArray(fxRows) ? fxRows[0] : fxRows;
     const usdTwd = toNum(fxRow?.['採用'] || fxRow?.['自動'], 32.89);
 
+    const symbols = Array.from(
+      new Set((state?.stock?.overview || []).map((r) => String(r['代號'] || '').trim().toUpperCase()).filter(Boolean))
+    ).sort();
+
     return {
       types: findVal('類型清單', ['防禦型', '進攻型', '樂透型']),
       brokers: findVal('券商清單', ['B', 'S', 'F', 'C', 'T', 'Y']),
       markets: findVal('市場清單', ['US', 'TW']),
+      symbols,
       usdTwd
     };
+  },
+
+  getFormOptions(state) {
+    return this.getOptions(state);
   },
 
   getSummary(state) {
@@ -38,12 +47,17 @@ export const StockCore = {
     let totalCostTwd = 0;
     let totalMarketUsd = 0;
     let totalMarketTwd = 0;
+    let twMarketTwd = 0;
+    let usMarketTwd = 0;
 
     for (const row of overview) {
+      const mktVal = toNum(row['市值(TWD)']);
       totalCostUsd += toNum(row['成本(USD)']);
       totalCostTwd += toNum(row['成本(TWD)']);
       totalMarketUsd += toNum(row['市值(USD)']);
-      totalMarketTwd += toNum(row['市值(TWD)']);
+      totalMarketTwd += mktVal;
+      if (String(row['市場'] || '').toUpperCase() === 'TW') twMarketTwd += mktVal;
+      else usMarketTwd += mktVal;
     }
 
     const unrealizedUsd = totalMarketUsd - totalCostUsd;
@@ -79,6 +93,8 @@ export const StockCore = {
       totalCostTwd: Math.round(totalCostTwd),
       totalMarketUsd: Math.round(totalMarketUsd * 100) / 100,
       totalMarketTwd: Math.round(totalMarketTwd),
+      twMarketTwd: Math.round(twMarketTwd),
+      usMarketTwd: Math.round(usMarketTwd),
       unrealizedUsd: Math.round(unrealizedUsd * 100) / 100,
       unrealizedTwd: Math.round(unrealizedTwd),
       returnRate,
@@ -167,13 +183,21 @@ export const StockCore = {
     openLots.sort((a, b) => String(b.entryDate).localeCompare(String(a.entryDate)));
     closedLots.sort((a, b) => String(b.entryDate).localeCompare(String(a.entryDate)));
 
+    const inferredMarket = holding?.['市場'] || openLots[0]?.market || closedLots[0]?.market
+      || (sym.endsWith('.TW') || sym.endsWith('.TWO') ? 'TW' : 'US');
+
     return {
       symbol: sym,
+      market: String(inferredMarket).toUpperCase(),
       holding,
       currentPrice,
       openLots,
       closedLots
     };
+  },
+
+  getLotsForSymbol(state, symbol) {
+    return this.getLotsBySymbol(state, symbol);
   },
 
   addTrade(state, params, storeInstance) {
