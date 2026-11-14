@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="NIC工具集" />
   <title>NIC Toolkit | 個人財務與量化工具集</title>
   <link rel="manifest" href="./manifest.webmanifest" />
-  <link rel="stylesheet" href="./assets/css/main.css" />
+  <link rel="stylesheet" href="./assets/css/main.css?v=12" />
 </head>
 <body>
   <div class="app-shell">
@@ -26,7 +26,7 @@
       <nav class="nav-list" id="sidebar-nav"></nav>
 
       <div class="sidebar-footer">
-        <div>Local-First 快取引擎</div>
+        <div>Local-First 快取引擎 · <span id="app-version-label">v12</span></div>
         <div style="margin-top:2px;">US 綠漲紅跌 · 雙軌架構</div>
       </div>
     </aside>
@@ -67,14 +67,53 @@
   <div class="toast-container" id="toast-container"></div>
 
   <script type="module">
-    import { store } from './core/store.js';
-    import { registry } from './core/registry.js';
-    import './core/agent-bridge.js';
-    import { HubUI } from './tools/hub/ui.js';
-    import { StockTrackerUI } from './tools/stock-tracker/ui.js';
-    import { GoodStockUI } from './tools/goodstock/ui.js';
-    import { AssetTrackerUI } from './tools/asset-tracker/ui.js';
-    import { SettingsUI } from './tools/settings/ui.js';
+    const APP_VERSION = 'v12';
+    const APP_VERSION_KEY = 'nic_toolkit_app_ver';
+    const CORE_ASSETS = [
+      './assets/css/main.css',
+      './core/seed-data.js',
+      './core/vault-data.js',
+      './core/store.js',
+      './core/api-client.js',
+      './core/registry.js',
+      './core/agent-bridge.js',
+      './tools/hub/ui.js',
+      './tools/stock-tracker/core.js',
+      './tools/stock-tracker/ui.js',
+      './tools/goodstock/data.js',
+      './tools/goodstock/core.js',
+      './tools/goodstock/ui.js',
+      './tools/asset-tracker/data.js',
+      './tools/asset-tracker/core.js',
+      './tools/asset-tracker/ui.js',
+      './tools/settings/ui.js'
+    ];
+
+    // Bypass GitHub Pages 10-min HTTP disk cache when upgrading app version
+    if (localStorage.getItem(APP_VERSION_KEY) !== APP_VERSION) {
+      await Promise.allSettled(CORE_ASSETS.map((u) => fetch(u, { cache: 'reload' })));
+      localStorage.setItem(APP_VERSION_KEY, APP_VERSION);
+    }
+
+    const [
+      { store },
+      { registry },
+      _agentBridgeMod,
+      { HubUI },
+      { StockTrackerUI },
+      { GoodStockUI },
+      { AssetTrackerUI },
+      { SettingsUI }
+    ] = await Promise.all([
+      import('./core/store.js'),
+      import('./core/registry.js'),
+      import('./core/agent-bridge.js'),
+      import('./tools/hub/ui.js'),
+      import('./tools/stock-tracker/ui.js'),
+      import('./tools/goodstock/ui.js'),
+      import('./tools/asset-tracker/ui.js'),
+      import('./tools/settings/ui.js')
+    ]);
 
     let currentToolId = 'hub';
 
@@ -240,6 +279,7 @@
       }
       showToast('正在清除舊版快取並更新至最新版本...');
       try {
+        localStorage.removeItem(APP_VERSION_KEY);
         if ('serviceWorker' in navigator) {
           const regs = await navigator.serviceWorker.getRegistrations();
           await Promise.all(regs.map((r) => r.unregister()));
@@ -248,8 +288,10 @@
           const keys = await caches.keys();
           await Promise.all(keys.map((k) => caches.delete(k)));
         }
+        // Overwrite browser HTTP disk cache (max-age=600) for all core assets before reloading
+        await Promise.allSettled(['./', './index.html', ...CORE_ASSETS].map((u) => fetch(u, { cache: 'reload' })));
         if (store.getConfig().mode === 'cloud' && store.getConfig().gasUrl) {
-          await store.pullFromCloud().catch(() => {});
+          await store.pullFromCloudSilently(true).catch(() => {});
         }
       } catch (_) {}
       setTimeout(() => {

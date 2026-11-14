@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nic-toolkit-shell-v11';
+const CACHE_NAME = 'nic-toolkit-shell-v12';
 const CORE_ASSETS = [
   './',
   './index.html',
@@ -24,7 +24,15 @@ const CORE_ASSETS = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(CORE_ASSETS)).then(() => self.skipWaiting())
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.all(
+        CORE_ASSETS.map((url) =>
+          fetch(new Request(url, { cache: 'reload' })).then((res) => {
+            if (res && res.status === 200) return cache.put(url, res);
+          })
+        )
+      )
+    ).then(() => self.skipWaiting())
   );
 });
 
@@ -36,7 +44,7 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Network-First with instant Cache Fallback so code updates apply immediately on refresh
+// Network-First with ETag revalidation (no-cache bypasses 10m GitHub Pages max-age=600 stale HTTP cache)
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
@@ -44,7 +52,7 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;
 
   event.respondWith(
-    fetch(req)
+    fetch(req, { cache: 'no-cache' })
       .then((res) => {
         if (res && res.status === 200) {
           const clone = res.clone();
@@ -52,6 +60,6 @@ self.addEventListener('fetch', (event) => {
         }
         return res;
       })
-      .catch(() => caches.match(req))
+      .catch(() => caches.match(req, { ignoreSearch: true }))
   );
 });
