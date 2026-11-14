@@ -344,7 +344,7 @@ body.privacy-masked .mask-amount:hover {
 /* Colors & Pills */
 .text-emerald { color: var(--accent-emerald); }
 .text-rose { color: var(--accent-rose); }
-.text-blue { color: var(--accent-blue); }
+.text-blue, .text-sky { color: var(--accent-blue); }
 .text-amber { color: var(--accent-amber); }
 .text-muted { color: var(--text-secondary); }
 .font-mono { font-family: var(--font-mono); }
@@ -459,7 +459,7 @@ body.privacy-masked .mask-amount:hover {
   color: var(--text-secondary);
 }
 
-.form-control {
+.form-control, .form-select, .form-input {
   width: 100%;
   min-width: 0;
   padding: 9px 12px;
@@ -471,7 +471,7 @@ body.privacy-masked .mask-amount:hover {
   font-family: inherit;
   outline: none;
 }
-.form-control:focus {
+.form-control:focus, .form-select:focus, .form-input:focus {
   border-color: var(--accent-blue);
   box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
 }
@@ -484,13 +484,13 @@ body.privacy-masked .mask-amount:hover {
   -webkit-overflow-scrolling: touch;
 }
 
-.data-table {
+.data-table, .table-wrap table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
 }
 
-.data-table th {
+.data-table th, .table-wrap table th {
   text-align: left;
   padding: 10px 10px;
   color: var(--text-secondary);
@@ -499,14 +499,19 @@ body.privacy-masked .mask-amount:hover {
   white-space: nowrap;
 }
 
-.data-table td {
+.data-table td, .table-wrap table td {
   padding: 10px 10px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.08);
   white-space: nowrap;
 }
 
-.data-table tr:hover td {
+.data-table tr:hover td, .table-wrap table tr:hover td {
   background: rgba(255, 255, 255, 0.02);
+}
+
+.table-wrap th.num, .table-wrap td.num, .num {
+  text-align: right;
+  font-family: var(--font-mono);
 }
 
 /* Tool Launcher Cards */

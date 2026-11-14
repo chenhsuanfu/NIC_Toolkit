@@ -207,6 +207,11 @@ export class StockTrackerUI {
             </div>
           </div>
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            ${curLabel === 'TWD' ? `
+              <button type="button" class="btn btn-emerald btn-sm" id="btn-open-goodstock-for-symbol" data-gs-symbol="${symbol}">
+                🎯 好股價財報與六大指標健診
+              </button>
+            ` : ''}
             <button type="button" class="btn btn-primary btn-sm" id="btn-buy-same-symbol">
               ${this.showBuyForSelected ? '✕ 收起加碼' : `📥 加碼買進 ${symbol}`}
             </button>
@@ -930,6 +935,14 @@ export class StockTrackerUI {
       buySameBtn.addEventListener('click', () => {
         this.showBuyForSelected = !this.showBuyForSelected;
         this.render(container, store.getState(), store, showToast);
+      });
+    }
+
+    const openGsBtn = container.querySelector('#btn-open-goodstock-for-symbol');
+    if (openGsBtn) {
+      openGsBtn.addEventListener('click', () => {
+        const sym = openGsBtn.getAttribute('data-gs-symbol') || this.selectedSymbol;
+        if (window.NIC_OpenGoodStock) window.NIC_OpenGoodStock(sym, 'all');
       });
     }
 

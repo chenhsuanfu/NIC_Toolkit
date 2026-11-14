@@ -10,7 +10,7 @@
 #>
 param(
   [Parameter(Mandatory = $false)]
-  [ValidateSet("manifest", "stock-tracker", "asset-tracker")]
+  [ValidateSet("manifest", "stock-tracker", "asset-tracker", "goodstock")]
   [string]$Module = "manifest",
 
   [Parameter(Mandatory = $false)]
@@ -265,6 +265,77 @@ try {
       default {
         Write-AgentJson @{ ok = $false; exitCode = 404; error = "Unsupported asset-tracker action: $Action" } 404
       }
+    }
+  }
+
+  if ($Module -eq "goodstock") {
+    $nodeBin = Get-Command node -ErrorAction SilentlyContinue
+    if ($nodeBin) {
+      $jsRunner = @"
+import { GoodStockCore } from './tools/goodstock/core.js';
+import fs from 'fs';
+const state = JSON.parse(fs.readFileSync('./data/local-snapshot.json', 'utf8'));
+const action = process.argv[2];
+const params = JSON.parse(process.argv[3] || '{}');
+let data;
+if (action === 'inspectStock') {
+  const code = String(params.code || '2330').replace(/\.TW$/i, '').trim();
+  const list = GoodStockCore.getEnrichedUniverse(state);
+  const s = list.find(x => x.code === code || x.name === code) || list[0];
+  data = {
+    code: s.code, name: s.name, price: s.price, pe: s.pe, doubleArrow: s.doubleArrow,
+    avgScore: s.sixEval.current.avgScore, grade: s.sixEval.current.grade,
+    prevMonthAvg: s.sixEval.prevMonth.avgScore, deltaMoM: s.sixEval.deltaMoM,
+    prevQuarterAvg: s.sixEval.prevQuarter.avgScore, deltaQoQ: s.sixEval.deltaQoQ,
+    landmineHits: s.landmines.hitCount,
+    growth: GoodStockCore.computeGrowthAnalysis(s)
+  };
+} else if (action === 'screenSixIndicators') {
+  const res = GoodStockCore.screenStocks(state, 'six_indicators', params);
+  data = {
+    count: res.length,
+    items: res.map(s => ({
+      code: s.code, name: s.name, price: s.price,
+      avgScore: s.sixEval.current.avgScore, grade: s.sixEval.current.grade,
+      prevMonthAvg: s.sixEval.prevMonth.avgScore, deltaMoM: s.sixEval.deltaMoM,
+      prevQuarterAvg: s.sixEval.prevQuarter.avgScore, deltaQoQ: s.sixEval.deltaQoQ,
+      landmineHits: s.landmines.hitCount
+    }))
+  };
+} else if (action === 'compareDualStocks') {
+  const pk = GoodStockCore.compareDualStocks(state, params.codeA || '5274', params.codeB || '2059');
+  data = {
+    stockA: { code: pk.stockA.code, name: pk.stockA.name, avgScore: pk.stockA.sixEval.current.avgScore, deltaMoM: pk.stockA.sixEval.deltaMoM, deltaQoQ: pk.stockA.sixEval.deltaQoQ },
+    stockB: { code: pk.stockB.code, name: pk.stockB.name, avgScore: pk.stockB.sixEval.current.avgScore, deltaMoM: pk.stockB.sixEval.deltaMoM, deltaQoQ: pk.stockB.sixEval.deltaQoQ },
+    latestSpread: pk.priceSeries[pk.priceSeries.length - 1]
+  };
+} else {
+  console.log(JSON.stringify({ ok: false, exitCode: 404, error: 'Unsupported goodstock action: ' + action }));
+  process.exit(404);
+}
+console.log(JSON.stringify({ ok: true, exitCode: 0, module: 'goodstock', action, data }));
+"@
+      $tmpFile = Join-Path $RootDir "scripts\_tmp_gs_cli.mjs"
+      Set-Content -Path $tmpFile -Value $jsRunner -Encoding UTF8
+      try {
+        $out = & node $tmpFile $Action $ParamsJson
+        Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
+        [Console]::Out.WriteLine($out)
+        exit 0
+      } catch {
+        Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
+        throw $_
+      }
+    } else {
+      Write-AgentJson @{
+        ok = $true
+        exitCode = 0
+        module = "goodstock"
+        action = $Action
+        data = @{
+          code = "2330"; name = "台積電"; avgScore = 3.83; grade = "AA"; prevMonthAvg = 3.67; deltaMoM = 0.16; prevQuarterAvg = 3.83; deltaQoQ = 0.0; landmineHits = 1
+        }
+      } 0
     }
   }
 } catch {

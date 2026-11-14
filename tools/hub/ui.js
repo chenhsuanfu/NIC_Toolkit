@@ -135,6 +135,24 @@ export class HubUI {
             </div>
           </div>
 
+          <!-- Built-in Tool 1b: GoodStockPrice -->
+          <div class="tool-card" data-goto="goodstock">
+            <div>
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <span style="font-size:24px;">🎯</span>
+                <span class="pill pill-emerald">內建核心模組 · 好股價旗艦版</span>
+              </div>
+              <div style="font-weight:700; font-size:16px; margin-bottom:4px;">好股價選股與財務六大指標健診</div>
+              <div class="text-muted" style="font-size:13px;">
+                完整內建「財務六大指標評分選股 (含較前月 MoM / 較前季 QoQ 評分比較)」、7 大財務地雷、8 季財報與 36 月營收圖、目標價 9 線圖與雙股 PK 對比。
+              </div>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; padding-top:10px; border-top:1px solid var(--border-color); font-size:12px; color:var(--accent-blue);">
+              <span>立即進入選股與健診</span>
+              <span>→</span>
+            </div>
+          </div>
+
           <!-- Built-in Tool 2 -->
           <div class="tool-card" data-goto="asset-tracker">
             <div>

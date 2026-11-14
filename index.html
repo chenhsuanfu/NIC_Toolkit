@@ -66,6 +66,7 @@
     import './core/agent-bridge.js';
     import { HubUI } from './tools/hub/ui.js';
     import { StockTrackerUI } from './tools/stock-tracker/ui.js';
+    import { GoodStockUI } from './tools/goodstock/ui.js';
     import { AssetTrackerUI } from './tools/asset-tracker/ui.js';
     import { SettingsUI } from './tools/settings/ui.js';
 
@@ -90,8 +91,14 @@
     // Register Modular Tools
     const hubInstance = new HubUI(navigateTo);
     const stockInstance = new StockTrackerUI();
+    const goodstockInstance = new GoodStockUI();
     const assetInstance = new AssetTrackerUI();
     const settingsInstance = new SettingsUI();
+
+    window.NIC_OpenGoodStock = (code, subView = 'all') => {
+      if (code) goodstockInstance.openStockInfo(code, subView);
+      navigateTo('goodstock');
+    };
 
     registry.register({
       id: 'hub',
@@ -112,11 +119,20 @@
     });
 
     registry.register({
+      id: 'goodstock',
+      name: '好股價選股與健診',
+      shortName: '好股價',
+      icon: '🎯',
+      order: 3,
+      ui: goodstockInstance
+    });
+
+    registry.register({
       id: 'asset-tracker',
       name: '資產紀錄 (F&S)',
       shortName: '資產記帳',
       icon: '🏦',
-      order: 3,
+      order: 4,
       ui: assetInstance
     });
 
@@ -125,7 +141,7 @@
       name: '設定與 AI 雙軌中心',
       shortName: '設定/AI',
       icon: '⚙️',
-      order: 4,
+      order: 5,
       ui: settingsInstance
     });
 
