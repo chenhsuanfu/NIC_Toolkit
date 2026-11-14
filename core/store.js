@@ -243,11 +243,16 @@ class LocalFirstStore {
       }
       mergedTrades = Array.from(map.values());
     }
+    const rawSettings = ensureArr(raw.stock?.settings);
+    const prevWeightRow = (this.state?.stock?.settings || []).find((r) => r['項目'] === '目標權重JSON');
+    if (prevWeightRow && !rawSettings.some((r) => r['項目'] === '目標權重JSON')) {
+      rawSettings.push(prevWeightRow);
+    }
     return {
       generatedAt: raw.generatedAt || new Date().toISOString(),
       isDemoSeed: Boolean(raw.isDemoSeed),
       stock: {
-        settings: ensureArr(raw.stock?.settings),
+        settings: rawSettings,
         fx: ensureArr(raw.stock?.fx),
         overview: ensureArr(raw.stock?.overview),
         risk: ensureArr(raw.stock?.risk),

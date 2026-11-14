@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nic-toolkit-shell-v5';
+const CACHE_NAME = 'nic-toolkit-shell-v6';
 const CORE_ASSETS = [
   './',
   './index.html',

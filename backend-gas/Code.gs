@@ -143,6 +143,29 @@ function doPost(e) {
           syncedIds.push(mut.id);
           break;
         }
+        case 'stock.upsertSetting': {
+          const sh = stockSS.getSheetByName('設定');
+          const data = sh.getDataRange().getValues();
+          const key = String(p['項目'] || '').trim();
+          const val = String(p['值'] || '');
+          const desc = String(p['說明'] || '');
+          if (key) {
+            let updated = false;
+            for (let i = 1; i < data.length; i++) {
+              if (String(data[i][0]).trim() === key) {
+                sh.getRange(i + 1, 2).setValue(val);
+                if (desc) sh.getRange(i + 1, 3).setValue(desc);
+                updated = true;
+                break;
+              }
+            }
+            if (!updated) {
+              sh.appendRow([key, val, desc]);
+            }
+          }
+          syncedIds.push(mut.id);
+          break;
+        }
         case 'asset.appendExpense': {
           const sh = assetSS.getSheetByName('開銷明細');
           sh.appendRow([

@@ -174,6 +174,48 @@ try {
           }
         } 0
       }
+      "getRebalanceComparison" {
+        $activeHoldings = @($State.stock.overview | Where-Object { $_.'代號' -and (To-Num $_.'剩餘股數') -gt 0 })
+        $totalCost = 0.0; $totalMkt = 0.0
+        foreach ($h in $activeHoldings) {
+          $totalCost += (To-Num $h.'成本(TWD)')
+          $totalMkt  += (To-Num $h.'市值(TWD)')
+        }
+        $defaultTargets = @{ '進攻型' = 70.0; '防禦型' = 20.0; '樂透型' = 10.0 }
+        $tier1 = @()
+        foreach ($tp in @('進攻型', '防禦型', '樂透型')) {
+          $items = @($activeHoldings | Where-Object { $_.'類型' -eq $tp })
+          $c = 0.0; $m = 0.0
+          foreach ($i in $items) { $c += (To-Num $i.'成本(TWD)'); $m += (To-Num $i.'市值(TWD)') }
+          $tPct = $defaultTargets[$tp]
+          $cPct = if ($totalCost -gt 0) { ($c / $totalCost) * 100.0 } else { 0.0 }
+          $mPct = if ($totalMkt -gt 0) { ($m / $totalMkt) * 100.0 } else { 0.0 }
+          $tier1 += @{
+            type = $tp
+            count = $items.Count
+            targetPct = $tPct
+            costTwd = [math]::Round($c)
+            costWeightPct = [math]::Round($cPct, 1)
+            costDiffPct = [math]::Round(($cPct - $tPct), 1)
+            costActionTwd = [math]::Round(($totalCost * ($tPct / 100.0)) - $c)
+            marketTwd = [math]::Round($m)
+            marketWeightPct = [math]::Round($mPct, 1)
+            marketDiffPct = [math]::Round(($mPct - $tPct), 1)
+            marketActionTwd = [math]::Round(($totalMkt * ($tPct / 100.0)) - $m)
+          }
+        }
+        Write-AgentJson @{
+          ok = $true
+          exitCode = 0
+          module = "stock-tracker"
+          action = "getRebalanceComparison"
+          data = @{
+            portfolioCostTwd = [math]::Round($totalCost)
+            portfolioMarketTwd = [math]::Round($totalMkt)
+            tier1 = $tier1
+          }
+        } 0
+      }
       default {
         Write-AgentJson @{ ok = $false; exitCode = 404; error = "Unsupported stock-tracker action: $Action" } 404
       }

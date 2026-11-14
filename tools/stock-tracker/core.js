@@ -383,6 +383,289 @@ export const StockCore = {
       targetPrice: Math.round(targetPrice * 100) / 100,
       matrix
     };
+  },
+
+  /**
+   * Read two-tier target weight config from state.stock.settings ('目標權重JSON')
+   * Format: { types: { '進攻型': 70, '防禦型': 20, '樂透型': 10 }, stocks: { 'TSLA': 40, ... } }
+   */
+  getTargetConfig(state) {
+    const defaultTypes = { '進攻型': 70, '防禦型': 20, '樂透型': 10 };
+    const settings = state?.stock?.settings || [];
+    const row = settings.find((r) => r['項目'] === '目標權重JSON');
+    if (row && row['值']) {
+      try {
+        const parsed = JSON.parse(row['值']);
+        if (parsed && typeof parsed === 'object') {
+          if (parsed.types || parsed.stocks) {
+            return {
+              types: { ...defaultTypes, ...(parsed.types || {}) },
+              stocks: { ...(parsed.stocks || {}) }
+            };
+          }
+          // Backward compatibility if flat stock map
+          return { types: defaultTypes, stocks: parsed };
+        }
+      } catch (_) {}
+    }
+    return { types: defaultTypes, stocks: {} };
+  },
+
+  saveTargetConfig(state, configObj, storeInstance) {
+    const cur = this.getTargetConfig(state);
+    const nextTypes = {};
+    for (const [k, v] of Object.entries(configObj?.types || cur.types)) {
+      const num = toNum(v, 0);
+      nextTypes[String(k).trim()] = Math.max(0, Math.round(num * 100) / 100);
+    }
+    const nextStocks = {};
+    for (const [k, v] of Object.entries(configObj?.stocks || cur.stocks)) {
+      const sym = String(k || '').trim().toUpperCase();
+      const num = toNum(v, 0);
+      if (sym && num > 0) {
+        nextStocks[sym] = Math.round(num * 100) / 100;
+      }
+    }
+    const payloadObj = { types: nextTypes, stocks: nextStocks };
+    const record = {
+      '項目': '目標權重JSON',
+      '值': JSON.stringify(payloadObj),
+      '說明': '兩層式策略池與個股目標配置百分比(%)'
+    };
+
+    storeInstance.mutate('stock.upsertSetting', record, (s) => {
+      if (!Array.isArray(s.stock.settings)) s.stock.settings = [];
+      const idx = s.stock.settings.findIndex((r) => r['項目'] === '目標權重JSON');
+      if (idx >= 0) {
+        s.stock.settings[idx] = { ...s.stock.settings[idx], ...record };
+      } else {
+        s.stock.settings.push(record);
+      }
+    });
+
+    return payloadObj;
+  },
+
+  setTypeTargetWeight(state, { type, targetPct }, storeInstance) {
+    const cur = this.getTargetConfig(state);
+    const tp = String(type || '').trim();
+    if (!tp) return cur;
+    cur.types[tp] = Math.max(0, Math.round(toNum(targetPct, 0) * 100) / 100);
+    return this.saveTargetConfig(state, cur, storeInstance);
+  },
+
+  setStockTargetWeight(state, { symbol, targetPct }, storeInstance) {
+    const cur = this.getTargetConfig(state);
+    const sym = String(symbol || '').trim().toUpperCase();
+    if (!sym) return cur;
+    const val = toNum(targetPct, 0);
+    if (val <= 0) {
+      delete cur.stocks[sym];
+    } else {
+      cur.stocks[sym] = Math.round(val * 100) / 100;
+    }
+    return this.saveTargetConfig(state, cur, storeInstance);
+  },
+
+  /**
+   * Auto-fill or clear Tier-2 stock weights inside a specific strategy pool ('進攻型' | '防禦型' | '樂透型')
+   */
+  autoFillPoolWeights(state, { poolType = '進攻型', basis = 'cost' }, storeInstance) {
+    const cur = this.getTargetConfig(state);
+    const poolHoldings = (state?.stock?.overview || []).filter(
+      (r) => r['代號'] && toNum(r['剩餘股數']) > 0 && (r['類型'] || '進攻型') === poolType
+    );
+
+    if (basis === 'clear') {
+      for (const r of poolHoldings) {
+        const sym = String(r['代號']).trim().toUpperCase();
+        delete cur.stocks[sym];
+      }
+      return this.saveTargetConfig(state, cur, storeInstance);
+    }
+
+    let poolTotal = 0;
+    for (const r of poolHoldings) {
+      poolTotal += basis === 'market' ? toNum(r['市值(TWD)']) : toNum(r['成本(TWD)']);
+    }
+
+    if (poolTotal > 0) {
+      let runningSum = 0;
+      poolHoldings.forEach((r, idx) => {
+        const sym = String(r['代號']).trim().toUpperCase();
+        const val = basis === 'market' ? toNum(r['市值(TWD)']) : toNum(r['成本(TWD)']);
+        if (idx === poolHoldings.length - 1) {
+          cur.stocks[sym] = Math.max(0, Math.round((100 - runningSum) * 10) / 10);
+        } else {
+          const w = Math.round((val / poolTotal) * 1000) / 10;
+          cur.stocks[sym] = w;
+          runningSum += w;
+        }
+      });
+    }
+    return this.saveTargetConfig(state, cur, storeInstance);
+  },
+
+  /**
+   * Two-Tier Dual-Basis Rebalance Comparison:
+   * Tier 1: Strategy Pools ('進攻型' | '防禦型' | '樂透型') vs Portfolio Total Cost & Market Value
+   * Tier 2: Stocks inside selected Pool vs Pool Target (or Pool Current) Cost & Market Value
+   */
+  getRebalanceComparison(state, { activePool = '進攻型', calcMode = 'TOP_DOWN', query = '' } = {}) {
+    const { usdTwd, types } = this.getOptions(state);
+    const allHoldings = (state?.stock?.overview || []).filter((r) => r['代號'] && toNum(r['剩餘股數']) > 0);
+    const cfg = this.getTargetConfig(state);
+
+    let portfolioCostTwd = 0;
+    let portfolioMarketTwd = 0;
+    for (const r of allHoldings) {
+      portfolioCostTwd += toNum(r['成本(TWD)']);
+      portfolioMarketTwd += toNum(r['市值(TWD)']);
+    }
+
+    const poolTypes = Array.from(new Set(['進攻型', '防禦型', '樂透型', ...types]));
+    let tier1TotalTargetPct = 0;
+
+    // Tier 1: Strategy Pool Rows
+    const tier1Rows = poolTypes.map((tp) => {
+      const items = allHoldings.filter((r) => (r['類型'] || '進攻型') === tp);
+      let poolCostTwd = 0;
+      let poolMarketTwd = 0;
+      for (const r of items) {
+        poolCostTwd += toNum(r['成本(TWD)']);
+        poolMarketTwd += toNum(r['市值(TWD)']);
+      }
+      const targetPct = toNum(cfg.types[tp], 0);
+      tier1TotalTargetPct += targetPct;
+
+      const costWeightPct = portfolioCostTwd > 0 ? (poolCostTwd / portfolioCostTwd) * 100 : 0;
+      const costDiffPct = costWeightPct - targetPct;
+      const targetCostTwd = portfolioCostTwd * (targetPct / 100);
+      const costActionTwd = targetCostTwd - poolCostTwd;
+
+      const marketWeightPct = portfolioMarketTwd > 0 ? (poolMarketTwd / portfolioMarketTwd) * 100 : 0;
+      const marketDiffPct = marketWeightPct - targetPct;
+      const targetMarketTwd = portfolioMarketTwd * (targetPct / 100);
+      const marketActionTwd = targetMarketTwd - poolMarketTwd;
+
+      return {
+        type: tp,
+        count: items.length,
+        targetPct: Math.round(targetPct * 100) / 100,
+        costTwd: Math.round(poolCostTwd),
+        costWeightPct: Math.round(costWeightPct * 100) / 100,
+        costDiffPct: Math.round(costDiffPct * 100) / 100,
+        targetCostTwd: Math.round(targetCostTwd),
+        costActionTwd: Math.round(costActionTwd),
+        marketTwd: Math.round(poolMarketTwd),
+        marketWeightPct: Math.round(marketWeightPct * 100) / 100,
+        marketDiffPct: Math.round(marketDiffPct * 100) / 100,
+        targetMarketTwd: Math.round(targetMarketTwd),
+        marketActionTwd: Math.round(marketActionTwd)
+      };
+    });
+
+    // Tier 2: Stocks inside activePool (or ALL if activePool === 'ALL')
+    const activeTier1 = tier1Rows.find((r) => r.type === activePool) || tier1Rows[0];
+    const poolHoldings = activePool === 'ALL'
+      ? allHoldings
+      : allHoldings.filter((r) => (r['類型'] || '進攻型') === activePool);
+
+    const poolCurrentCostTwd = activePool === 'ALL' ? portfolioCostTwd : (activeTier1?.costTwd || 0);
+    const poolCurrentMarketTwd = activePool === 'ALL' ? portfolioMarketTwd : (activeTier1?.marketTwd || 0);
+    const poolTargetCostTwd = activePool === 'ALL' ? portfolioCostTwd : (activeTier1?.targetCostTwd || 0);
+    const poolTargetMarketTwd = activePool === 'ALL' ? portfolioMarketTwd : (activeTier1?.targetMarketTwd || 0);
+    const poolTypeTargetPct = activePool === 'ALL' ? 100 : (activeTier1?.targetPct || 0);
+
+    // Choose base denominator for target $ calculation
+    const denomCostTwd = (calcMode === 'TOP_DOWN' && activePool !== 'ALL' && poolTargetCostTwd > 0)
+      ? poolTargetCostTwd
+      : poolCurrentCostTwd;
+    const denomMarketTwd = (calcMode === 'TOP_DOWN' && activePool !== 'ALL' && poolTargetMarketTwd > 0)
+      ? poolTargetMarketTwd
+      : poolCurrentMarketTwd;
+
+    let tier2TotalTargetPct = 0;
+    const tier2AllRows = poolHoldings.map((r) => {
+      const symbol = String(r['代號'] || '').trim().toUpperCase();
+      const mkt = r['市場'] || 'US';
+      const tp = r['類型'] || '進攻型';
+      const shares = toNum(r['剩餘股數']);
+      const avgCostNative = toNum(r['平均成本(原幣)']);
+      const currentPriceNative = toNum(r['現價(原幣)']);
+      const costTwd = toNum(r['成本(TWD)']);
+      const marketTwd = toNum(r['市值(TWD)']);
+
+      const targetPct = toNum(cfg.stocks[symbol], 0);
+      tier2TotalTargetPct += targetPct;
+      const globalTargetPct = (poolTypeTargetPct * targetPct) / 100;
+
+      // 1. 池內持有成本佔比 & 差距 (目前池內成本% - 池內目標%)
+      const costWeightPct = poolCurrentCostTwd > 0 ? (costTwd / poolCurrentCostTwd) * 100 : 0;
+      const costDiffPct = costWeightPct - targetPct;
+      const targetCostTwd = denomCostTwd * (targetPct / 100);
+      const costActionTwd = targetCostTwd - costTwd; // >0 買入, <0 賣出
+      const costActionNative = mkt === 'TW' ? costActionTwd : (usdTwd > 0 ? costActionTwd / usdTwd : 0);
+      const costActionShares = currentPriceNative > 0 ? costActionNative / currentPriceNative : 0;
+
+      // 2. 池內目前現值佔比 & 差距 (目前池內現值% - 池內目標%)
+      const marketWeightPct = poolCurrentMarketTwd > 0 ? (marketTwd / poolCurrentMarketTwd) * 100 : 0;
+      const marketDiffPct = marketWeightPct - targetPct;
+      const targetMarketTwd = denomMarketTwd * (targetPct / 100);
+      const marketActionTwd = targetMarketTwd - marketTwd; // >0 買入, <0 賣出
+      const marketActionNative = mkt === 'TW' ? marketActionTwd : (usdTwd > 0 ? marketActionTwd / usdTwd : 0);
+      const marketActionShares = currentPriceNative > 0 ? marketActionNative / currentPriceNative : 0;
+
+      return {
+        symbol,
+        market: mkt,
+        type: tp,
+        shares,
+        avgCostNative,
+        currentPriceNative,
+        costTwd: Math.round(costTwd),
+        marketTwd: Math.round(marketTwd),
+        targetPct: Math.round(targetPct * 100) / 100,
+        globalTargetPct: Math.round(globalTargetPct * 100) / 100,
+        // Cost Basis
+        costWeightPct: Math.round(costWeightPct * 100) / 100,
+        costDiffPct: Math.round(costDiffPct * 100) / 100,
+        targetCostTwd: Math.round(targetCostTwd),
+        costActionTwd: Math.round(costActionTwd),
+        costActionNative: Math.round(costActionNative * 100) / 100,
+        costActionShares: Math.round(costActionShares * 100) / 100,
+        // Market Value Basis
+        marketWeightPct: Math.round(marketWeightPct * 100) / 100,
+        marketDiffPct: Math.round(marketDiffPct * 100) / 100,
+        targetMarketTwd: Math.round(targetMarketTwd),
+        marketActionTwd: Math.round(marketActionTwd),
+        marketActionNative: Math.round(marketActionNative * 100) / 100,
+        marketActionShares: Math.round(marketActionShares * 100) / 100
+      };
+    });
+
+    const q = String(query || '').trim().toUpperCase();
+    const tier2Rows = q ? tier2AllRows.filter((item) => item.symbol.includes(q)) : tier2AllRows;
+
+    return {
+      usdTwd,
+      activePool,
+      calcMode,
+      portfolioCostTwd: Math.round(portfolioCostTwd),
+      portfolioMarketTwd: Math.round(portfolioMarketTwd),
+      tier1TotalTargetPct: Math.round(tier1TotalTargetPct * 100) / 100,
+      tier1UnallocatedPct: Math.round((100 - tier1TotalTargetPct) * 100) / 100,
+      tier1Rows,
+      poolCurrentCostTwd: Math.round(poolCurrentCostTwd),
+      poolCurrentMarketTwd: Math.round(poolCurrentMarketTwd),
+      poolTargetCostTwd: Math.round(poolTargetCostTwd),
+      poolTargetMarketTwd: Math.round(poolTargetMarketTwd),
+      denomCostTwd: Math.round(denomCostTwd),
+      denomMarketTwd: Math.round(denomMarketTwd),
+      tier2TotalTargetPct: Math.round(tier2TotalTargetPct * 100) / 100,
+      tier2UnallocatedPct: Math.round((100 - tier2TotalTargetPct) * 100) / 100,
+      tier2Rows
+    };
   }
 };
 
@@ -393,6 +676,9 @@ agentBridge.registerModule('stock-tracker', {
     getSummary: (state) => StockCore.getSummary(state),
     filterHoldings: (state, params) => StockCore.filterHoldings(state, params),
     getLotsBySymbol: (state, params) => StockCore.getLotsBySymbol(state, params?.symbol),
+    getRebalanceComparison: (state, params) => StockCore.getRebalanceComparison(state, params),
+    setTypeTargetWeight: (state, params, store) => StockCore.setTypeTargetWeight(state, params, store),
+    setStockTargetWeight: (state, params, store) => StockCore.setStockTargetWeight(state, params, store),
     addTrade: (state, params, store) => StockCore.addTrade(state, params, store),
     addExit: (state, params, store) => StockCore.addExit(state, params, store),
     upsertWatchlist: (state, params, store) => StockCore.upsertWatchlist(state, params, store),

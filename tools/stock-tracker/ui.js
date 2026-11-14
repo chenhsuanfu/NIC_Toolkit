@@ -20,7 +20,7 @@ const fmtPct = (n) => `${(toRatio(n) * 100).toFixed(2)}%`;
 
 export class StockTrackerUI {
   constructor() {
-    this.activeTab = 'holdings'; // 'holdings' | 'watchlist' | 'history'
+    this.activeTab = 'holdings'; // 'holdings' | 'rebalance' | 'watchlist' | 'history'
     this.filterMarket = 'ALL';
     this.filterType = 'ALL';
     this.searchQuery = '';
@@ -29,6 +29,9 @@ export class StockTrackerUI {
     this.selectedLotId = null;  // Specific lot ID selected for exit/selling
     this.showBuyForSelected = false; // Quick add buy lot for selectedSymbol
     this.showClosedLots = false;
+    this.rebalancePool = '進攻型'; // '進攻型' | '防禦型' | '樂透型'
+    this.rebalanceCalcMode = 'TOP_DOWN'; // 'TOP_DOWN' | 'POOL_ONLY'
+    this.rebalanceQuery = '';
     this.valParams = {
       symbol: '2330.TW',
       isTwStock: true,
@@ -96,6 +99,7 @@ export class StockTrackerUI {
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:14px;">
         <div class="sub-tabs" style="margin-bottom:0; border-bottom:none;">
           <button class="sub-tab ${this.activeTab === 'holdings' ? 'active' : ''}" data-tab="holdings">📊 持倉總覽 (${holdings.length})</button>
+          <button class="sub-tab ${this.activeTab === 'rebalance' ? 'active' : ''}" data-tab="rebalance">⚖️ 權重配置比較</button>
           <button class="sub-tab ${this.activeTab === 'watchlist' ? 'active' : ''}" data-tab="watchlist">🎯 觀察清單 & 好股價估值</button>
           <button class="sub-tab ${this.activeTab === 'history' ? 'active' : ''}" data-tab="history">🛡️ 風控配置 & 進出場紀錄</button>
         </div>
@@ -112,6 +116,7 @@ export class StockTrackerUI {
       <!-- Tab Content -->
       <div id="stock-tab-body">
         ${this.activeTab === 'holdings' ? this._renderHoldingsTab(holdings, options, state) : ''}
+        ${this.activeTab === 'rebalance' ? this._renderRebalanceTab(state) : ''}
         ${this.activeTab === 'watchlist' ? this._renderWatchlistTab(state, options) : ''}
         ${this.activeTab === 'history' ? this._renderHistoryTab(state, summary) : ''}
       </div>
@@ -412,6 +417,271 @@ export class StockTrackerUI {
                 `;
               }).join('')}
             </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderRebalanceTab(state) {
+    const reb = StockCore.getRebalanceComparison(state, {
+      activePool: this.rebalancePool,
+      calcMode: this.rebalanceCalcMode,
+      query: this.rebalanceQuery
+    });
+
+    const renderDiffBadge = (diffPct, targetPct) => {
+      if (targetPct <= 0 && Math.abs(diffPct) < 0.05) return '<span class="text-muted">-</span>';
+      const sign = diffPct > 0 ? '+' : '';
+      if (Math.abs(diffPct) < 0.1) {
+        return `<span class="pill pill-emerald">0.0% (達標)</span>`;
+      }
+      if (diffPct < 0) {
+        return `<span class="pill pill-blue">${sign}${diffPct.toFixed(1)}% (不足)</span>`;
+      }
+      return `<span class="pill pill-amber">${sign}${diffPct.toFixed(1)}% (超標)</span>`;
+    };
+
+    const renderActionCell = (actionTwd, actionShares, targetPct, currentTwd) => {
+      if (targetPct <= 0 && currentTwd <= 0) return '<span class="text-muted">-</span>';
+      if (Math.abs(actionTwd) < 500) {
+        return `<span class="text-emerald" style="font-size:12px; font-weight:700;">✓ 符合目標</span>`;
+      }
+      const isBuy = actionTwd > 0;
+      const absTwd = Math.abs(actionTwd);
+      const absShares = Math.abs(actionShares);
+      return `
+        <div class="${isBuy ? 'text-emerald' : 'text-rose'}" style="font-weight:700; font-family:var(--font-mono);">
+          ${isBuy ? '📥 買入' : '📤 賣出'} $${fmtInt(absTwd)}
+        </div>
+        ${absShares !== undefined ? `
+          <div class="text-muted font-mono" style="font-size:11px;">
+            約 ${fmtDec(absShares, 1)} 股
+          </div>
+        ` : ''}
+      `;
+    };
+
+    const t1SumOk = Math.abs(reb.tier1TotalTargetPct - 100) < 0.1;
+    const t2SumOk = Math.abs(reb.tier2TotalTargetPct - 100) < 0.1;
+
+    return `
+      <!-- Tier 1: Strategy Pools Allocation -->
+      <div class="card" style="margin-bottom:18px; border-color: rgba(56, 189, 248, 0.4);">
+        <div class="card-header">
+          <div>
+            <div class="card-title" style="font-size:16px;">
+              🏛️ 第一層（Tier 1）：三大策略池權重配置（進攻型｜防禦型｜樂透型）
+            </div>
+            <div class="text-muted" style="font-size:12px; margin-top:4px;">
+              分開比較 <strong>「持倉總成本 ($${fmtInt(reb.portfolioCostTwd)})」</strong> 與 <strong>「持倉總現值 ($${fmtInt(reb.portfolioMarketTwd)})」</strong> ｜ 點擊策略名稱可切換下方個股池
+            </div>
+          </div>
+          <div>
+            <span class="pill ${t1SumOk ? 'pill-emerald' : 'pill-amber'}" style="font-size:13px; padding:6px 12px;">
+              第一層目標合計：${reb.tier1TotalTargetPct.toFixed(1)}%
+              ${t1SumOk ? ' ✓' : (reb.tier1UnallocatedPct > 0 ? ` (尚餘 ${reb.tier1UnallocatedPct.toFixed(1)}%)` : ` (超出 ${Math.abs(reb.tier1UnallocatedPct).toFixed(1)}%)`)}
+            </span>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>策略類型 (點擊切換)</th>
+                <th>🎯 第一層目標 %</th>
+                <th style="border-left:2px solid var(--border-color);">💰 該池目前總成本</th>
+                <th>成本佔比</th>
+                <th>成本差距 (目前-目標)</th>
+                <th>成本法建議 (買/賣)</th>
+                <th style="border-left:2px solid var(--border-color);">📈 該池目前總現值</th>
+                <th>現值佔比</th>
+                <th>現值差距 (目前-目標)</th>
+                <th>現值法建議 (買/賣)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${reb.tier1Rows.map((r) => {
+                const isSelected = this.rebalancePool === r.type;
+                const badge = r.type === '防禦型' ? 'pill-blue' : r.type === '進攻型' ? 'pill-emerald' : 'pill-amber';
+                return `
+                  <tr style="${isSelected ? 'background:rgba(56, 189, 248, 0.12);' : ''}">
+                    <td data-select-pool="${r.type}" style="cursor:pointer;">
+                      <span class="pill ${badge}" style="font-size:13px;">${r.type} (${r.count} 檔)</span>
+                      ${isSelected ? '<span style="font-size:11px; color:var(--accent-blue); margin-left:4px;">▼ 檢視中</span>' : ''}
+                    </td>
+                    <td>
+                      <div style="display:flex; align-items:center; gap:4px;">
+                        <input
+                          type="number"
+                          step="0.5"
+                          min="0"
+                          max="100"
+                          class="form-control font-mono"
+                          style="width:82px; padding:5px 8px; font-weight:700;"
+                          data-type-weight="${r.type}"
+                          value="${r.targetPct}"
+                        />
+                        <span class="font-mono">%</span>
+                      </div>
+                    </td>
+                    <td class="font-mono mask-amount" style="border-left:2px solid var(--border-color); font-weight:700;">$${fmtInt(r.costTwd)}</td>
+                    <td class="font-mono">${r.costWeightPct.toFixed(1)}%</td>
+                    <td>${renderDiffBadge(r.costDiffPct, r.targetPct)}</td>
+                    <td class="mask-amount">${renderActionCell(r.costActionTwd, undefined, r.targetPct, r.costTwd)}</td>
+                    <td class="font-mono mask-amount" style="border-left:2px solid var(--border-color); font-weight:700;">$${fmtInt(r.marketTwd)}</td>
+                    <td class="font-mono">${r.marketWeightPct.toFixed(1)}%</td>
+                    <td>${renderDiffBadge(r.marketDiffPct, r.targetPct)}</td>
+                    <td class="mask-amount">${renderActionCell(r.marketActionTwd, undefined, r.targetPct, r.marketTwd)}</td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+            <tfoot>
+              <tr style="border-top:2px solid var(--border-color); font-weight:800; background:rgba(255,255,255,0.03);">
+                <td>全倉總計</td>
+                <td class="font-mono">${reb.tier1TotalTargetPct.toFixed(1)}%</td>
+                <td class="font-mono mask-amount" style="border-left:2px solid var(--border-color);">$${fmtInt(reb.portfolioCostTwd)}</td>
+                <td class="font-mono">100.0%</td>
+                <td>-</td>
+                <td>-</td>
+                <td class="font-mono mask-amount" style="border-left:2px solid var(--border-color);">$${fmtInt(reb.portfolioMarketTwd)}</td>
+                <td class="font-mono">100.0%</td>
+                <td>-</td>
+                <td>-</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tier 2: Individual Stock Weights inside Selected Strategy Pool -->
+      <div class="card" style="border-color: rgba(16, 185, 129, 0.4);">
+        <div class="card-header" style="flex-wrap:wrap; gap:10px;">
+          <div>
+            <div class="card-title" style="font-size:16px;">
+              🎯 第二層（Tier 2）：【${this.rebalancePool}】池內個股權重與買賣建議
+            </div>
+            <div class="text-muted" style="font-size:12px; margin-top:4px;">
+              計算基準成本分母：<strong class="text-primary font-mono">$${fmtInt(reb.denomCostTwd)}</strong> ｜ 
+              計算基準現值分母：<strong class="text-primary font-mono">$${fmtInt(reb.denomMarketTwd)}</strong>
+            </div>
+          </div>
+
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+            <span class="pill ${t2SumOk ? 'pill-emerald' : 'pill-amber'}" style="font-size:13px; padding:6px 12px;">
+              【${this.rebalancePool}】池內目標合計：${reb.tier2TotalTargetPct.toFixed(1)}%
+              ${t2SumOk ? ' ✓' : (reb.tier2UnallocatedPct > 0 ? ` (尚餘 ${reb.tier2UnallocatedPct.toFixed(1)}%)` : ` (超出 ${Math.abs(reb.tier2UnallocatedPct).toFixed(1)}%)`)}
+            </span>
+          </div>
+        </div>
+
+        <!-- Pool Switcher + Calculation Mode + Quick Fill Toolbar -->
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:14px; padding-bottom:12px; border-bottom:1px solid var(--border-color);">
+          <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+            ${['進攻型', '防禦型', '樂透型'].map((tp) => `
+              <button type="button" class="btn ${this.rebalancePool === tp ? 'btn-primary' : 'btn-ghost'} btn-sm" data-select-pool="${tp}">
+                ${tp === '進攻型' ? '⚔️ ' : tp === '防禦型' ? '🛡️ ' : '🎰 '}${tp}
+              </button>
+            `).join('')}
+            <input
+              id="rebalance-query"
+              class="form-control"
+              style="width:140px; padding:5px 10px;"
+              placeholder="🔍 篩選代號..."
+              value="${this.rebalanceQuery}"
+            />
+          </div>
+
+          <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+            <button
+              type="button"
+              class="btn ${this.rebalanceCalcMode === 'TOP_DOWN' ? 'btn-emerald' : 'btn-ghost'} btn-sm"
+              data-calc-mode="TOP_DOWN"
+              title="個股目標金額 = 全倉總額 × 第一層策略池目標% × 第二層個股目標%"
+            >
+              🔗 連動第一層目標資金
+            </button>
+            <button
+              type="button"
+              class="btn ${this.rebalanceCalcMode === 'POOL_ONLY' ? 'btn-emerald' : 'btn-ghost'} btn-sm"
+              data-calc-mode="POOL_ONLY"
+              title="個股目標金額 = 本池目前現有總額 × 第二層個股目標%"
+            >
+              📦 僅依本池現有資金
+            </button>
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-autofill-pool-cost">⚡ 帶入目前成本%</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-autofill-pool-mkt">⚡ 帶入目前現值%</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-clear-pool-weights">🗑️ 清空本池%</button>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>代號 (點擊看批次)</th>
+                <th>🎯 池內目標 %</th>
+                <th style="border-left:2px solid var(--border-color);">💰 持有成本 (TWD)</th>
+                <th>池內成本佔比</th>
+                <th>成本差距 (目前-目標)</th>
+                <th>成本法建議 (買/賣)</th>
+                <th style="border-left:2px solid var(--border-color);">📈 目前現值 (TWD)</th>
+                <th>池內現值佔比</th>
+                <th>現值差距 (目前-目標)</th>
+                <th>現值法建議 (買/賣)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${reb.tier2Rows.map((r) => `
+                <tr>
+                  <td data-jump-symbol="${r.symbol}" style="cursor:pointer;">
+                    <div style="font-weight:800; font-family:var(--font-mono); color:var(--accent-blue); text-decoration:underline;">${r.symbol}</div>
+                    <div class="text-muted font-mono" style="font-size:11px;">${r.shares} 股 ｜ 現價 ${fmtDec(r.currentPriceNative)}</div>
+                  </td>
+                  <td>
+                    <div style="display:flex; align-items:center; gap:4px;">
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        max="100"
+                        class="form-control font-mono"
+                        style="width:82px; padding:5px 8px; font-weight:700;"
+                        data-stock-weight="${r.symbol}"
+                        placeholder="0"
+                        value="${r.targetPct > 0 ? r.targetPct : ''}"
+                      />
+                      <span class="font-mono">%</span>
+                    </div>
+                    ${r.targetPct > 0 ? `<div class="text-muted" style="font-size:10px; margin-top:2px;">佔全倉 ${r.globalTargetPct.toFixed(1)}%</div>` : ''}
+                  </td>
+                  <td class="font-mono mask-amount" style="border-left:2px solid var(--border-color); font-weight:700;">$${fmtInt(r.costTwd)}</td>
+                  <td class="font-mono" style="font-weight:700;">${r.costWeightPct.toFixed(1)}%</td>
+                  <td>${renderDiffBadge(r.costDiffPct, r.targetPct)}</td>
+                  <td class="mask-amount">${renderActionCell(r.costActionTwd, r.costActionShares, r.targetPct, r.costTwd)}</td>
+                  <td class="font-mono mask-amount" style="border-left:2px solid var(--border-color); font-weight:700;">$${fmtInt(r.marketTwd)}</td>
+                  <td class="font-mono" style="font-weight:700;">${r.marketWeightPct.toFixed(1)}%</td>
+                  <td>${renderDiffBadge(r.marketDiffPct, r.targetPct)}</td>
+                  <td class="mask-amount">${renderActionCell(r.marketActionTwd, r.marketActionShares, r.targetPct, r.marketTwd)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+            <tfoot>
+              <tr style="border-top:2px solid var(--border-color); font-weight:800; background:rgba(255,255,255,0.03);">
+                <td>【${this.rebalancePool}】合計</td>
+                <td class="font-mono">${reb.tier2TotalTargetPct.toFixed(1)}%</td>
+                <td class="font-mono mask-amount" style="border-left:2px solid var(--border-color);">$${fmtInt(reb.poolCurrentCostTwd)}</td>
+                <td class="font-mono">100.0%</td>
+                <td>-</td>
+                <td>-</td>
+                <td class="font-mono mask-amount" style="border-left:2px solid var(--border-color);">$${fmtInt(reb.poolCurrentMarketTwd)}</td>
+                <td class="font-mono">100.0%</td>
+                <td>-</td>
+                <td>-</td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       </div>
@@ -795,5 +1065,89 @@ export class StockTrackerUI {
         this.render(container, store.getState(), store, showToast);
       });
     }
+
+    // Rebalance Tab Events
+    container.querySelectorAll('[data-select-pool]').forEach((el) => {
+      el.addEventListener('click', () => {
+        this.rebalancePool = el.getAttribute('data-select-pool');
+        this.render(container, store.getState(), store, showToast);
+      });
+    });
+
+    container.querySelectorAll('[data-calc-mode]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this.rebalanceCalcMode = btn.getAttribute('data-calc-mode');
+        this.render(container, store.getState(), store, showToast);
+      });
+    });
+
+    container.querySelectorAll('[data-type-weight]').forEach((input) => {
+      input.addEventListener('change', (e) => {
+        const type = input.getAttribute('data-type-weight');
+        const targetPct = e.target.value;
+        StockCore.setTypeTargetWeight(store.getState(), { type, targetPct }, store);
+        showToast(`⚖️ 已更新【${type}】第一層目標比例為 ${targetPct || 0}%`);
+        this.render(container, store.getState(), store, showToast);
+      });
+    });
+
+    container.querySelectorAll('[data-stock-weight]').forEach((input) => {
+      input.addEventListener('change', (e) => {
+        const symbol = input.getAttribute('data-stock-weight');
+        const targetPct = e.target.value;
+        StockCore.setStockTargetWeight(store.getState(), { symbol, targetPct }, store);
+        this.render(container, store.getState(), store, showToast);
+      });
+    });
+
+    const autoCostBtn = container.querySelector('#btn-autofill-pool-cost');
+    if (autoCostBtn) {
+      autoCostBtn.addEventListener('click', () => {
+        StockCore.autoFillPoolWeights(store.getState(), { poolType: this.rebalancePool, basis: 'cost' }, store);
+        showToast(`⚡ 已依【${this.rebalancePool}】目前成本佔比一鍵帶入目標%`);
+        this.render(container, store.getState(), store, showToast);
+      });
+    }
+
+    const autoMktBtn = container.querySelector('#btn-autofill-pool-mkt');
+    if (autoMktBtn) {
+      autoMktBtn.addEventListener('click', () => {
+        StockCore.autoFillPoolWeights(store.getState(), { poolType: this.rebalancePool, basis: 'market' }, store);
+        showToast(`⚡ 已依【${this.rebalancePool}】目前現值佔比一鍵帶入目標%`);
+        this.render(container, store.getState(), store, showToast);
+      });
+    }
+
+    const clearPoolBtn = container.querySelector('#btn-clear-pool-weights');
+    if (clearPoolBtn) {
+      clearPoolBtn.addEventListener('click', () => {
+        StockCore.autoFillPoolWeights(store.getState(), { poolType: this.rebalancePool, basis: 'clear' }, store);
+        showToast(`🗑️ 已清空【${this.rebalancePool}】池內目標%`);
+        this.render(container, store.getState(), store, showToast);
+      });
+    }
+
+    const rebQ = container.querySelector('#rebalance-query');
+    if (rebQ) {
+      rebQ.addEventListener('input', (e) => {
+        this.rebalanceQuery = e.target.value;
+        this.render(container, store.getState(), store, showToast);
+        const inp = container.querySelector('#rebalance-query');
+        if (inp) {
+          inp.focus();
+          inp.setSelectionRange(inp.value.length, inp.value.length);
+        }
+      });
+    }
+
+    container.querySelectorAll('[data-jump-symbol]').forEach((cell) => {
+      cell.addEventListener('click', () => {
+        const sym = cell.getAttribute('data-jump-symbol');
+        this.activeTab = 'holdings';
+        this.selectedSymbol = sym;
+        this.selectedLotId = null;
+        this.render(container, store.getState(), store, showToast);
+      });
+    });
   }
 }
