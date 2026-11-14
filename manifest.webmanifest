@@ -2,7 +2,6 @@
   "name": "NIC Toolkit | 個人財務與量化工具集",
   "short_name": "NIC工具集",
   "description": "跨 iPhone 與電腦之個人股票庫存、資產紀錄與量化分析極速工作台（支援 Local-First 秒開與 AI Agent 雙軌調用）",
-  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait-primary",

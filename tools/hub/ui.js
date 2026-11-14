@@ -18,8 +18,24 @@ export class HubUI {
 
     const topHoldings = (state?.stock?.overview || []).slice(0, 5);
     const externalTools = config.externalTools || [];
+    const needsPairing = Boolean(state?.isDemoSeed && !config.gasUrl);
 
     container.innerHTML = `
+      ${needsPairing ? `
+        <div class="card" style="margin-bottom:16px; border-color: rgba(245, 158, 11, 0.5); background: rgba(245, 158, 11, 0.08);">
+          <div class="card-header" style="margin-bottom:8px;">
+            <div class="card-title" style="color:var(--accent-amber);">📱 iPhone 主畫面快速配對（只需貼上一次）</div>
+          </div>
+          <p class="text-muted" style="font-size:12px; margin-bottom:10px;">
+            iOS「加入主畫面」會建立獨立儲存空間。請將您的<strong>專屬一鍵配對連結</strong>貼在下方並點「立即配對」，即可自動載入真實持股與資產數據：
+          </p>
+          <form id="form-quick-pair" style="display:flex; gap:8px; flex-wrap:wrap;">
+            <input class="form-control" name="pairInput" placeholder="貼上 https://.../?pair=... 配對連結" style="flex:1; min-width:180px;" required />
+            <button type="submit" class="btn btn-primary">⚡ 立即配對並載入真實資料</button>
+          </form>
+        </div>
+      ` : ''}
+
       <!-- Combined Executive KPI Banner -->
       <div class="grid-kpi">
         <div class="card" style="border-color: rgba(56, 189, 248, 0.35);">
@@ -226,6 +242,21 @@ export class HubUI {
       toggleExtBtn.addEventListener('click', () => {
         this.showAddExternal = !this.showAddExternal;
         this.render(container, store.getState(), store, showToast);
+      });
+    }
+
+    const quickPairForm = container.querySelector('#form-quick-pair');
+    if (quickPairForm) {
+      quickPairForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const fd = new FormData(quickPairForm);
+        const ok = store.applyPairingInput(fd.get('pairInput'));
+        if (ok) {
+          showToast('🎉 配對成功！正在從雲端試算表載入您的真實資料...');
+          this.render(container, store.getState(), store, showToast);
+        } else {
+          showToast('⚠️ 配對連結格式不正確，請確認複製完整網址');
+        }
       });
     }
 

@@ -169,9 +169,10 @@ class LocalFirstStore {
     };
   }
 
-  _checkUrlPairing() {
+  _checkUrlPairing(rawUrl = window.location.search) {
     try {
-      const params = new URLSearchParams(window.location.search);
+      const queryStr = rawUrl.includes('?') ? rawUrl.slice(rawUrl.indexOf('?')) : rawUrl;
+      const params = new URLSearchParams(queryStr);
       const pairCode = params.get('pair');
       if (pairCode) {
         const decoded = JSON.parse(atob(decodeURIComponent(pairCode)));
@@ -179,14 +180,42 @@ class LocalFirstStore {
           this.saveConfig({
             gasUrl: decoded.gasUrl || '',
             apiToken: decoded.apiToken || '',
-            mode: decoded.mode || 'sandbox'
+            mode: decoded.mode || 'cloud'
           });
-          // Clean URL without reloading
-          const cleanUrl = window.location.origin + window.location.pathname + window.location.hash;
-          window.history.replaceState({}, document.title, cleanUrl);
+          // Only strip URL in standalone mode so iOS Safari "Add to Home Screen" keeps ?pair=...
+          const isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
+          if (isStandalone && rawUrl === window.location.search) {
+            const cleanUrl = window.location.origin + window.location.pathname + window.location.hash;
+            window.history.replaceState({}, document.title, cleanUrl);
+          }
+          return true;
         }
       }
     } catch (_) {}
+    return false;
+  }
+
+  applyPairingInput(inputStr) {
+    const trimmed = String(inputStr || '').trim();
+    if (!trimmed) return false;
+    if (trimmed.includes('pair=')) {
+      const ok = this._checkUrlPairing(trimmed);
+      if (ok) this.pullFromCloudSilently(true);
+      return ok;
+    }
+    try {
+      const decoded = JSON.parse(atob(decodeURIComponent(trimmed)));
+      if (decoded.gasUrl || decoded.apiToken) {
+        this.saveConfig({
+          gasUrl: decoded.gasUrl || '',
+          apiToken: decoded.apiToken || '',
+          mode: decoded.mode || 'cloud'
+        });
+        this.pullFromCloudSilently(true);
+        return true;
+      }
+    } catch (_) {}
+    return false;
   }
 
   _persistState() {
