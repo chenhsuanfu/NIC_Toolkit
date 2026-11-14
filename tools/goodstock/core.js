@@ -622,8 +622,10 @@ export const GoodStockCore = {
   screenStocks(state, mode = 'six_indicators', filters = {}) {
     let list = this.getEnrichedUniverse(state);
 
-    // Common scope filter (ALL | HOLDINGS | WATCHLIST)
-    if (filters.scope === 'HOLDINGS') {
+    // Common scope filter (ALL | ETF_0050 | HOLDINGS | WATCHLIST)
+    if (filters.scope === 'ETF_0050') {
+      list = list.filter((s) => s.is0050);
+    } else if (filters.scope === 'HOLDINGS') {
       list = list.filter((s) => s.isHolding);
     } else if (filters.scope === 'WATCHLIST') {
       list = list.filter((s) => s.isWatchlist);

@@ -112,7 +112,10 @@ export class GoodStockUI {
           <div>
             <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
               <span class="pill pill-emerald">🎯 好股價 GoodStockPrice 完整旗艦版</span>
-              <span class="pill pill-blue">🔓 金卡功能全解鎖 · 六大指標前月/前季比較</span>
+              <span class="pill pill-blue">🇹🇼 0050 台灣50全成分股 + 你的持股 (${universe.length} 檔最新報價)</span>
+              <button class="btn btn-ghost btn-sm" id="btn-gs-sync-all-prices" style="padding:3px 10px; font-size:0.76rem; border:1px solid rgba(56,189,248,0.45); color:#38bdf8;">
+                ${this.isSyncingAllPrices ? '⏳ 同步證交所報價中...' : '🔄 同步證交所最新收盤價'}
+              </button>
             </div>
             <div style="font-size:1.05rem; font-weight:700; margin-top:6px;">
               用 8 季財報、36 個月營收、財務六大指標與目標價區間，把選股與持股體檢標準化
@@ -219,6 +222,7 @@ export class GoodStockUI {
           </div>
           <!-- Quick Strategy Preset Buttons -->
           <div style="display:flex; gap:6px; flex-wrap:wrap;">
+            <button class="btn btn-ghost btn-sm" data-six-preset="ETF_0050">🇹🇼 0050 成分股 (50檔)</button>
             <button class="btn btn-ghost btn-sm" data-six-preset="ALL_HIGH">🏆 資優高分 (≥3.2分)</button>
             <button class="btn btn-ghost btn-sm" data-six-preset="MOM_UP">🚀 較前月轉強 (MoM &gt; 0)</button>
             <button class="btn btn-ghost btn-sm" data-six-preset="QOQ_UP">🔥 較前季躍進 (QoQ &gt; 0)</button>
@@ -234,9 +238,10 @@ export class GoodStockUI {
           <div class="form-group">
             <label class="form-label">篩選範圍</label>
             <select class="form-select" id="six-scope">
-              <option value="ALL" ${f.scope === 'ALL' ? 'selected' : ''}>全市場指標股 (${GoodStockData.getAllStocks().length} 檔)</option>
-              <option value="HOLDINGS" ${f.scope === 'HOLDINGS' ? 'selected' : ''}>僅看我的庫存持股</option>
-              <option value="WATCHLIST" ${f.scope === 'WATCHLIST' ? 'selected' : ''}>僅看我的觀察清單</option>
+              <option value="ALL" ${f.scope === 'ALL' ? 'selected' : ''}>全股票池 (0050 + 庫存共 ${GoodStockData.getAllStocks().length} 檔)</option>
+              <option value="ETF_0050" ${f.scope === 'ETF_0050' ? 'selected' : ''}>🇹🇼 0050 台灣50成分股 (50 檔)</option>
+              <option value="HOLDINGS" ${f.scope === 'HOLDINGS' ? 'selected' : ''}>💼 僅看我的庫存持股</option>
+              <option value="WATCHLIST" ${f.scope === 'WATCHLIST' ? 'selected' : ''}>👀 僅看我的觀察清單</option>
             </select>
           </div>
 
@@ -1695,7 +1700,9 @@ export class GoodStockUI {
           minRevScore: 0, minOpScore: 0, minProfitScore: 0, minEpsScore: 0, minInvScore: 0, minFcfScore: 0,
           sortBy: 'avgScore'
         };
-        if (p === 'ALL_HIGH') {
+        if (p === 'ETF_0050') {
+          this.sixFilters.scope = 'ETF_0050';
+        } else if (p === 'ALL_HIGH') {
           this.sixFilters.minAvgScore = 3.0;
           this.sixFilters.maxLandmines = '1';
         } else if (p === 'MOM_UP') {
@@ -1838,7 +1845,7 @@ export class GoodStockUI {
     const liveBtn = container.querySelector('#btn-gs-fetch-live');
     if (liveBtn) {
       liveBtn.addEventListener('click', async () => {
-        const code = searchInput ? searchInput.value.trim() : this.selectedCode;
+        const code = searchInput && searchInput.value.trim() ? searchInput.value.trim() : this.selectedCode;
         this.isFetchingLive = true;
         rerender();
         try {
@@ -1846,13 +1853,36 @@ export class GoodStockUI {
           this.selectedCode = res.stock.code;
           if (showToast) {
             showToast(res.source === 'finmind-live'
-              ? `✅ 已從 FinMind 即時更新 ${res.stock.code} ${res.stock.name} 最新營收與股價`
-              : `⚡ 已載入 ${res.stock.code} ${res.stock.name} 內建完整財報快取`);
+              ? `✅ 已從 FinMind 即時更新 ${res.stock.code} ${res.stock.name} 最新收盤價 (${res.stock.price}) 與財報`
+              : `⚡ 已載入 ${res.stock.code} ${res.stock.name} 內建完整財報快取 (${res.stock.price})`);
           }
         } catch (err) {
           if (showToast) showToast(`⚠️ ${err.message}`);
         } finally {
           this.isFetchingLive = false;
+          rerender();
+        }
+      });
+    }
+
+    // Sync All Latest Closing Prices from TWSE OpenAPI / FinMind
+    const syncAllBtn = container.querySelector('#btn-gs-sync-all-prices');
+    if (syncAllBtn) {
+      syncAllBtn.addEventListener('click', async () => {
+        if (this.isSyncingAllPrices) return;
+        this.isSyncingAllPrices = true;
+        rerender();
+        try {
+          const res = await GoodStockData.syncAllLatestPrices();
+          if (showToast) {
+            showToast(res.updatedCount > 0
+              ? `✅ 已同步證交所最新收盤價（共更新 ${res.updatedCount} 檔）`
+              : `⚡ 目前全股票池 (${GoodStockData.getAllStocks().length} 檔) 已是最新收盤價`);
+          }
+        } catch (err) {
+          if (showToast) showToast(`⚠️ 同步報價失敗：${err.message}`);
+        } finally {
+          this.isSyncingAllPrices = false;
           rerender();
         }
       });

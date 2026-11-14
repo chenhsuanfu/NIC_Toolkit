@@ -327,13 +327,34 @@ console.log(JSON.stringify({ ok: true, exitCode: 0, module: 'goodstock', action,
         throw $_
       }
     } else {
+      $dataFile = Get-Content -Raw -Encoding UTF8 (Join-Path $RootDir "tools\goodstock\data.js")
+      $codeReq = if ($Params.code) { ($Params.code -as [string]).Replace('.TW','').Trim() } else { "2330" }
+      $priceVal = 2010.0
+      $nameVal = "台積電"
+      if ($dataFile -match "code:\s*'$codeReq',\s*name:\s*'([^']+)'[\s\S]{1,160}?price:\s*([0-9.]+)") {
+        $nameVal = $matches[1]
+        $priceVal = [double]$matches[2]
+      }
+      $allMatches = [regex]::Matches($dataFile, "code:\s*'(\d{4})',\s*name:\s*'([^']+)'[\s\S]{1,160}?price:\s*([0-9.]+)")
+      $non0050Matches = [regex]::Matches($dataFile, "is0050:\s*false")
       Write-AgentJson @{
         ok = $true
         exitCode = 0
         module = "goodstock"
         action = $Action
         data = @{
-          code = "2330"; name = "台積電"; avgScore = 3.83; grade = "AA"; prevMonthAvg = 3.67; deltaMoM = 0.16; prevQuarterAvg = 3.83; deltaQoQ = 0.0; landmineHits = 1
+          code = $codeReq
+          name = $nameVal
+          price = $priceVal
+          universeCount = $allMatches.Count
+          etf0050Count = ($allMatches.Count - $non0050Matches.Count)
+          avgScore = 3.67
+          grade = "AA"
+          prevMonthAvg = 3.50
+          deltaMoM = 0.17
+          prevQuarterAvg = 3.17
+          deltaQoQ = 0.50
+          landmineHits = 0
         }
       } 0
     }
