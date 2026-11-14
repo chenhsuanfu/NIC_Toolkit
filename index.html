@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b1120" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="NIC工具集" />
+  <title>NIC Toolkit | 個人財務與量化工具集</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="stylesheet" href="./assets/css/main.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Desktop Sidebar -->
+    <aside class="sidebar">
+      <div class="brand-box">
+        <div class="brand-logo">NIC</div>
+        <div>
+          <div class="brand-title">NIC Toolkit</div>
+          <div class="brand-sub">Local-First · 雙軌演進平台</div>
+        </div>
+      </div>
+
+      <nav class="nav-list" id="sidebar-nav"></nav>
+
+      <div class="sidebar-footer">
+        <div>⚡ Local-First 0.05s 快取引擎</div>
+        <div style="margin-top:4px;">🤖 window.NIC_Agent 已就緒</div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <div class="main-area">
+      <header class="topbar">
+        <div class="topbar-left">
+          <h1 class="page-title" id="topbar-title">工具集總覽</h1>
+          <span class="mode-badge sandbox" id="topbar-mode-badge">🛡️ 本機安全沙盒</span>
+        </div>
+
+        <div class="topbar-actions">
+          <button class="btn btn-ghost btn-sm" id="btn-privacy-toggle" title="切換金額隱私遮罩">
+            👁️ 隱藏金額
+          </button>
+          <button class="btn btn-ghost btn-sm" id="btn-quick-sync" title="檢視同步狀態">
+            🔄 待同步: <span id="sync-count-badge">0</span>
+          </button>
+        </div>
+      </header>
+
+      <main class="view-container" id="app-view">
+        <div class="card">正在從本機快取載入...</div>
+      </main>
+    </div>
+
+    <!-- iPhone / Mobile Bottom Navigation -->
+    <nav class="bottom-nav" id="mobile-nav"></nav>
+  </div>
+
+  <div class="toast-container" id="toast-container"></div>
+
+  <script type="module">
+    import { store } from './core/store.js';
+    import { registry } from './core/registry.js';
+    import './core/agent-bridge.js';
+    import { HubUI } from './tools/hub/ui.js';
+    import { StockTrackerUI } from './tools/stock-tracker/ui.js';
+    import { AssetTrackerUI } from './tools/asset-tracker/ui.js';
+    import { SettingsUI } from './tools/settings/ui.js';
+
+    let currentToolId = 'hub';
+
+    function showToast(msg) {
+      const wrap = document.getElementById('toast-container');
+      const el = document.createElement('div');
+      el.className = 'toast';
+      el.textContent = msg;
+      wrap.appendChild(el);
+      setTimeout(() => el.remove(), 3200);
+    }
+
+    function navigateTo(toolId) {
+      if (!registry.get(toolId)) toolId = 'hub';
+      currentToolId = toolId;
+      window.location.hash = toolId;
+      renderShell();
+    }
+
+    // Register Modular Tools
+    const hubInstance = new HubUI(navigateTo);
+    const stockInstance = new StockTrackerUI();
+    const assetInstance = new AssetTrackerUI();
+    const settingsInstance = new SettingsUI();
+
+    registry.register({
+      id: 'hub',
+      name: '工具集總覽',
+      shortName: '總覽',
+      icon: '🧭',
+      order: 1,
+      ui: hubInstance
+    });
+
+    registry.register({
+      id: 'stock-tracker',
+      name: '股票庫存 (N_BD_C)',
+      shortName: '股票庫存',
+      icon: '📈',
+      order: 2,
+      ui: stockInstance
+    });
+
+    registry.register({
+      id: 'asset-tracker',
+      name: '資產紀錄 (F&S)',
+      shortName: '資產記帳',
+      icon: '🏦',
+      order: 3,
+      ui: assetInstance
+    });
+
+    registry.register({
+      id: 'settings',
+      name: '設定與 AI 雙軌中心',
+      shortName: '設定/AI',
+      icon: '⚙️',
+      order: 4,
+      ui: settingsInstance
+    });
+
+    function renderNavs() {
+      const tools = registry.listAll();
+      const sidebar = document.getElementById('sidebar-nav');
+      const mobileNav = document.getElementById('mobile-nav');
+
+      sidebar.innerHTML = tools.map((t) => `
+        <button class="nav-item ${t.id === currentToolId ? 'active' : ''}" data-nav="${t.id}">
+          <span class="nav-icon">${t.icon}</span>
+          <span>${t.name}</span>
+        </button>
+      `).join('');
+
+      mobileNav.innerHTML = tools.map((t) => `
+        <button class="bottom-nav-item ${t.id === currentToolId ? 'active' : ''}" data-nav="${t.id}">
+          <span class="bottom-nav-icon">${t.icon}</span>
+          <span>${t.shortName}</span>
+        </button>
+      `).join('');
+
+      document.querySelectorAll('[data-nav]').forEach((btn) => {
+        btn.addEventListener('click', () => navigateTo(btn.getAttribute('data-nav')));
+      });
+    }
+
+    function updateTopbar() {
+      const tool = registry.get(currentToolId);
+      const cfg = store.getConfig();
+      const queue = store.getSyncQueue();
+
+      document.getElementById('topbar-title').textContent = tool ? tool.name : 'NIC Toolkit';
+
+      const badge = document.getElementById('topbar-mode-badge');
+      if (cfg.mode === 'cloud') {
+        badge.className = 'mode-badge cloud';
+        badge.textContent = '☁️ 正式雲端同步';
+      } else {
+        badge.className = 'mode-badge sandbox';
+        badge.textContent = '🛡️ 本機安全沙盒';
+      }
+
+      document.getElementById('sync-count-badge').textContent = String(queue.length);
+
+      const privBtn = document.getElementById('btn-privacy-toggle');
+      if (cfg.privacyMask) {
+        document.body.classList.add('privacy-masked');
+        privBtn.textContent = '🙈 已隱藏金額';
+      } else {
+        document.body.classList.remove('privacy-masked');
+        privBtn.textContent = '👁️ 隱藏金額';
+      }
+    }
+
+    function renderShell() {
+      renderNavs();
+      updateTopbar();
+      const tool = registry.get(currentToolId);
+      const view = document.getElementById('app-view');
+      if (tool && tool.ui) {
+        tool.ui.render(view, store.getState(), store, showToast);
+      }
+    }
+
+    // Bind Topbar Actions
+    document.getElementById('btn-privacy-toggle').addEventListener('click', () => {
+      const cur = store.getConfig().privacyMask;
+      store.saveConfig({ privacyMask: !cur });
+      updateTopbar();
+    });
+
+    document.getElementById('btn-quick-sync').addEventListener('click', () => {
+      navigateTo('settings');
+    });
+
+    // Initialize Local-First Store
+    (async () => {
+      const hash = window.location.hash.replace('#', '');
+      if (hash && registry.get(hash)) currentToolId = hash;
+
+      await store.init();
+      renderShell();
+
+      // Subscribe to config/queue updates for topbar
+      store.subscribe(() => {
+        updateTopbar();
+      });
+
+      // Register PWA Service Worker
+      if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+        navigator.serviceWorker.register('./sw.js').catch(() => {});
+      }
+    })();
+  </script>
+</body>
+</html>

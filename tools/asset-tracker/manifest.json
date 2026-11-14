@@ -1,0 +1,9 @@
+{
+  "id": "asset-tracker",
+  "name": "資產與收支紀錄",
+  "version": "1.0.0",
+  "description": "對接 F&S Asset Report_V2 試算表之跨幣別銀行帳戶、日常開銷明細、收支轉帳流水與房貸信貸負債追蹤工具",
+  "sheetBinding": "F&S Asset Report_V2",
+  "appendOnlyTabs": ["log_V2", "開銷明細"],
+  "protectedFormulaTabs": ["帳戶", "債務處置表", "資產快照", "N_薪資", "N_保險", "薪資歷史", "收支歷史"]
+}

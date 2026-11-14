@@ -1,0 +1,12 @@
+# Private Personal Financial Snapshot (Local-Only Cache, Never Commit to Public Git)
+data/local-snapshot.json
+data/*.private.json
+.env
+.env.*
+
+# OS & Editor files
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+.idea/

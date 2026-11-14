@@ -1,0 +1,9 @@
+{
+  "id": "stock-tracker",
+  "name": "股票庫存與估值",
+  "version": "1.0.0",
+  "description": "對接 N_BD_C 試算表之台美股持倉總覽、風控配置、買賣進出場紀錄與好股價目標價推估工具",
+  "sheetBinding": "N_BD_C",
+  "appendOnlyTabs": ["交易明細", "出場明細", "觀察清單"],
+  "protectedFormulaTabs": ["總攬", "風控", "每日快照", "行情", "匯率", "N_3%目標", "N_15%目標"]
+}

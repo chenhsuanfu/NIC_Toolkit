@@ -1,0 +1,25 @@
+{
+  "name": "NIC Toolkit | 個人財務與量化工具集",
+  "short_name": "NIC工具集",
+  "description": "跨 iPhone 與電腦之個人股票庫存、資產紀錄與量化分析極速工作台（支援 Local-First 秒開與 AI Agent 雙軌調用）",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0b1120",
+  "theme_color": "#0b1120",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='42' fill='%230f172a'/%3E%3Crect x='12' y='12' width='168' height='168' rx='34' fill='none' stroke='%2338bdf8' stroke-width='4' stroke-opacity='0.4'/%3E%3Cpath d='M48 132 L48 60 L82 112 L82 60 M108 60 L108 132 M148 76 C140 62 124 62 124 96 C124 130 140 130 148 116' stroke='%2338bdf8' stroke-width='12' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3Ccircle cx='148' cy='60' r='8' fill='%2310b981'/%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='112' fill='%230f172a'/%3E%3Cpath d='M128 352 L128 160 L218 298 L218 160 M288 160 L288 352 M394 202 C373 165 330 165 330 256 C330 347 373 347 394 310' stroke='%2338bdf8' stroke-width='32' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3Ccircle cx='394' cy='160' r='22' fill='%2310b981'/%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
