@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="NIC工具集" />
   <title>NIC Toolkit | 個人財務與量化工具集</title>
   <link rel="manifest" href="./manifest.webmanifest" />
-  <link rel="stylesheet" href="./assets/css/main.css?v=13" />
+  <link rel="stylesheet" href="./assets/css/main.css?v=14" />
 </head>
 <body>
   <div class="app-shell">
@@ -26,7 +26,7 @@
       <nav class="nav-list" id="sidebar-nav"></nav>
 
       <div class="sidebar-footer">
-        <div>Local-First 快取引擎 · <span id="app-version-label">v13</span></div>
+        <div>Local-First 快取引擎 · <span id="app-version-label">v14</span></div>
         <div style="margin-top:2px;">US 綠漲紅跌 · 雙軌架構</div>
       </div>
     </aside>
@@ -67,7 +67,8 @@
   <div class="toast-container" id="toast-container"></div>
 
   <script type="module">
-    const APP_VERSION = 'v13';
+    const APP_VERSION = 'v14';
+    window.NIC_APP_VERSION = APP_VERSION;
     const APP_VERSION_KEY = 'nic_toolkit_app_ver';
     const CORE_ASSETS = [
       './assets/css/main.css',
@@ -231,6 +232,7 @@
       const tool = registry.get(currentToolId);
       const cfg = store.getConfig();
       const queue = store.getSyncQueue();
+      const syncStatus = store.getSyncStatus();
 
       document.getElementById('topbar-title').textContent = tool ? tool.name : 'NIC Toolkit';
 
@@ -243,7 +245,19 @@
         badge.textContent = '○ 本機沙盒';
       }
 
-      document.getElementById('sync-count-badge').textContent = String(queue.length);
+      const syncBtn = document.getElementById('btn-quick-sync');
+      if (syncBtn) {
+        if (syncStatus.state === 'syncing') {
+          syncBtn.innerHTML = `同步中(<span id="sync-count-badge">${queue.length}</span>)`;
+          syncBtn.title = '正在與 Google Sheets 背景同步';
+        } else if (syncStatus.state === 'error') {
+          syncBtn.innerHTML = `⚠ 同步異常(<span id="sync-count-badge">${queue.length}</span>)`;
+          syncBtn.title = syncStatus.lastError || '雲端同步失敗，點擊檢視';
+        } else {
+          syncBtn.innerHTML = `同步(<span id="sync-count-badge">${queue.length}</span>)`;
+          syncBtn.title = '檢視雲端同步狀態';
+        }
+      }
 
       const privBtn = document.getElementById('btn-privacy-toggle');
       if (cfg.privacyMask) {
@@ -296,7 +310,7 @@
         // Overwrite browser HTTP disk cache (max-age=600) for all core assets before reloading
         await Promise.allSettled(['./', './index.html', ...CORE_ASSETS].map((u) => fetch(u, { cache: 'reload' })));
         if (store.getConfig().mode === 'cloud' && store.getConfig().gasUrl) {
-          await store.pullFromCloudSilently(true).catch(() => {});
+          await store.syncWithCloud({ forceRefresh: true, pushFirst: true, silent: true }).catch(() => {});
         }
       } catch (_) {}
       setTimeout(() => {
@@ -331,8 +345,36 @@
       renderShell();
 
       // Subscribe to state/config/queue updates so background cloud sync refreshes UI seamlessly
-      store.subscribe(() => {
+      store.subscribe((_state, _cfg, _queue, reason) => {
+        updateTopbar();
+        const view = document.getElementById('app-view');
+        const active = document.activeElement;
+        const isEditingInView = Boolean(
+          view && active && view.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)
+        );
+        const shouldRefreshView =
+          reason === 'cloud-pull' ||
+          reason === 'config' ||
+          reason === 'reset' ||
+          reason === 'init' ||
+          currentToolId === 'settings';
+
+        if (!shouldRefreshView) return;
+        if (isEditingInView) {
+          active.addEventListener('blur', () => renderShell(), { once: true });
+          return;
+        }
         renderShell();
+      });
+
+      // Cross-device auto-sync when tab/PWA returns to foreground or network reconnects
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          store.handleAppResume();
+        }
+      });
+      window.addEventListener('online', () => {
+        store.handleAppResume();
       });
 
       // Register PWA Service Worker & auto-refresh when a new SW version takes over

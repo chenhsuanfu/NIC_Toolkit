@@ -10,7 +10,9 @@ export class SettingsUI {
   render(container, state, store, showToast) {
     const cfg = store.getConfig();
     const queue = store.getSyncQueue();
+    const syncStatus = store.getSyncStatus ? store.getSyncStatus() : { state: 'idle', lastError: null };
     const manifest = agentBridge.getManifest();
+    const appVer = (typeof window !== 'undefined' && window.NIC_APP_VERSION) || 'v14';
 
     if (!this.agentOutput) {
       this.agentOutput = JSON.stringify(manifest, null, 2);
@@ -71,12 +73,26 @@ export class SettingsUI {
           </div>
 
           <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
-            <button class="btn btn-primary" id="btn-settings-pwa-update">🚀 手機 PWA 強制更新至最新版 (v13)</button>
-            <button class="btn btn-emerald" id="btn-push-queue">☁️ 立即推送佇列至 Google Sheets (${queue.length})</button>
+            <button class="btn btn-primary" id="btn-settings-pwa-update">🚀 手機 PWA 強制更新至最新版 (${appVer})</button>
+            <button class="btn btn-emerald" id="btn-push-queue" ${syncStatus.state === 'syncing' ? 'disabled' : ''}>
+              ${syncStatus.state === 'syncing' ? '⏳ 正在推送至雲端...' : `☁️ 立即推送佇列至 Google Sheets (${queue.length})`}
+            </button>
             <button class="btn btn-ghost" id="btn-pull-cloud">🔄 從雲端拉取最新試算表快照</button>
             <button class="btn btn-ghost" id="btn-export-json">📥 匯出本機完整 JSON 備份</button>
             <button class="btn btn-ghost" id="btn-reset-snapshot">♻️ 重設回初始試算表快照</button>
           </div>
+
+          ${syncStatus.state === 'error' && syncStatus.lastError ? `
+            <div style="margin-bottom:12px; padding:10px 12px; background:rgba(244,63,94,0.12); border:1px solid rgba(244,63,94,0.35); border-radius:8px; font-size:12px; color:var(--text-primary);">
+              <strong>⚠️ 上次雲端同步失敗：</strong>${syncStatus.lastError}
+            </div>
+          ` : ''}
+
+          <p class="text-muted" style="font-size:12px; margin-bottom:10px;">
+            ${cfg.mode === 'cloud'
+              ? '✅ 已啟用自動背景同步：任何權重調整、買賣或記帳將於約 1 秒後自動寫入 Google Sheets；切回此分頁時也會自動拉取他裝置更新。'
+              : '🛡️ 目前為本機沙盒模式：變更僅保留於待同步佇列，切換為「正式雲端同步模式」後即會自動同步。'}
+          </p>
 
           <div class="table-wrap" style="max-height:240px; overflow-y:auto;">
             <table class="data-table">
@@ -165,12 +181,25 @@ export class SettingsUI {
     }
     if (pushBtn) {
       pushBtn.addEventListener('click', async () => {
+        const curQueue = store.getSyncQueue();
+        if (curQueue.length === 0) {
+          showToast('目前沒有待同步的變更');
+          return;
+        }
+        pushBtn.disabled = true;
+        pushBtn.textContent = '⏳ 正在推送至雲端...';
+        showToast(`☁️ 正在推送 ${curQueue.length} 筆變更至 Google Sheets...`);
         try {
           const res = await GasApiClient.pushPendingQueue();
-          showToast(`☁️ 同步成功！已寫入 ${res.syncedCount} 筆變更至 Google Sheets`);
+          if (res.syncedCount > 0) {
+            showToast(`☁️ 同步成功！已寫入 ${res.syncedCount} 筆變更至 Google Sheets`);
+          } else {
+            showToast(res.message || '目前沒有待同步的變更');
+          }
           this.render(container, store.getState(), store, showToast);
         } catch (err) {
           showToast(`⚠️ ${err.message}`);
+          this.render(container, store.getState(), store, showToast);
         }
       });
     }

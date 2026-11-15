@@ -37,6 +37,7 @@ class AgentBridge {
       dualTrackReady: true,
       mode: store.getConfig().mode,
       pendingSyncCount: store.getSyncQueue().length,
+      syncStatus: store.getSyncStatus(),
       modules
     };
   }
@@ -84,6 +85,42 @@ class AgentBridge {
 }
 
 export const agentBridge = new AgentBridge();
+
+agentBridge.registerModule('system', {
+  description: 'Local-First 雲端同步與狀態控管模組',
+  actions: {
+    getSyncStatus: () => ({
+      mode: store.getConfig().mode,
+      lastSyncAt: store.getConfig().lastSyncAt,
+      pendingSyncCount: store.getSyncQueue().length,
+      syncStatus: store.getSyncStatus()
+    }),
+    syncNow: async (_state, params = {}) => {
+      return store.syncWithCloud({
+        forceRefresh: Boolean(params?.forceRefresh),
+        pushFirst: true,
+        silent: false
+      });
+    }
+  },
+  schemas: [
+    {
+      name: 'getSyncStatus',
+      description: '取得目前運作模式、待同步佇列筆數與最近一次雲端同步狀態',
+      parameters: { type: 'object', properties: {} }
+    },
+    {
+      name: 'syncNow',
+      description: '立即先推送本地待同步佇列至 Google Sheets，並視需要強制拉取最新快照',
+      parameters: {
+        type: 'object',
+        properties: {
+          forceRefresh: { type: 'boolean' }
+        }
+      }
+    }
+  ]
+});
 
 // Expose globally on window for browser automation, Console scripts, and Agent WebView hooks
 if (typeof window !== 'undefined') {

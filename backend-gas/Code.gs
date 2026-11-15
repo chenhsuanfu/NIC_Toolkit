@@ -90,6 +90,7 @@ function doPost(e) {
     const stockSS = SpreadsheetApp.openById(cfg.stockSheetId);
     const assetSS = SpreadsheetApp.openById(cfg.assetSheetId);
     const syncedIds = [];
+    const unsupportedTypes = [];
 
     for (const mut of body.mutations) {
       const p = mut.payload || {};
@@ -145,6 +146,7 @@ function doPost(e) {
         }
         case 'stock.upsertSetting': {
           const sh = stockSS.getSheetByName('設定');
+          if (!sh) throw new Error('N_BD_C 試算表找不到「設定」分頁');
           const data = sh.getDataRange().getValues();
           const key = String(p['項目'] || '').trim();
           const val = String(p['值'] || '');
@@ -198,11 +200,27 @@ function doPost(e) {
           syncedIds.push(mut.id);
           break;
         }
+        default: {
+          unsupportedTypes.push(String(mut.type || 'unknown'));
+          break;
+        }
       }
     }
 
-    // Invalidate cache after writes
-    CacheService.getScriptCache().remove(CACHE_KEY);
+    // Invalidate cache if any mutation succeeded
+    if (syncedIds.length > 0) {
+      CacheService.getScriptCache().remove(CACHE_KEY);
+    }
+
+    if (unsupportedTypes.length > 0) {
+      const uniq = unsupportedTypes.filter((v, idx, arr) => arr.indexOf(v) === idx);
+      return jsonResponse_({
+        ok: false,
+        syncedIds,
+        unsupportedTypes: uniq,
+        error: 'GAS 後端尚未支援同步類型：' + uniq.join(', ')
+      });
+    }
 
     return jsonResponse_({ ok: true, syncedIds });
   } catch (err) {

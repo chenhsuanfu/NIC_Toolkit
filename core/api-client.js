@@ -33,9 +33,13 @@ export class GasApiClient {
    * Pull latest snapshot from Google Sheets (via GAS CacheService / SpreadsheetApp)
    */
   static async pullSnapshot(forceRefresh = false) {
-    const { gasUrl, apiToken } = this.getCredentials();
+    const { gasUrl, apiToken, mode } = this.getCredentials();
     if (!gasUrl || !apiToken) {
       throw new Error('尚未設定 Google Apps Script API 網址或通行金鑰 (API Token)');
+    }
+
+    if (mode === 'cloud' && store.getSyncQueue().length > 0) {
+      await store.pushPendingQueue({ silent: false });
     }
 
     const url = new URL(gasUrl);
@@ -65,43 +69,6 @@ export class GasApiClient {
    * Push queued local mutations to Google Sheets (Append-Only to protect formulas)
    */
   static async pushPendingQueue() {
-    const { gasUrl, apiToken, mode } = this.getCredentials();
-    const queue = store.getSyncQueue();
-
-    if (queue.length === 0) {
-      return { syncedCount: 0, message: '目前沒有待同步的變更' };
-    }
-
-    if (mode !== 'cloud') {
-      throw new Error('目前處於「本機沙盒模式」，請先至「設定與同步」切換為「正式雲端同步模式」再寫入原試算表。');
-    }
-
-    if (!gasUrl || !apiToken) {
-      throw new Error('尚未設定 Google Apps Script API 網址或通行金鑰');
-    }
-
-    // GAS web apps accept text/plain POST body cleanly without CORS preflight blocks
-    const res = await fetch(gasUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({
-        action: 'batchMutate',
-        token: apiToken,
-        mutations: queue
-      })
-    });
-
-    if (!res.ok) {
-      throw new Error(`同步請求失敗 (HTTP ${res.status})`);
-    }
-
-    const json = await res.json();
-    if (!json.ok) {
-      throw new Error(json.error || '雲端寫入失敗');
-    }
-
-    const syncedIds = json.syncedIds || queue.map((q) => q.id);
-    store.markQueueSynced(syncedIds);
-    return { syncedCount: syncedIds.length, details: json };
+    return store.pushPendingQueue({ silent: false });
   }
 }

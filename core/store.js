@@ -12,7 +12,17 @@ class LocalFirstStore {
     this.state = null;
     this.baselineLots = null;
     this.config = this._loadConfig();
-    this.syncQueue = this._loadQueue();
+    this.syncQueue = this._coalesceQueue(this._loadQueue());
+    this.syncStatus = {
+      state: 'idle', // 'idle' | 'syncing' | 'error'
+      lastError: null,
+      lastAttemptAt: null
+    };
+    this._autoPushTimer = null;
+    this._pushPromise = null;
+    this._pendingAutoPushAfterFlight = false;
+    this._pullPromise = null;
+    this._lastCloudPullAt = 0;
     this.initialized = false;
   }
 
@@ -99,12 +109,45 @@ class LocalFirstStore {
   _loadQueue() {
     try {
       const raw = localStorage.getItem(QUEUE_KEY);
-      if (raw) return JSON.parse(raw);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const coalesced = this._coalesceQueue(parsed);
+        if (Array.isArray(parsed) && coalesced.length !== parsed.length) {
+          localStorage.setItem(QUEUE_KEY, JSON.stringify(coalesced));
+        }
+        return coalesced;
+      }
     } catch (_) {}
     return [];
   }
 
+  _coalesceQueue(queue) {
+    if (!Array.isArray(queue) || queue.length <= 1) return Array.isArray(queue) ? queue : [];
+    const seenSettingKeys = new Set();
+    const outReversed = [];
+    for (let i = queue.length - 1; i >= 0; i--) {
+      const item = queue[i];
+      if (item && item.type === 'stock.upsertSetting' && item.payload?.['項目']) {
+        const key = String(item.payload['項目']).trim();
+        if (seenSettingKeys.has(key)) continue;
+        seenSettingKeys.add(key);
+      }
+      outReversed.push(item);
+    }
+    return outReversed.reverse();
+  }
+
+  _setSyncStatus(partial) {
+    this.syncStatus = { ...this.syncStatus, ...partial };
+    this._notify('sync-status');
+  }
+
+  getSyncStatus() {
+    return this.syncStatus;
+  }
+
   saveConfig(partial) {
+    const prevMode = this.config?.mode;
     this.config = { ...this.config, ...partial };
     try {
       localStorage.setItem(CONFIG_KEY, JSON.stringify(this.config));
@@ -119,7 +162,10 @@ class LocalFirstStore {
         document.cookie = `${COOKIE_CFG_KEY}=${cookiePayload}; max-age=31536000; path=/; SameSite=Lax`;
       }
     } catch (_) {}
-    this._notify();
+    this._notify('config');
+    if (prevMode !== 'cloud' && this.config.mode === 'cloud' && this.syncQueue.length > 0) {
+      this._scheduleAutoPush(300);
+    }
   }
 
   async init() {
@@ -134,52 +180,201 @@ class LocalFirstStore {
       if (cached) {
         this.state = this._normalizeSnapshot(JSON.parse(cached));
         this.initialized = true;
-        this._notify();
-        // Background refresh: if demo seed, try local snapshot or cloud GAS snapshot
+        this._notify('init');
+        // Background refresh: if demo seed, try local snapshot first, then sync with cloud if configured
         if (this.state.isDemoSeed) {
-          const okLocal = await this._tryLoadLocalSnapshot();
-          if (!okLocal && this.config.gasUrl && this.config.apiToken) {
-            this.pullFromCloudSilently();
-          }
-        } else if (this.config.gasUrl && this.config.apiToken) {
-          // Stale-While-Revalidate: already rendered in 0.01s, silently revalidate in background
-          this.pullFromCloudSilently();
+          await this._tryLoadLocalSnapshot();
+        }
+        if (this.config.gasUrl && this.config.apiToken) {
+          // Stale-While-Revalidate: push pending queue first if any, then pull latest cloud snapshot
+          this.syncWithCloud({ forceRefresh: false, pushFirst: true, silent: true });
         }
         return this.state;
       }
     } catch (_) {}
 
-    // 3. First-time hydration: try local-snapshot.json, then cloud GAS if paired, fallback to SEED_DATA
+    // 3. First-time hydration: try local-snapshot.json, fallback to SEED_DATA, then sync with cloud if paired
     const loadedSnapshot = await this._tryLoadLocalSnapshot();
     if (!loadedSnapshot) {
       this.state = structuredClone(SEED_DATA);
       this._persistState();
-      if (this.config.gasUrl && this.config.apiToken) {
-        this.pullFromCloudSilently();
-      }
     }
 
     this.initialized = true;
-    this._notify();
+    this._notify('init');
+    if (this.config.gasUrl && this.config.apiToken) {
+      this.syncWithCloud({ forceRefresh: false, pushFirst: true, silent: true });
+    }
     return this.state;
   }
 
   async pullFromCloudSilently(forceRefresh = false) {
     if (!this.config.gasUrl || !this.config.apiToken) return false;
-    try {
-      const url = new URL(this.config.gasUrl);
-      url.searchParams.set('action', 'snapshot');
-      url.searchParams.set('token', this.config.apiToken);
-      if (forceRefresh) url.searchParams.set('refresh', '1');
-      const res = await fetch(url.toString(), { method: 'GET', headers: { 'Accept': 'application/json' } });
-      if (!res.ok) return false;
-      const json = await res.json();
-      if (json && json.ok && json.data) {
-        this.replaceStateFromCloud(json.data);
-        return true;
+    if (this.config.mode === 'cloud' && this.syncQueue.length > 0) return false;
+    if (this._pullPromise) return this._pullPromise;
+
+    this._pullPromise = (async () => {
+      try {
+        const url = new URL(this.config.gasUrl);
+        url.searchParams.set('action', 'snapshot');
+        url.searchParams.set('token', this.config.apiToken);
+        if (forceRefresh) url.searchParams.set('refresh', '1');
+        const res = await fetch(url.toString(), { method: 'GET', headers: { 'Accept': 'application/json' } });
+        if (!res.ok) return false;
+        const json = await res.json();
+        if (json && json.ok && json.data) {
+          this._lastCloudPullAt = Date.now();
+          this.replaceStateFromCloud(json.data);
+          return true;
+        }
+      } catch (_) {}
+      return false;
+    })().finally(() => {
+      this._pullPromise = null;
+    });
+
+    return this._pullPromise;
+  }
+
+  _scheduleAutoPush(delayMs = 900) {
+    if (this.config.mode !== 'cloud' || !this.config.gasUrl || !this.config.apiToken) return;
+    if (this.syncQueue.length === 0) return;
+    if (this._autoPushTimer) {
+      clearTimeout(this._autoPushTimer);
+    }
+    this._autoPushTimer = setTimeout(() => {
+      this._autoPushTimer = null;
+      this.pushPendingQueue({ silent: true }).catch(() => {});
+    }, delayMs);
+  }
+
+  async pushPendingQueue({ silent = false } = {}) {
+    const gasUrl = (this.config?.gasUrl || '').trim();
+    const apiToken = (this.config?.apiToken || '').trim();
+    const mode = this.config?.mode || 'sandbox';
+
+    if (this.syncQueue.length === 0) {
+      return { syncedCount: 0, message: '目前沒有待同步的變更' };
+    }
+
+    if (mode !== 'cloud') {
+      if (silent) return { syncedCount: 0, skipped: 'sandbox' };
+      throw new Error('目前處於「本機沙盒模式」，請先至「設定與同步」切換為「正式雲端同步模式」再寫入原試算表。');
+    }
+
+    if (!gasUrl || !apiToken) {
+      if (silent) return { syncedCount: 0, skipped: 'unconfigured' };
+      throw new Error('尚未設定 Google Apps Script API 網址或通行金鑰');
+    }
+
+    if (this._autoPushTimer) {
+      clearTimeout(this._autoPushTimer);
+      this._autoPushTimer = null;
+    }
+
+    if (this._pushPromise) {
+      this._pendingAutoPushAfterFlight = true;
+      const inFlightRes = await this._pushPromise;
+      if (this.syncQueue.length === 0 || silent) {
+        return inFlightRes;
       }
-    } catch (_) {}
-    return false;
+    }
+
+    const runPush = async () => {
+      this._setSyncStatus({
+        state: 'syncing',
+        lastError: null,
+        lastAttemptAt: new Date().toISOString()
+      });
+
+      const queueSnapshot = [...this.syncQueue];
+      try {
+        // GAS web apps accept text/plain POST body cleanly without CORS preflight blocks
+        const res = await fetch(gasUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'batchMutate',
+            token: apiToken,
+            mutations: queueSnapshot
+          })
+        });
+
+        if (!res.ok) {
+          throw new Error(`同步請求失敗 (HTTP ${res.status})`);
+        }
+
+        const json = await res.json();
+        const syncedIds = Array.isArray(json.syncedIds) ? json.syncedIds : [];
+        if (syncedIds.length > 0) {
+          this.markQueueSynced(syncedIds);
+        }
+
+        if (!json.ok) {
+          throw new Error(json.error || '雲端寫入失敗');
+        }
+
+        const syncedSet = new Set(syncedIds);
+        const unsynced = queueSnapshot.filter((q) => !syncedSet.has(q.id));
+        if (unsynced.length > 0) {
+          const missingTypes = Array.from(new Set(unsynced.map((u) => u.type))).join(', ');
+          throw new Error(`雲端未完成 ${unsynced.length} 筆同步 (${missingTypes})，請確認 GAS 部署已更新並發布新版本`);
+        }
+
+        this._setSyncStatus({
+          state: 'idle',
+          lastError: null,
+          lastAttemptAt: new Date().toISOString()
+        });
+        return { syncedCount: syncedIds.length, details: json };
+      } catch (err) {
+        this._setSyncStatus({
+          state: 'error',
+          lastError: err.message || String(err),
+          lastAttemptAt: new Date().toISOString()
+        });
+        throw err;
+      }
+    };
+
+    this._pushPromise = runPush().finally(() => {
+      this._pushPromise = null;
+      if (this._pendingAutoPushAfterFlight) {
+        this._pendingAutoPushAfterFlight = false;
+        if (this.syncQueue.length > 0) {
+          this._scheduleAutoPush(300);
+        }
+      }
+    });
+
+    return this._pushPromise;
+  }
+
+  async syncWithCloud({ forceRefresh = false, pushFirst = true, silent = true } = {}) {
+    if (pushFirst && this.config.mode === 'cloud' && this.syncQueue.length > 0) {
+      try {
+        await this.pushPendingQueue({ silent });
+      } catch (err) {
+        if (!silent) throw err;
+        return { pushed: false, pulled: false, error: err.message || String(err) };
+      }
+    }
+    if (this.config.mode === 'cloud' && this.syncQueue.length > 0) {
+      return { pushed: false, pulled: false };
+    }
+    const pulled = await this.pullFromCloudSilently(forceRefresh);
+    return { pushed: true, pulled };
+  }
+
+  async handleAppResume() {
+    if (!this.initialized || !this.config.gasUrl || !this.config.apiToken) return;
+    if (this.config.mode === 'cloud' && this.syncQueue.length > 0) {
+      await this.syncWithCloud({ forceRefresh: false, pushFirst: true, silent: true });
+      return;
+    }
+    if (Date.now() - this._lastCloudPullAt > 15000) {
+      await this.pullFromCloudSilently(false);
+    }
   }
 
   async _tryLoadLocalSnapshot() {
@@ -383,32 +578,40 @@ class LocalFirstStore {
       synced: false
     };
     this.syncQueue.push(mutationRecord);
+    this.syncQueue = this._coalesceQueue(this.syncQueue);
     this._persistState();
     this._persistQueue();
-    this._notify();
+    this._notify('mutate');
+    this._scheduleAutoPush();
     return mutationRecord;
   }
 
   markQueueSynced(ids = []) {
     const idSet = new Set(ids);
     this.syncQueue = this.syncQueue.filter((item) => !idSet.has(item.id));
-    this.saveConfig({ lastSyncAt: new Date().toISOString() });
+    this.config = { ...this.config, lastSyncAt: new Date().toISOString() };
+    try {
+      localStorage.setItem(CONFIG_KEY, JSON.stringify(this.config));
+    } catch (_) {}
     this._persistQueue();
-    this._notify();
+    this._notify('queue-synced');
   }
 
   clearQueue() {
     this.syncQueue = [];
     this._persistQueue();
-    this._notify();
+    this._notify('queue-cleared');
   }
 
   replaceStateFromCloud(cloudData) {
     this.state = this._normalizeSnapshot(cloudData);
     this.state.isDemoSeed = false;
-    this.saveConfig({ lastSyncAt: new Date().toISOString() });
+    this.config = { ...this.config, lastSyncAt: new Date().toISOString() };
+    try {
+      localStorage.setItem(CONFIG_KEY, JSON.stringify(this.config));
+    } catch (_) {}
     this._persistState();
-    this._notify();
+    this._notify('cloud-pull');
   }
 
   async resetToInitialSnapshot() {
@@ -418,7 +621,7 @@ class LocalFirstStore {
     if (!ok) {
       this.state = structuredClone(SEED_DATA);
       this._persistState();
-      this._notify();
+      this._notify('reset');
     }
     return this.state;
   }
@@ -428,10 +631,10 @@ class LocalFirstStore {
     return () => this.listeners.delete(fn);
   }
 
-  _notify() {
+  _notify(reason = 'state') {
     for (const fn of this.listeners) {
       try {
-        fn(this.state, this.config, this.syncQueue);
+        fn(this.state, this.config, this.syncQueue, reason, this.syncStatus);
       } catch (err) {
         console.error('Store listener error:', err);
       }

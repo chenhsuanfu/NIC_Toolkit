@@ -46,17 +46,6 @@ export class StockTrackerUI {
       watchlist: { col: 'gap', dir: 'asc' },
       history: { col: 'date', dir: 'desc' }
     };
-
-    // Valuation state
-    this.valParams = {
-      symbol: '2330.TW',
-      isTwStock: true,
-      baseRevenue: 28943,
-      growthRatePct: 24,
-      netMarginPct: 42.5,
-      shareCapital: 259.3,
-      targetPe: 22
-    };
   }
 
   _toggleSort(tableKey, col, defaultDir = 'desc') {
@@ -650,8 +639,6 @@ export class StockTrackerUI {
 
   _renderWatchlistTab(state) {
     const rawWatchlist = [...(state?.stock?.watchlist || [])];
-    const vp = this.valParams;
-    const calc = StockCore.estimateTargetPrice(state, vp);
 
     const sortCfg = this.sortState.watchlist || { col: 'gap', dir: 'asc' };
     const dirMul = sortCfg.dir === 'asc' ? 1 : -1;
@@ -667,123 +654,50 @@ export class StockTrackerUI {
     });
 
     return `
-      <div class="grid-2">
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">觀察清單（公允價值雷達）</div>
-          </div>
-          <form id="form-watchlist" class="form-grid" style="margin-bottom:12px;">
-            <input class="form-control font-mono" name="symbol" placeholder="代號 (如 NVDA)" required />
-            <input class="form-control font-mono" type="number" step="any" name="fairPrice" placeholder="目標公允價" required />
-            <button type="submit" class="btn btn-primary">＋ 存入觀察清單</button>
-          </form>
-          <div class="table-wrap">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  ${this._sortTh('watchlist', 'symbol', '代號', 'asc')}
-                  <th>市場</th>
-                  ${this._sortTh('watchlist', 'fair', '公允價格', 'desc', 'right')}
-                  ${this._sortTh('watchlist', 'cur', '目前採用價', 'desc', 'right')}
-                  ${this._sortTh('watchlist', 'gap', '折溢價邊際', 'asc', 'right')}
-                </tr>
-              </thead>
-              <tbody>
-                ${rawWatchlist.map((w) => {
-                  const fair = toNum(w['公允價格'], 0);
-                  const cur = toNum(w['採用價'] || w['自動價'], 0);
-                  const diffPct = (fair > 0 && cur > 0) ? ((cur - fair) / fair) : null;
-                  const isUndervalued = diffPct !== null && diffPct <= 0;
-                  return `
-                    <tr>
-                      <td class="font-mono" style="font-weight:700;">${w['代號']}</td>
-                      <td><span class="pill">${w['市場'] || 'US'}</span></td>
-                      <td class="font-mono" style="text-align:right; font-weight:700;">${fmtDec(fair)}</td>
-                      <td class="font-mono" style="text-align:right;">${cur > 0 ? fmtDec(cur) : '-'}</td>
-                      <td style="text-align:right;">
-                        ${diffPct !== null
-                          ? `<span class="pill ${isUndervalued ? 'pill-emerald' : 'pill-rose'}">
-                               ${isUndervalued ? '低於公允 ' : '高於公允 +'}${(diffPct * 100).toFixed(1)}%
-                             </span>`
-                          : '<span class="text-muted">-</span>'}
-                      </td>
-                    </tr>
-                  `;
-                }).join('')}
-              </tbody>
-            </table>
-          </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">觀察清單（公允價值雷達）</div>
         </div>
-
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">EPS 目標價推估引擎</div>
-            <span class="pill">一鍵寫入公允價</span>
-          </div>
-          <p class="text-muted" style="font-size:12px; margin-bottom:12px;">
-            預估營收 = 基準營收 × (1 + 年增率%) ｜ 預估 EPS = (預估營收 × 淨利率%) ÷ 總股數 ｜ 目標價 = EPS × 本益比
-          </p>
-          <form id="form-val-calc" class="form-grid" style="margin-bottom:12px;">
-            <div class="form-group">
-              <label class="form-label">標的代號</label>
-              <input class="form-control font-mono" name="symbol" value="${vp.symbol}" />
-            </div>
-            <div class="form-group">
-              <label class="form-label">基準年營收 (億)</label>
-              <input class="form-control font-mono" type="number" step="any" name="baseRevenue" value="${vp.baseRevenue}" />
-            </div>
-            <div class="form-group">
-              <label class="form-label">預估營收年增率 (%)</label>
-              <input class="form-control font-mono" type="number" step="any" name="growthRatePct" value="${vp.growthRatePct}" />
-            </div>
-            <div class="form-group">
-              <label class="form-label">預估歸母淨利率 (%)</label>
-              <input class="form-control font-mono" type="number" step="any" name="netMarginPct" value="${vp.netMarginPct}" />
-            </div>
-            <div class="form-group">
-              <label class="form-label">總股數 (億股，股本÷10)</label>
-              <input class="form-control font-mono" type="number" step="any" name="shareCapital" value="${vp.shareCapital}" />
-            </div>
-            <div class="form-group">
-              <label class="form-label">目標本益比 (PE)</label>
-              <input class="form-control font-mono" type="number" step="any" name="targetPe" value="${vp.targetPe}" />
-            </div>
-          </form>
-
-          <div style="background:var(--bg-subtle); border:1px solid var(--border-color); border-radius:8px; padding:12px; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-            <div>
-              <div class="text-muted" style="font-size:12px;">推估 EPS：<strong class="font-mono">${calc.estEps} 元</strong> ｜ 合理目標價：</div>
-              <div style="font-size:22px; font-weight:700;" class="font-mono text-emerald">${calc.targetPrice}</div>
-            </div>
-            <button type="button" class="btn btn-primary" id="btn-save-val-to-watchlist" data-symbol="${vp.symbol}" data-price="${calc.targetPrice}">
-              存入「${vp.symbol}」觀察公允價
-            </button>
-          </div>
-
-          <div class="table-wrap">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>情境 (營收年增率)</th>
-                  <th style="text-align:right;">推估 EPS</th>
-                  <th style="text-align:right;">保守 PE (${Math.max(5, vp.targetPe - 3)}x)</th>
-                  <th style="text-align:right;">基準 PE (${vp.targetPe}x)</th>
-                  <th style="text-align:right;">樂觀 PE (${vp.targetPe + 3}x)</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${calc.matrix.map((row) => `
+        <form id="form-watchlist" class="form-grid" style="margin-bottom:12px;">
+          <input class="form-control font-mono" name="symbol" placeholder="代號 (如 NVDA)" required />
+          <input class="form-control font-mono" type="number" step="any" name="fairPrice" placeholder="目標公允價" required />
+          <button type="submit" class="btn btn-primary">＋ 存入觀察清單</button>
+        </form>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                ${this._sortTh('watchlist', 'symbol', '代號', 'asc')}
+                <th>市場</th>
+                ${this._sortTh('watchlist', 'fair', '公允價格', 'desc', 'right')}
+                ${this._sortTh('watchlist', 'cur', '目前採用價', 'desc', 'right')}
+                ${this._sortTh('watchlist', 'gap', '折溢價邊際', 'asc', 'right')}
+              </tr>
+            </thead>
+            <tbody>
+              ${rawWatchlist.map((w) => {
+                const fair = toNum(w['公允價格'], 0);
+                const cur = toNum(w['採用價'] || w['自動價'], 0);
+                const diffPct = (fair > 0 && cur > 0) ? ((cur - fair) / fair) : null;
+                const isUndervalued = diffPct !== null && diffPct <= 0;
+                return `
                   <tr>
-                    <td>年增 ${row.growthPct}%</td>
-                    <td class="font-mono" style="text-align:right;">${row.eps}</td>
-                    <td class="font-mono text-muted" style="text-align:right;">${row.peLow}</td>
-                    <td class="font-mono text-emerald" style="text-align:right; font-weight:700;">${row.peBase}</td>
-                    <td class="font-mono" style="text-align:right;">${row.peHigh}</td>
+                    <td class="font-mono" style="font-weight:700;">${w['代號']}</td>
+                    <td><span class="pill">${w['市場'] || 'US'}</span></td>
+                    <td class="font-mono" style="text-align:right; font-weight:700;">${fmtDec(fair)}</td>
+                    <td class="font-mono" style="text-align:right;">${cur > 0 ? fmtDec(cur) : '-'}</td>
+                    <td style="text-align:right;">
+                      ${diffPct !== null
+                        ? `<span class="pill ${isUndervalued ? 'pill-emerald' : 'pill-rose'}">
+                             ${isUndervalued ? '低於公允 ' : '高於公允 +'}${(diffPct * 100).toFixed(1)}%
+                           </span>`
+                        : '<span class="text-muted">-</span>'}
+                    </td>
                   </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
         </div>
       </div>
     `;
@@ -1033,35 +947,6 @@ export class StockTrackerUI {
         } catch (err) {
           showToast(`錯誤：${err.message}`);
         }
-      });
-    }
-
-    const valForm = container.querySelector('#form-val-calc');
-    if (valForm) {
-      valForm.addEventListener('input', () => {
-        const fd = new FormData(valForm);
-        const sym = String(fd.get('symbol') || '').toUpperCase();
-        this.valParams = {
-          symbol: sym,
-          isTwStock: sym.endsWith('.TW') || sym.endsWith('.TWO') || /^\d+$/.test(sym),
-          baseRevenue: Number(fd.get('baseRevenue') || 0),
-          growthRatePct: Number(fd.get('growthRatePct') || 0),
-          netMarginPct: Number(fd.get('netMarginPct') || 0),
-          shareCapital: Number(fd.get('shareCapital') || 1),
-          targetPe: Number(fd.get('targetPe') || 15)
-        };
-        this.render(container, store.getState(), store, showToast);
-      });
-    }
-
-    const saveValBtn = container.querySelector('#btn-save-val-to-watchlist');
-    if (saveValBtn) {
-      saveValBtn.addEventListener('click', () => {
-        const symbol = saveValBtn.getAttribute('data-symbol');
-        const fairPrice = Number(saveValBtn.getAttribute('data-price'));
-        StockCore.upsertWatchlist(store.getState(), { symbol, fairPrice }, store);
-        showToast(`已將推估目標價 ${fairPrice} 存入 ${symbol} 觀察清單`);
-        this.render(container, store.getState(), store, showToast);
       });
     }
 
