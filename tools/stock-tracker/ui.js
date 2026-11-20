@@ -42,6 +42,7 @@ export class StockTrackerUI {
     // Universal table sorting state
     this.sortState = {
       holdings: { col: 'market', dir: 'desc' },
+      lots: { col: 'date', dir: 'desc' },
       rebalance: { col: 'targetPct', dir: 'desc' },
       watchlist: { col: 'gap', dir: 'asc' },
       history: { col: 'date', dir: 'desc' }
@@ -211,14 +212,20 @@ export class StockTrackerUI {
   _renderSelectedSymbolLotsPanel(state, options) {
     if (!this.selectedSymbol) return '';
 
-    const detail = StockCore.getLotsForSymbol(state, this.selectedSymbol);
+    const lotSort = this.sortState.lots || { col: 'date', dir: 'desc' };
+    const detail = StockCore.getLotsForSymbol(state, this.selectedSymbol, {
+      sortBy: lotSort.col,
+      sortDir: lotSort.dir
+    });
     const openLots = detail.openLots || [];
     const closedLots = detail.closedLots || [];
     const selectedLot = openLots.find((l) => l.id === this.selectedLotId) || null;
     const today = new Date().toISOString().slice(0, 10);
     const curLabel = detail.market === 'TW' ? 'TWD' : 'USD';
     const defaultType = openLots[0]?.type || '進攻型';
-    const defaultBroker = openLots[0]?.broker || options.brokers[0] || 'FT';
+    const defaultBroker = openLots[0]?.broker || options.brokers[0] || 'F';
+    const isDateSort = lotSort.col === 'date';
+    const isAmtSort = lotSort.col === 'amount';
 
     return `
       <div class="card" id="lot-drilldown-panel" style="margin-bottom:16px; border-color:var(--accent-blue);">
@@ -230,7 +237,14 @@ export class StockTrackerUI {
               <span class="pill">現價 ${curLabel} ${fmtDec(detail.currentPrice)}</span>
             </div>
           </div>
-          <div style="display:flex; gap:6px; flex-wrap:wrap;">
+          <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+            <span class="text-muted" style="font-size:12px;">排序：</span>
+            <button type="button" class="btn ${isDateSort ? 'btn-primary' : 'btn-ghost'} btn-sm" data-lot-sort="date">
+              依日期 ${isDateSort ? (lotSort.dir === 'desc' ? '▼ 最新' : '▲ 最舊') : ''}
+            </button>
+            <button type="button" class="btn ${isAmtSort ? 'btn-primary' : 'btn-ghost'} btn-sm" data-lot-sort="amount">
+              依投入金額 ${isAmtSort ? (lotSort.dir === 'desc' ? '▼ 大→小' : '▲ 小→大') : ''}
+            </button>
             ${detail.market === 'TW' ? `
               <button type="button" class="btn btn-ghost btn-sm" id="btn-open-goodstock-for-symbol" data-gs-symbol="${detail.symbol}">
                 好股價財報與目標價
@@ -251,20 +265,21 @@ export class StockTrackerUI {
           <div style="margin-bottom:12px; padding:12px; background:var(--bg-subtle); border:1px solid var(--accent-blue); border-radius:8px;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
               <div style="font-weight:700; font-size:13px;">
-                指定賣出批次：進場日 <span class="font-mono">${selectedLot.entryDate}</span> ｜ 券商 <span class="font-mono">${selectedLot.broker}</span> ｜ 進場價 <span class="font-mono">${fmtDec(selectedLot.entryPrice)}</span> ｜ 剩餘可賣 <span class="font-mono">${selectedLot.remainingShares} 股</span>
+                指定賣出批次：進場日 <span class="font-mono">${selectedLot.entryDate}</span> ｜ 券商 <span class="font-mono">${selectedLot.broker}</span> ｜ 進場價 <span class="font-mono">${fmtDec(selectedLot.entryPrice)}</span> ｜ 剩餘可賣 <span class="font-mono">${selectedLot.remainingShares} 股</span> ｜ 該批成本 <span class="font-mono">${curLabel} ${fmtDec(selectedLot.costAmountNative)}</span>
               </div>
               <button type="button" class="btn btn-ghost btn-sm" id="btn-cancel-lot-exit">✕ 取消指定</button>
             </div>
             <form id="form-lot-exit" class="form-grid" style="align-items:end;">
+              <input type="hidden" name="tradeId" value="${selectedLot.id}" />
               <input type="hidden" name="lotId" value="${selectedLot.id}" />
               <input type="hidden" name="symbol" value="${detail.symbol}" />
               <div class="form-group">
                 <label class="form-label">賣出股數 (上限 ${selectedLot.remainingShares})</label>
-                <input class="form-control font-mono" type="number" step="any" max="${selectedLot.remainingShares}" name="shares" value="${selectedLot.remainingShares}" required />
+                <input class="form-control font-mono" type="number" step="any" min="0.0001" max="${selectedLot.remainingShares}" name="exitShares" value="${selectedLot.remainingShares}" required />
               </div>
               <div class="form-group">
                 <label class="form-label">出場成交價 (${curLabel})</label>
-                <input class="form-control font-mono" type="number" step="any" name="exitPrice" value="${detail.currentPrice || selectedLot.entryPrice}" required />
+                <input class="form-control font-mono" type="number" step="any" min="0.0001" name="exitPrice" value="${detail.currentPrice || selectedLot.entryPrice}" required />
               </div>
               <div class="form-group">
                 <label class="form-label">出場日期</label>
@@ -286,19 +301,20 @@ export class StockTrackerUI {
             <thead>
               <tr>
                 <th>操作</th>
-                <th>進場日</th>
+                ${this._sortTh('lots', 'date', '進場日', 'desc')}
                 <th>券商</th>
                 <th>類型</th>
-                <th style="text-align:right;">進場單價</th>
-                <th style="text-align:right;">剩餘股數</th>
-                <th style="text-align:right;">單批損益 (${curLabel})</th>
-                <th style="text-align:right;">報酬率</th>
+                ${this._sortTh('lots', 'price', '進場單價', 'desc', 'right')}
+                ${this._sortTh('lots', 'shares', '剩餘股數', 'desc', 'right')}
+                ${this._sortTh('lots', 'amount', `投入成本 (${curLabel})`, 'desc', 'right')}
+                ${this._sortTh('lots', 'pnl', `單批損益 (${curLabel})`, 'desc', 'right')}
+                ${this._sortTh('lots', 'roi', '報酬率', 'desc', 'right')}
                 <th>備註</th>
               </tr>
             </thead>
             <tbody>
               ${openLots.length === 0 ? `
-                <tr><td colspan="9" class="text-muted" style="text-align:center; padding:16px;">無未出場批次明細</td></tr>
+                <tr><td colspan="10" class="text-muted" style="text-align:center; padding:16px;">無未出場批次明細</td></tr>
               ` : openLots.map((lot) => {
                 const isSelected = lot.id === this.selectedLotId;
                 const pnlCls = lot.unrealizedNative >= 0 ? 'text-emerald' : 'text-rose';
@@ -310,13 +326,16 @@ export class StockTrackerUI {
                         ${isSelected ? '✓ 已指定' : '指定賣出'}
                       </button>
                     </td>
-                    <td class="font-mono">${lot.entryDate}</td>
+                    <td class="font-mono ${lot.hasEntryDate ? '' : 'text-muted'}">${lot.entryDate}</td>
                     <td class="font-mono">${lot.broker}</td>
                     <td><span class="pill">${lot.type}</span></td>
                     <td class="font-mono" style="text-align:right;">${fmtDec(lot.entryPrice)}</td>
                     <td class="font-mono" style="text-align:right;">
                       <strong>${lot.remainingShares}</strong>
                       ${lot.exitedShares > 0 ? `<span class="text-muted" style="font-size:11px;"> (原 ${lot.entryShares})</span>` : ''}
+                    </td>
+                    <td class="font-mono mask-amount" style="text-align:right; font-weight:700;">
+                      ${curLabel === 'TWD' ? `$${fmtInt(lot.costAmountNative)}` : fmtDec(lot.costAmountNative)}
                     </td>
                     <td class="font-mono mask-amount ${pnlCls}" style="text-align:right; font-weight:700;">${sign}${fmtDec(lot.unrealizedNative)}</td>
                     <td style="text-align:right;"><span class="pill ${lot.unrealizedNative >= 0 ? 'pill-emerald' : 'pill-rose'}">${lot.unrealizedNative >= 0 ? '▲ ' : '▼ '}${fmtPct(lot.roi)}</span></td>
@@ -342,6 +361,7 @@ export class StockTrackerUI {
                       <th>券商</th>
                       <th style="text-align:right;">進場價</th>
                       <th style="text-align:right;">原股數</th>
+                      <th style="text-align:right;">原投入成本 (${curLabel})</th>
                       <th>狀態</th>
                       <th>備註</th>
                     </tr>
@@ -353,6 +373,7 @@ export class StockTrackerUI {
                         <td class="font-mono">${c.broker}</td>
                         <td class="font-mono" style="text-align:right;">${fmtDec(c.entryPrice)}</td>
                         <td class="font-mono" style="text-align:right;">${c.entryShares}</td>
+                        <td class="font-mono mask-amount" style="text-align:right;">${curLabel === 'TWD' ? `$${fmtInt(c.entryCostNative)}` : fmtDec(c.entryCostNative)}</td>
                         <td><span class="pill">已出場 (${c.exitedShares} 股)</span></td>
                         <td class="text-muted">${c.note || '-'}</td>
                       </tr>
@@ -704,18 +725,9 @@ export class StockTrackerUI {
   }
 
   _renderHistoryTab(state, summary) {
-    const rawTrades = [...(state?.stock?.recentTrades || [])];
     const sortCfg = this.sortState.history || { col: 'date', dir: 'desc' };
-    const dirMul = sortCfg.dir === 'asc' ? 1 : -1;
-    rawTrades.sort((a, b) => {
-      if (sortCfg.col === 'symbol') return String(a['代號'] || '').localeCompare(String(b['代號'] || '')) * dirMul;
-      if (sortCfg.col === 'price') return (toNum(a['進場價'], 0) - toNum(b['進場價'], 0)) * dirMul;
-      if (sortCfg.col === 'shares') return (toNum(a['進場股數'], 0) - toNum(b['進場股數'], 0)) * dirMul;
-      const dA = String(a['進場日'] || a['建立時間'] || '');
-      const dB = String(b['進場日'] || b['建立時間'] || '');
-      return dA.localeCompare(dB) * dirMul;
-    });
-    const trades = rawTrades.slice(0, 60);
+    const trades = StockCore.getSortedTrades(state, { col: sortCfg.col, dir: sortCfg.dir, limit: 100 });
+    const totalCount = Array.isArray(state?.stock?.recentTrades) ? state.stock.recentTrades.length : trades.length;
 
     return `
       <div class="grid-2">
@@ -740,7 +752,7 @@ export class StockTrackerUI {
 
         <div class="card">
           <div class="card-header">
-            <div class="card-title">進場交易明細 (${trades.length} 筆)</div>
+            <div class="card-title">進場交易明細 (最新 ${trades.length} 筆 / 共 ${totalCount} 筆)</div>
           </div>
           <div class="table-wrap" style="max-height:420px; overflow-y:auto;">
             <table class="data-table">
@@ -752,18 +764,20 @@ export class StockTrackerUI {
                   <th>券商</th>
                   ${this._sortTh('history', 'price', '進場價', 'desc', 'right')}
                   ${this._sortTh('history', 'shares', '股數', 'desc', 'right')}
+                  ${this._sortTh('history', 'amount', '投入成本', 'desc', 'right')}
                   <th>備註</th>
                 </tr>
               </thead>
               <tbody>
                 ${trades.map((t) => `
                   <tr>
-                    <td class="font-mono">${t['進場日'] || t['建立時間'] || '-'}</td>
+                    <td class="font-mono ${t.hasEntryDate ? '' : 'text-muted'}">${t.displayDate || t['進場日'] || t['建立時間'] || '-'}</td>
                     <td class="font-mono" style="font-weight:700;">${t['代號']}</td>
                     <td><span class="pill">${t['類型']}</span></td>
                     <td class="font-mono">${t['券商']}</td>
                     <td class="font-mono" style="text-align:right;">${fmtDec(t['進場價'])}</td>
                     <td class="font-mono" style="text-align:right;">${fmtDec(t['進場股數'], 0)}</td>
+                    <td class="font-mono mask-amount" style="text-align:right; font-weight:700;">${fmtDec(t.costNative)}</td>
                     <td class="text-muted">${t['備註'] || ''}</td>
                   </tr>
                 `).join('')}
@@ -790,6 +804,15 @@ export class StockTrackerUI {
         const col = th.getAttribute('data-st-sort-col');
         const def = th.getAttribute('data-st-sort-def') || 'desc';
         this._toggleSort(tbl, col, def);
+        this.render(container, store.getState(), store, showToast);
+      });
+    });
+
+    // Quick toggle buttons for Lot sorting (by Date vs by Cost Amount)
+    container.querySelectorAll('[data-lot-sort]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const col = btn.getAttribute('data-lot-sort');
+        this._toggleSort('lots', col, 'desc');
         this.render(container, store.getState(), store, showToast);
       });
     });

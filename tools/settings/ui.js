@@ -12,7 +12,7 @@ export class SettingsUI {
     const queue = store.getSyncQueue();
     const syncStatus = store.getSyncStatus ? store.getSyncStatus() : { state: 'idle', lastError: null };
     const manifest = agentBridge.getManifest();
-    const appVer = (typeof window !== 'undefined' && window.NIC_APP_VERSION) || 'v14';
+    const appVer = (typeof window !== 'undefined' && window.NIC_APP_VERSION) || 'v15';
 
     if (!this.agentOutput) {
       this.agentOutput = JSON.stringify(manifest, null, 2);

@@ -275,8 +275,9 @@ export class AssetTrackerUI {
 
   // ---------------- Tab: Analytics ----------------
   _renderAnalyticsTab(state) {
-    const { snapshots, allocation, cashflowHistory, expenseBreakdown, summary } = AssetCore.getAnalyticsData(state);
+    const { snapshots, allocation, cashflowHistory, cashflowStats, expenseBreakdown, summary } = AssetCore.getAnalyticsData(state);
     const eb = expenseBreakdown;
+    const cfStats = cashflowStats || { monthCount: 0, avgMonthlyIncome: 0, avgMonthlyExpense: 0, avgMonthlySavings: 0, avgSavingsRate: 0 };
     return `
       <div class="grid-2">
         <div class="card">
@@ -301,7 +302,7 @@ export class AssetTrackerUI {
       <div class="grid-2">
         <div class="card">
           <div class="card-header"><div class="card-title">月收入 vs 支出 (近 ${Math.min(18, cashflowHistory.length)} 個月)</div></div>
-          ${this._svgCashflow(cashflowHistory.slice(-18))}
+          ${this._svgCashflow(cashflowHistory.slice(-18), cfStats)}
         </div>
         <div class="card">
           <div class="card-header"><div class="card-title">開銷結構 (${eb.count} 筆，$${fmtInt(eb.totalExpenseSample)})</div></div>
@@ -347,7 +348,7 @@ export class AssetTrackerUI {
       </div>`;
   }
 
-  _svgCashflow(list) {
+  _svgCashflow(list, cfStats = {}) {
     if (!list.length) return '<div class="text-muted" style="padding:20px; text-align:center;">尚無月度收支資料</div>';
     const W = 560, H = 220, L = 46, R = 10, T = 14, B = 28;
     const pw = W - L - R, ph = H - T - B;
@@ -355,6 +356,10 @@ export class AssetTrackerUI {
     const y = (v) => T + ph - (Math.max(0, v) / max) * ph;
     const gw = pw / list.length;
     const bw = Math.max(3, Math.min(11, gw * 0.35));
+    const avgInc = toNum(cfStats.avgMonthlyIncome, 0);
+    const avgExp = toNum(cfStats.avgMonthlyExpense, 0);
+    const avgSav = toNum(cfStats.avgMonthlySavings, avgInc - avgExp);
+    const savRatePct = avgInc > 0 ? ((avgSav / avgInc) * 100).toFixed(1) : '0.0';
     return `
       <svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; display:block;">
         ${[0, 0.5, 1].map((t) => `<line x1="${L}" y1="${y(max * t)}" x2="${W - R}" y2="${y(max * t)}" stroke="var(--border-color)" stroke-dasharray="3,3"/><text x="${L - 6}" y="${y(max * t) + 4}" text-anchor="end" font-size="10" fill="var(--text-muted)">${Math.round(max * t / 10000)}萬</text>`).join('')}
@@ -367,6 +372,20 @@ export class AssetTrackerUI {
       </svg>
       <div style="display:flex; gap:14px; justify-content:center; font-size:11.5px; color:var(--text-secondary);">
         <span><b class="text-emerald">■</b> 收入</span><span><b class="text-rose">■</b> 支出</span>
+      </div>
+      <div style="display:flex; flex-wrap:wrap; gap:12px; justify-content:space-around; align-items:center; margin-top:10px; padding:9px 12px; background:var(--bg-subtle); border:1px solid var(--border-color); border-radius:8px; font-size:12.5px;">
+        <div>
+          <span class="text-muted">月收入平均：</span>
+          <strong class="font-mono mask-amount text-emerald">$${fmtInt(avgInc)}</strong>
+        </div>
+        <div>
+          <span class="text-muted">月支出平均：</span>
+          <strong class="font-mono mask-amount text-rose">$${fmtInt(avgExp)}</strong>
+        </div>
+        <div>
+          <span class="text-muted">月均結餘 (儲蓄率)：</span>
+          <strong class="font-mono mask-amount ${avgSav >= 0 ? 'text-emerald' : 'text-rose'}">${avgSav >= 0 ? '+' : ''}$${fmtInt(avgSav)} (${savRatePct}%)</strong>
+        </div>
       </div>`;
   }
 
@@ -494,12 +513,10 @@ export class AssetTrackerUI {
 
   // ---------------- Tab: Logs ----------------
   _renderLogsTab(state) {
-    const exps = [...(state?.asset?.recentExpenses || [])].sort(this._sorter('expenses', {
-      date: (e) => String(e['日期'] || ''), cat: (e) => String(e['類別'] || ''), amount: (e) => toNum(e['金額'], 0), payer: (e) => String(e['負擔人'] || '')
-    })).slice(0, 100);
-    const logs = [...(state?.asset?.recentLogs || [])].sort(this._sorter('logs', {
-      date: (l) => String(l['日期'] || ''), account: (l) => String(l['帳戶'] || ''), nature: (l) => String(l['性質'] || ''), amount: (l) => toNum(l['金額'], 0)
-    })).slice(0, 100);
+    const expSort = this.sortState.expenses || { col: 'date', dir: 'desc' };
+    const logSort = this.sortState.logs || { col: 'date', dir: 'desc' };
+    const exps = AssetCore.getSortedExpenses(state, { col: expSort.col, dir: expSort.dir, limit: 100 });
+    const logs = AssetCore.getSortedLogs(state, { col: logSort.col, dir: logSort.dir, limit: 100 });
 
     return `
       <div class="grid-2">

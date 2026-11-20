@@ -130,6 +130,8 @@ try {
         if (-not $sym) {
           Write-AgentJson @{ ok = $false; exitCode = 400; error = "Missing symbol parameter" } 400
         }
+        $sortBy = if ($Params.sortBy) { ($Params.sortBy -as [string]).Trim().ToLower() } else { "date" }
+        $sortDir = if ($Params.sortDir) { ($Params.sortDir -as [string]).Trim().ToLower() } else { "desc" }
         $exitsByTradeId = @{}
         foreach ($ex in $State.stock.recentExits) {
           $tid = ($ex.'交易id' -as [string]).Trim()
@@ -139,7 +141,9 @@ try {
         }
         $openLots = @()
         $totalRem = 0.0
+        $idx = 0
         foreach ($tr in $State.stock.recentTrades) {
+          $idx++
           $trSym = ($tr.'代號' -as [string]).Trim().ToUpper()
           if ($trSym -ne $sym) { continue }
           $tid = ($tr.'id' -as [string]).Trim()
@@ -148,17 +152,37 @@ try {
           $rem = [math]::Max(0.0, [math]::Round(($inShares - $outShares), 6))
           if ($rem -gt 0.00001) {
             $totalRem += $rem
-            $openLots += @{
+            $ep = To-Num $tr.'進場價'
+            $costAmt = [math]::Round(($ep * $rem), 2)
+            $rawDate = ($tr.'進場日' -as [string]).Trim()
+            $openLots += [PSCustomObject]@{
               tradeId = $tid
+              rowIdx = $idx
               type = $tr.'類型'
               broker = $tr.'券商'
-              entryDate = $tr.'進場日'
-              entryPrice = To-Num $tr.'進場價'
+              entryDate = if ($rawDate) { $rawDate } else { "未填 (建檔 $($tr.'建立時間'))" }
+              hasEntryDate = [bool]$rawDate
+              sortDateKey = if ($rawDate) { $rawDate } else { "0000-00-00" }
+              entryPrice = $ep
               entryShares = $inShares
               exitedShares = $outShares
               remainingShares = $rem
+              costAmountNative = $costAmt
               note = $tr.'備註'
             }
+          }
+        }
+        if ($sortBy -eq "amount" -or $sortBy -eq "cost") {
+          if ($sortDir -eq "asc") {
+            $openLots = @($openLots | Sort-Object costAmountNative, sortDateKey, rowIdx)
+          } else {
+            $openLots = @($openLots | Sort-Object -Property @{Expression="costAmountNative";Descending=$true}, @{Expression="sortDateKey";Descending=$true}, @{Expression="rowIdx";Descending=$true})
+          }
+        } else {
+          if ($sortDir -eq "asc") {
+            $openLots = @($openLots | Sort-Object -Property @{Expression="hasEntryDate";Descending=$true}, @{Expression="sortDateKey";Descending=$false}, @{Expression="rowIdx";Descending=$false})
+          } else {
+            $openLots = @($openLots | Sort-Object -Property @{Expression="hasEntryDate";Descending=$true}, @{Expression="sortDateKey";Descending=$true}, @{Expression="rowIdx";Descending=$true})
           }
         }
         Write-AgentJson @{
@@ -168,9 +192,52 @@ try {
           action = "getLotsBySymbol"
           data = @{
             symbol = $sym
+            sortBy = $sortBy
+            sortDir = $sortDir
             openLotCount = $openLots.Count
             totalRemainingShares = [math]::Round($totalRem, 4)
             openLots = $openLots
+          }
+        } 0
+      }
+      "getSortedTrades" {
+        $limit = if ($Params.limit) { [int]$Params.limit } else { 20 }
+        $dir = if ($Params.dir) { ($Params.dir -as [string]).ToLower() } else { "desc" }
+        $list = @()
+        $idx = 0
+        foreach ($tr in $State.stock.recentTrades) {
+          $idx++
+          $rawDate = ($tr.'進場日' -as [string]).Trim()
+          $ep = To-Num $tr.'進場價'
+          $sh = To-Num $tr.'進場股數'
+          $list += [PSCustomObject]@{
+            id = $tr.id
+            rowIdx = $idx
+            symbol = $tr.'代號'
+            type = $tr.'類型'
+            broker = $tr.'券商'
+            hasEntryDate = [bool]$rawDate
+            entryDate = if ($rawDate) { $rawDate } else { "未填 (建檔 $($tr.'建立時間'))" }
+            sortDateKey = if ($rawDate) { $rawDate } else { "0000-00-00" }
+            price = $ep
+            shares = $sh
+            costNative = [math]::Round(($ep * $sh), 2)
+          }
+        }
+        if ($dir -eq "asc") {
+          $sorted = @($list | Sort-Object -Property @{Expression="hasEntryDate";Descending=$true}, @{Expression="sortDateKey";Descending=$false}, @{Expression="rowIdx";Descending=$false} | Select-Object -First $limit)
+        } else {
+          $sorted = @($list | Sort-Object -Property @{Expression="hasEntryDate";Descending=$true}, @{Expression="sortDateKey";Descending=$true}, @{Expression="rowIdx";Descending=$true} | Select-Object -First $limit)
+        }
+        Write-AgentJson @{
+          ok = $true
+          exitCode = 0
+          module = "stock-tracker"
+          action = "getSortedTrades"
+          data = @{
+            totalCount = $list.Count
+            returnedCount = $sorted.Count
+            items = $sorted
           }
         } 0
       }
@@ -282,6 +349,96 @@ try {
             latestEstimatedAnnual = $latestAnn.estimatedAnnual
             snapshotCount = $extraObj.snapshots.Count
             cashflowMonthsCount = $extraObj.cashflowHistory.Count
+          }
+        } 0
+      }
+      "getAnalyticsData" {
+        $extraFile = Get-Content -Raw -Encoding UTF8 (Join-Path $RootDir "tools\asset-tracker\data.js")
+        $jsonPart = ($extraFile -replace '^[\s\S]*?export const ASSET_EXTRA_DATA = ', '') -replace ';\s*$', ''
+        $extraObj = $jsonPart | ConvertFrom-Json
+        $cfMap = @{}
+        $rawCf = if ($State.asset.cashflowHistory -and $State.asset.cashflowHistory.Count -gt 0) { $State.asset.cashflowHistory } else { $extraObj.cashflowHistory }
+        foreach ($c in $rawCf) {
+          $yrVal = if ($null -ne $c.'年') { $c.'年' } else { $c.year }
+          $moVal = if ($null -ne $c.'月') { $c.'月' } else { $c.month }
+          $yr = [int](To-Num $yrVal 0)
+          $mo = [int](To-Num $moVal 0)
+          $ym = if ($c.yearMonth) { $c.yearMonth } elseif ($yr -gt 0 -and $mo -gt 0) { "{0:D4}-{1:D2}" -f $yr, $mo } else { "" }
+          if (-not $ym) { continue }
+          $incVal = if ($null -ne $c.'收入') { $c.'收入' } else { $c.income }
+          $expVal = if ($null -ne $c.'支出') { $c.'支出' } else { $c.expense }
+          $inc = To-Num $incVal 0
+          $exp = To-Num $expVal 0
+          if ($inc -gt 0 -or $exp -gt 0) {
+            $cfMap[$ym] = [PSCustomObject]@{ yearMonth = $ym; income = $inc; expense = $exp; savings = ($inc - $exp) }
+          }
+        }
+        $rawSnaps = if ($State.asset.snapshots -and $State.asset.snapshots.Count -gt 0) { $State.asset.snapshots } else { $extraObj.snapshots }
+        foreach ($s in $rawSnaps) {
+          $dVal = if ($null -ne $s.'日期') { $s.'日期' } else { $s.date }
+          $d = ($dVal -as [string]).Trim()
+          if ($d.Length -ge 7) {
+            $inc = To-Num $s.'當月收入' 0
+            $exp = To-Num $s.'當月支出' 0
+            if ($inc -gt 0 -or $exp -gt 0) {
+              $ym = $d.Substring(0, 7)
+              $cfMap[$ym] = [PSCustomObject]@{ yearMonth = $ym; income = $inc; expense = $exp; savings = ($inc - $exp) }
+            }
+          }
+        }
+        $recent18 = @($cfMap.Values | Sort-Object yearMonth | Select-Object -Last 18)
+        $cnt = $recent18.Count
+        $avgInc = if ($cnt -gt 0) { [math]::Round((($recent18 | Measure-Object -Property income -Sum).Sum / $cnt)) } else { 0 }
+        $avgExp = if ($cnt -gt 0) { [math]::Round((($recent18 | Measure-Object -Property expense -Sum).Sum / $cnt)) } else { 0 }
+        $avgSav = $avgInc - $avgExp
+        $savRate = if ($avgInc -gt 0) { [math]::Round(($avgSav / $avgInc), 4) } else { 0 }
+        Write-AgentJson @{
+          ok = $true
+          exitCode = 0
+          module = "asset-tracker"
+          action = "getAnalyticsData"
+          data = @{
+            cashflowStats = @{
+              monthCount = $cnt
+              avgMonthlyIncome = $avgInc
+              avgMonthlyExpense = $avgExp
+              avgMonthlySavings = $avgSav
+              avgSavingsRate = $savRate
+            }
+          }
+        } 0
+      }
+      "getSortedExpenses" {
+        $limit = if ($Params.limit) { [int]$Params.limit } else { 15 }
+        $dir = if ($Params.dir) { ($Params.dir -as [string]).ToLower() } else { "desc" }
+        $list = @()
+        $idx = 0
+        foreach ($e in $State.asset.recentExpenses) {
+          $idx++
+          $list += [PSCustomObject]@{
+            ID = To-Num $e.ID $idx
+            rowIdx = $idx
+            date = ($e.'日期' -as [string]).Trim()
+            amount = To-Num $e.'金額' 0
+            category = $e.'類別'
+            title = $e.'名目'
+            payer = $e.'負擔人'
+          }
+        }
+        if ($dir -eq "asc") {
+          $sorted = @($list | Sort-Object date, ID, rowIdx | Select-Object -First $limit)
+        } else {
+          $sorted = @($list | Sort-Object -Property @{Expression="date";Descending=$true}, @{Expression="ID";Descending=$true}, @{Expression="rowIdx";Descending=$true} | Select-Object -First $limit)
+        }
+        Write-AgentJson @{
+          ok = $true
+          exitCode = 0
+          module = "asset-tracker"
+          action = "getSortedExpenses"
+          data = @{
+            totalCount = $list.Count
+            returnedCount = $sorted.Count
+            items = $sorted
           }
         } 0
       }

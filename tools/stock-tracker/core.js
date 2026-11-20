@@ -8,6 +8,27 @@ const toNum = (v, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
+const parseDateTs = (rawDate) => {
+  const s = String(rawDate || '').trim();
+  if (!s || s === '-') return null;
+  const m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[T\s]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+  if (m) {
+    return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4] || 0), Number(m[5] || 0), Number(m[6] || 0));
+  }
+  const parsed = Date.parse(s);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const formatNormDate = (rawDate) => {
+  const s = String(rawDate || '').trim();
+  if (!s || s === '-') return '';
+  const m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (m) {
+    return `${m[1]}-${String(m[2]).padStart(2, '0')}-${String(m[3]).padStart(2, '0')}`;
+  }
+  return s;
+};
+
 export const StockCore = {
   getOptions(state) {
     const settings = state?.stock?.settings || [];
@@ -117,12 +138,90 @@ export const StockCore = {
   },
 
   /**
-   * Get all inventory lots (open & closed) for a specific stock ticker
+   * Get sorted entry trade records for history tab & AI Agent queries.
+   * Ensures trades with an explicit '進場日' sort chronologically (newest on top when dir='desc'),
+   * while legacy imported trades without '進場日' are placed at the bottom with a clear display label.
    */
-  getLotsBySymbol(state, symbol) {
+  getSortedTrades(state, { col = 'date', dir = 'desc', limit = 60 } = {}) {
+    const raw = Array.isArray(state?.stock?.recentTrades) ? state.stock.recentTrades : [];
+    const mul = dir === 'asc' ? 1 : -1;
+
+    const indexed = raw.map((t, idx) => {
+      const rawEntryDate = String(t?.['進場日'] || '').trim();
+      const rawCreatedAt = String(t?.['建立時間'] || '').trim();
+      const entryTs = parseDateTs(rawEntryDate);
+      const createdTs = parseDateTs(rawCreatedAt);
+      const hasEntryDate = entryTs !== null;
+      const normEntryDate = hasEntryDate ? formatNormDate(rawEntryDate) : '';
+      const normCreatedDate = createdTs !== null ? formatNormDate(rawCreatedAt) : rawCreatedAt;
+      const displayDate = hasEntryDate
+        ? normEntryDate
+        : (normCreatedDate ? `未填 (建檔 ${normCreatedDate})` : '未填進場日');
+
+      const price = toNum(t?.['進場價'], 0);
+      const shares = toNum(t?.['進場股數'], 0);
+      return {
+        t,
+        idx,
+        hasEntryDate,
+        entryTs,
+        createdTs,
+        displayDate,
+        symbol: String(t?.['代號'] || '').trim().toUpperCase(),
+        price,
+        shares,
+        costNative: Math.round(price * shares * 100) / 100
+      };
+    });
+
+    indexed.sort((a, b) => {
+      if (col === 'symbol') {
+        const diff = a.symbol.localeCompare(b.symbol) * mul;
+        if (diff !== 0) return diff;
+      } else if (col === 'price') {
+        const diff = (a.price - b.price) * mul;
+        if (diff !== 0) return diff;
+      } else if (col === 'shares') {
+        const diff = (a.shares - b.shares) * mul;
+        if (diff !== 0) return diff;
+      } else if (col === 'amount' || col === 'cost') {
+        const diff = (a.costNative - b.costNative) * mul;
+        if (diff !== 0) return diff;
+      }
+
+      // Records with explicit '進場日' always come before missing-'進場日' legacy records
+      if (a.hasEntryDate && !b.hasEntryDate) return -1;
+      if (!a.hasEntryDate && b.hasEntryDate) return 1;
+
+      if (a.hasEntryDate && b.hasEntryDate && a.entryTs !== b.entryTs) {
+        return (a.entryTs - b.entryTs) * mul;
+      }
+      if (a.createdTs !== null && b.createdTs !== null && a.createdTs !== b.createdTs) {
+        return (a.createdTs - b.createdTs) * mul;
+      }
+      // Same-day tie-breaker: later row index on top when desc
+      return (a.idx - b.idx) * mul;
+    });
+
+    const out = indexed.map((item) => ({
+      ...item.t,
+      displayDate: item.displayDate,
+      hasEntryDate: item.hasEntryDate,
+      costNative: item.costNative
+    }));
+
+    return limit > 0 ? out.slice(0, limit) : out;
+  },
+
+  /**
+   * Get all inventory lots (open & closed) for a specific stock ticker
+   * Supports sorting by 'date' (進場日) or 'amount' (該批投入成本金額 = 進場價 × 剩餘股數), plus 'price', 'shares', 'pnl', 'roi'
+   */
+  getLotsBySymbol(state, symbol, sortOpts = {}) {
     const sym = String(symbol || '').trim().toUpperCase();
     if (!sym) return { symbol: '', openLots: [], closedLots: [], holding: null };
 
+    const { usdTwd } = this.getOptions(state);
     const holding = (state?.stock?.overview || []).find((r) => String(r['代號']).toUpperCase() === sym) || null;
     const currentPrice = toNum(holding?.['現價(原幣)'], 0);
 
@@ -137,34 +236,66 @@ export const StockCore = {
       exitRecordsMap[tid].push(ex);
     }
 
-    const trades = (state?.stock?.recentTrades || []).filter(
-      (t) => String(t['代號'] || '').trim().toUpperCase() === sym
-    );
+    const allTrades = state?.stock?.recentTrades || [];
+    const trades = [];
+    allTrades.forEach((t, idx) => {
+      if (String(t['代號'] || '').trim().toUpperCase() === sym) {
+        trades.push({ t, idx });
+      }
+    });
 
     const openLots = [];
     const closedLots = [];
 
-    for (const t of trades) {
+    for (const { t, idx } of trades) {
       const tid = String(t.id || '').trim();
       const entryShares = toNum(t['進場股數'], 0);
       const exitedShares = exitedSharesMap[tid] || 0;
       const remainingShares = Math.max(0, Math.round((entryShares - exitedShares) * 10000) / 10000);
       const entryPrice = toNum(t['進場價'], 0);
       const refPrice = currentPrice > 0 ? currentPrice : entryPrice;
+      const mkt = String(t['市場'] || holding?.['市場'] || (sym.endsWith('.TW') || sym.endsWith('.TWO') ? 'TW' : 'US')).toUpperCase();
+
+      // 該批投入成本金額 (進場價 × 剩餘股數)
+      const costAmountNative = Math.round(entryPrice * remainingShares * 100) / 100;
+      const costAmountTwd = Math.round(mkt === 'TW' ? costAmountNative : costAmountNative * usdTwd);
+      // 該批原投入總成本 (給已出場完畢批次參考)
+      const entryCostNative = Math.round(entryPrice * entryShares * 100) / 100;
+      const marketAmountNative = Math.round(refPrice * remainingShares * 100) / 100;
       const unrealizedNative = (refPrice - entryPrice) * remainingShares;
       const roi = entryPrice > 0 ? (refPrice - entryPrice) / entryPrice : 0;
 
+      const rawEntryDate = String(t['進場日'] || '').trim();
+      const rawCreatedAt = String(t['建立時間'] || '').trim();
+      const entryTs = parseDateTs(rawEntryDate);
+      const createdTs = parseDateTs(rawCreatedAt);
+      const hasEntryDate = entryTs !== null;
+      const normEntryDate = hasEntryDate ? formatNormDate(rawEntryDate) : '';
+      const normCreatedDate = createdTs !== null ? formatNormDate(rawCreatedAt) : rawCreatedAt;
+      const displayEntryDate = hasEntryDate
+        ? normEntryDate
+        : (normCreatedDate ? `未填 (建檔 ${normCreatedDate})` : '未填進場日');
+
       const lotObj = {
         id: tid,
+        rowIdx: idx,
         symbol: sym,
-        market: t['市場'] || holding?.['市場'] || 'US',
+        market: mkt,
         type: t['類型'] || holding?.['類型'] || '進攻型',
         broker: t['券商'] || 'F',
-        entryDate: t['進場日'] || t['建立時間'] || '-',
+        entryDate: displayEntryDate,
+        rawEntryDate,
+        hasEntryDate,
+        entryTs,
+        createdTs,
         entryPrice,
         entryShares,
         exitedShares,
         remainingShares,
+        costAmountNative,
+        costAmountTwd,
+        entryCostNative,
+        marketAmountNative,
         currentPrice: refPrice,
         unrealizedNative: Math.round(unrealizedNative * 100) / 100,
         roi,
@@ -179,9 +310,41 @@ export const StockCore = {
       }
     }
 
-    // Sort open lots by entryDate ascending (FIFO view) or newest first
-    openLots.sort((a, b) => String(b.entryDate).localeCompare(String(a.entryDate)));
-    closedLots.sort((a, b) => String(b.entryDate).localeCompare(String(a.entryDate)));
+    const sortBy = sortOpts.sortBy || 'date'; // 'date' | 'amount' | 'price' | 'shares' | 'pnl' | 'roi'
+    const sortDir = sortOpts.sortDir || 'desc'; // 'desc' | 'asc'
+    const mul = sortDir === 'asc' ? 1 : -1;
+
+    const lotComparator = (a, b, isClosed = false) => {
+      if (sortBy === 'amount' || sortBy === 'cost') {
+        const valA = isClosed ? a.entryCostNative : a.costAmountNative;
+        const valB = isClosed ? b.entryCostNative : b.costAmountNative;
+        if (valA !== valB) return (valA - valB) * mul;
+      } else if (sortBy === 'price') {
+        if (a.entryPrice !== b.entryPrice) return (a.entryPrice - b.entryPrice) * mul;
+      } else if (sortBy === 'shares') {
+        const shA = isClosed ? a.entryShares : a.remainingShares;
+        const shB = isClosed ? b.entryShares : b.remainingShares;
+        if (shA !== shB) return (shA - shB) * mul;
+      } else if (sortBy === 'pnl') {
+        if (a.unrealizedNative !== b.unrealizedNative) return (a.unrealizedNative - b.unrealizedNative) * mul;
+      } else if (sortBy === 'roi') {
+        if (a.roi !== b.roi) return (a.roi - b.roi) * mul;
+      }
+
+      // Date comparison (explicit entryDate first, missing entryDate at bottom)
+      if (a.hasEntryDate && !b.hasEntryDate) return -1;
+      if (!a.hasEntryDate && b.hasEntryDate) return 1;
+      if (a.hasEntryDate && b.hasEntryDate && a.entryTs !== b.entryTs) {
+        return (a.entryTs - b.entryTs) * mul;
+      }
+      if (a.createdTs !== null && b.createdTs !== null && a.createdTs !== b.createdTs) {
+        return (a.createdTs - b.createdTs) * mul;
+      }
+      return (a.rowIdx - b.rowIdx) * mul;
+    };
+
+    openLots.sort((a, b) => lotComparator(a, b, false));
+    closedLots.sort((a, b) => lotComparator(a, b, true));
 
     const inferredMarket = holding?.['市場'] || openLots[0]?.market || closedLots[0]?.market
       || (sym.endsWith('.TW') || sym.endsWith('.TWO') ? 'TW' : 'US');
@@ -191,13 +354,15 @@ export const StockCore = {
       market: String(inferredMarket).toUpperCase(),
       holding,
       currentPrice,
+      sortBy,
+      sortDir,
       openLots,
       closedLots
     };
   },
 
-  getLotsForSymbol(state, symbol) {
-    return this.getLotsBySymbol(state, symbol);
+  getLotsForSymbol(state, symbol, sortOpts = {}) {
+    return this.getLotsBySymbol(state, symbol, sortOpts);
   },
 
   addTrade(state, params, storeInstance) {
@@ -284,14 +449,28 @@ export const StockCore = {
   },
 
   addExit(state, params, storeInstance) {
-    const tradeId = String(params.tradeId || params['交易id'] || '').trim();
+    const tradeId = String(params.tradeId || params.lotId || params['交易id'] || '').trim();
     const date = String(params.date || params['出場日'] || new Date().toISOString().slice(0, 10));
-    const exitPrice = toNum(params.exitPrice ?? params['出場價'], 0);
-    const exitShares = toNum(params.exitShares ?? params['出場股數'], 0);
+    const exitPrice = toNum(params.exitPrice ?? params.price ?? params['出場價'], 0);
+    const exitShares = toNum(params.exitShares ?? params.shares ?? params['出場股數'], 0);
     const note = String(params.note || params['備註'] || '').trim();
 
     if (!tradeId) throw new Error('請選擇或輸入對應的進場交易 ID');
     if (exitPrice <= 0 || exitShares <= 0) throw new Error('出場價與出場股數必須大於 0');
+
+    // Verify target lot and prevent overselling beyond remainingShares
+    const targetTrade = (state?.stock?.recentTrades || []).find((t) => String(t.id || '').trim() === tradeId);
+    if (targetTrade) {
+      const sym = String(targetTrade['代號'] || '').trim().toUpperCase();
+      const lotInfo = this.getLotsBySymbol(state, sym);
+      const targetLot = (lotInfo.openLots || []).find((l) => l.id === tradeId);
+      if (!targetLot) {
+        throw new Error(`此批次 (${tradeId}) 已全數出場或無剩餘可賣股數`);
+      }
+      if (exitShares > targetLot.remainingShares + 0.0001) {
+        throw new Error(`賣出股數 (${exitShares}) 不可超過此批次剩餘可賣股數 (${targetLot.remainingShares})`);
+      }
+    }
 
     const id = crypto.randomUUID ? crypto.randomUUID() : 'ex-' + Date.now();
     const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 16);
@@ -307,20 +486,45 @@ export const StockCore = {
     };
 
     storeInstance.mutate('stock.appendExit', newExit, (s) => {
+      if (!Array.isArray(s.stock.recentExits)) s.stock.recentExits = [];
       s.stock.recentExits.push(newExit);
+
       // Optimistically update overview holdings when selling a specific lot
-      const trade = (s.stock.recentTrades || []).find((t) => String(t.id) === tradeId);
+      const trade = (s.stock.recentTrades || []).find((t) => String(t.id || '').trim() === tradeId);
       if (trade) {
-        const sym = String(trade['代號'] || '').toUpperCase();
-        const existing = (s.stock.overview || []).find((r) => String(r['代號']).toUpperCase() === sym);
+        const sym = String(trade['代號'] || '').trim().toUpperCase();
+        const existing = (s.stock.overview || []).find((r) => String(r['代號'] || '').trim().toUpperCase() === sym);
         if (existing) {
           const { usdTwd } = this.getOptions(s);
-          const market = existing['市場'] || trade['市場'] || 'US';
-          const oldShares = toNum(existing['剩餘股數']);
-          const newShares = Math.max(0, Math.round((oldShares - exitShares) * 10000) / 10000);
-          const avgCost = toNum(existing['平均成本(原幣)']);
+          const market = String(existing['市場'] || trade['市場'] || 'US').toUpperCase();
           const curPrice = toNum(existing['現價(原幣)'], exitPrice);
-          const newCostNative = newShares * avgCost;
+
+          // Recompute exact remaining shares, weighted average cost, and broker distribution from remaining open lots
+          const updatedLots = this.getLotsBySymbol(s, sym).openLots || [];
+          let newShares = 0;
+          let newCostNative = 0;
+          const brokerMap = {};
+
+          if (updatedLots.length > 0) {
+            for (const lot of updatedLots) {
+              newShares += lot.remainingShares;
+              newCostNative += lot.remainingShares * lot.entryPrice;
+              const br = String(lot.broker || 'F').trim().toUpperCase();
+              brokerMap[br] = (brokerMap[br] || 0) + lot.remainingShares;
+            }
+            newShares = Math.round(newShares * 10000) / 10000;
+            const avgCost = newShares > 0 ? (newCostNative / newShares) : 0;
+            existing['平均成本(原幣)'] = String(Math.round(avgCost * 100) / 100);
+            existing['券商分佈'] = Object.entries(brokerMap)
+              .map(([b, sh]) => `${b}:${Math.round(sh * 10000) / 10000}`)
+              .join(' / ');
+          } else {
+            const oldShares = toNum(existing['剩餘股數']);
+            newShares = Math.max(0, Math.round((oldShares - exitShares) * 10000) / 10000);
+            const avgCost = toNum(existing['平均成本(原幣)']);
+            newCostNative = newShares * avgCost;
+          }
+
           const newMktNative = newShares * curPrice;
           const newCostUsd = market === 'US' ? newCostNative : newCostNative / usdTwd;
           const newCostTwd = market === 'TW' ? newCostNative : newCostNative * usdTwd;
@@ -699,7 +903,8 @@ agentBridge.registerModule('stock-tracker', {
   actions: {
     getSummary: (state) => StockCore.getSummary(state),
     filterHoldings: (state, params) => StockCore.filterHoldings(state, params),
-    getLotsBySymbol: (state, params) => StockCore.getLotsBySymbol(state, params?.symbol),
+    getLotsBySymbol: (state, params) => StockCore.getLotsBySymbol(state, params?.symbol, params),
+    getSortedTrades: (state, params) => StockCore.getSortedTrades(state, params),
     getRebalanceComparison: (state, params) => StockCore.getRebalanceComparison(state, params),
     setTypeTargetWeight: (state, params, store) => StockCore.setTypeTargetWeight(state, params, store),
     setStockTargetWeight: (state, params, store) => StockCore.setStockTargetWeight(state, params, store),

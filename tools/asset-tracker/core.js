@@ -364,6 +364,16 @@ export const AssetCore = {
     }
 
     const cashflowHistory = Array.from(cfMap.values()).sort((a, b) => a.yearMonth.localeCompare(b.yearMonth));
+    const recent18Cashflow = cashflowHistory.slice(-18).filter((c) => c.income > 0 || c.expense > 0);
+    const cfSampleCount = recent18Cashflow.length;
+    const avgMonthlyIncome = cfSampleCount > 0
+      ? Math.round(recent18Cashflow.reduce((s, c) => s + c.income, 0) / cfSampleCount)
+      : 0;
+    const avgMonthlyExpense = cfSampleCount > 0
+      ? Math.round(recent18Cashflow.reduce((s, c) => s + c.expense, 0) / cfSampleCount)
+      : 0;
+    const avgMonthlySavings = avgMonthlyIncome - avgMonthlyExpense;
+    const avgSavingsRate = avgMonthlyIncome > 0 ? avgMonthlySavings / avgMonthlyIncome : 0;
 
     // Expense Breakdown from state.asset.recentExpenses
     const expenses = state?.asset?.recentExpenses || [];
@@ -406,6 +416,13 @@ export const AssetCore = {
       snapshots,
       allocation,
       cashflowHistory,
+      cashflowStats: {
+        monthCount: cfSampleCount,
+        avgMonthlyIncome,
+        avgMonthlyExpense,
+        avgMonthlySavings,
+        avgSavingsRate
+      },
       expenseBreakdown: {
         totalExpenseSample,
         count: expenses.length,
@@ -415,6 +432,121 @@ export const AssetCore = {
         variableAmount: byFixedMap['變動'] || 0
       }
     };
+  },
+
+  /**
+   * 6b. Universal Date Normalization & Sorting for Expenses and Ledger Logs
+   * Ensures newest date is always on top when dir='desc', with ID / row-order tie-breaker.
+   */
+  parseDateTs(rawDate) {
+    const s = String(rawDate || '').trim();
+    if (!s) return null;
+    const m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[T\s]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+    if (m) {
+      const yr = Number(m[1]);
+      const mo = Number(m[2]) - 1;
+      const dy = Number(m[3]);
+      const hr = Number(m[4] || 0);
+      const mn = Number(m[5] || 0);
+      const sc = Number(m[6] || 0);
+      return Date.UTC(yr, mo, dy, hr, mn, sc);
+    }
+    const parsed = Date.parse(s);
+    return Number.isFinite(parsed) ? parsed : null;
+  },
+
+  formatNormalizedDate(rawDate) {
+    const s = String(rawDate || '').trim();
+    if (!s) return '-';
+    const m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+    if (m) {
+      return `${m[1]}-${String(m[2]).padStart(2, '0')}-${String(m[3]).padStart(2, '0')}`;
+    }
+    return s;
+  },
+
+  getSortedExpenses(state, { col = 'date', dir = 'desc', limit = 100 } = {}) {
+    const raw = Array.isArray(state?.asset?.recentExpenses) ? state.asset.recentExpenses : [];
+    const mul = dir === 'asc' ? 1 : -1;
+    const indexed = raw.map((e, idx) => ({
+      e,
+      idx,
+      idNum: toNum(e?.ID, idx),
+      dateTs: this.parseDateTs(e?.['日期']),
+      normDate: this.formatNormalizedDate(e?.['日期']),
+      amount: toNum(e?.['金額'], 0),
+      cat: String(e?.['類別'] || ''),
+      payer: String(e?.['負擔人'] || '')
+    }));
+
+    indexed.sort((a, b) => {
+      if (col === 'amount') {
+        const diff = (a.amount - b.amount) * mul;
+        if (diff !== 0) return diff;
+      } else if (col === 'cat') {
+        const diff = a.cat.localeCompare(b.cat) * mul;
+        if (diff !== 0) return diff;
+      } else if (col === 'payer') {
+        const diff = a.payer.localeCompare(b.payer) * mul;
+        if (diff !== 0) return diff;
+      }
+      // Primary or fallback: Date comparison (missing date always at bottom)
+      if (a.dateTs === null && b.dateTs !== null) return 1;
+      if (a.dateTs !== null && b.dateTs === null) return -1;
+      if (a.dateTs !== null && b.dateTs !== null && a.dateTs !== b.dateTs) {
+        return (a.dateTs - b.dateTs) * mul;
+      }
+      // Tie-breaker for same date: larger ID / later row on top when desc
+      if (a.idNum !== b.idNum) return (a.idNum - b.idNum) * mul;
+      return (a.idx - b.idx) * mul;
+    });
+
+    const out = indexed.map((item) => ({
+      ...item.e,
+      '日期': item.normDate
+    }));
+    return limit > 0 ? out.slice(0, limit) : out;
+  },
+
+  getSortedLogs(state, { col = 'date', dir = 'desc', limit = 100 } = {}) {
+    const raw = Array.isArray(state?.asset?.recentLogs) ? state.asset.recentLogs : [];
+    const mul = dir === 'asc' ? 1 : -1;
+    const indexed = raw.map((l, idx) => ({
+      l,
+      idx,
+      idNum: toNum(l?.ID, idx),
+      dateTs: this.parseDateTs(l?.['日期']),
+      normDate: this.formatNormalizedDate(l?.['日期']),
+      amount: toNum(l?.['金額'], 0),
+      account: String(l?.['帳戶'] || ''),
+      nature: String(l?.['性質'] || '')
+    }));
+
+    indexed.sort((a, b) => {
+      if (col === 'amount') {
+        const diff = (a.amount - b.amount) * mul;
+        if (diff !== 0) return diff;
+      } else if (col === 'account') {
+        const diff = a.account.localeCompare(b.account) * mul;
+        if (diff !== 0) return diff;
+      } else if (col === 'nature') {
+        const diff = a.nature.localeCompare(b.nature) * mul;
+        if (diff !== 0) return diff;
+      }
+      if (a.dateTs === null && b.dateTs !== null) return 1;
+      if (a.dateTs !== null && b.dateTs === null) return -1;
+      if (a.dateTs !== null && b.dateTs !== null && a.dateTs !== b.dateTs) {
+        return (a.dateTs - b.dateTs) * mul;
+      }
+      if (a.idNum !== b.idNum) return (a.idNum - b.idNum) * mul;
+      return (a.idx - b.idx) * mul;
+    });
+
+    const out = indexed.map((item) => ({
+      ...item.l,
+      '日期': item.normDate
+    }));
+    return limit > 0 ? out.slice(0, limit) : out;
   },
 
   /**
@@ -568,6 +700,8 @@ agentBridge.registerModule('asset-tracker', {
     getSummary: (state) => AssetCore.getSummary(state),
     getConfigOptions: (state) => AssetCore.getConfigOptions(state),
     getAnalyticsData: (state) => AssetCore.getAnalyticsData(state),
+    getSortedExpenses: (state, params) => AssetCore.getSortedExpenses(state, params),
+    getSortedLogs: (state, params) => AssetCore.getSortedLogs(state, params),
     getSalaryData: (state, params) => AssetCore.getSalaryData(state, params),
     addExpense: (state, params, store) => AssetCore.addExpense(state, params, store),
     addLedgerLog: (state, params, store) => AssetCore.addLedgerLog(state, params, store),

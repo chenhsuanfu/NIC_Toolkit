@@ -361,68 +361,110 @@ export const GoodStockCore = {
 
   /**
    * 7 Financial Landmines Check (財務地雷 7 項檢查)
-   * Matches screenshot 2330 台積電 留意 1/7 項地雷
+   * Rigorous evaluation of core operations, net profit, consecutive losses,
+   * non-operating reliance, free cash flow (recent & 4Q cumulative),
+   * revenue momentum (quarterly & recent 3-month YoY), and inventory turnover health.
    */
   checkSevenLandmines(stock) {
     const qList = stock.quarters || [];
     const q0 = qList[qList.length - 1] || {};
     const q1 = qList[qList.length - 2] || {};
+    const q2 = qList[qList.length - 3] || {};
+    const q3 = qList[qList.length - 4] || {};
     const q4 = qList[qList.length - 5] || qList[0] || {};
+    const qWin4 = qList.slice(-4);
 
-    const opMargin = toNum(q0.opMargin);
-    const netMargin = toNum(q0.netMargin);
+    const mList = stock.monthlyRevenues || [];
+    const mWin3 = mList.slice(-3);
+    const m0 = mList[mList.length - 1] || {};
+    const avgRevYoY3M = mWin3.length
+      ? round2(mWin3.reduce((s, m) => s + toNum(m.yoy), 0) / mWin3.length)
+      : toNum(q0.revYoY);
+
+    const opMargin0 = toNum(q0.opMargin);
+    const opMargin1 = toNum(q1.opMargin);
+    const netMargin0 = toNum(q0.netMargin);
     const eps0 = toNum(q0.eps);
     const eps1 = toNum(q1.eps);
     const fcf0 = toNum(q0.fcfM);
+    const fcf4Sum = Math.round(qWin4.reduce((s, q) => s + toNum(q.fcfM), 0));
     const revYoY0 = toNum(q0.revYoY);
     const inv0 = toNum(q0.invTurnover);
+    const inv1 = toNum(q1.invTurnover);
     const inv4 = toNum(q4.invTurnover);
-    const diffMargin = round2(netMargin - opMargin);
+    const diffMargin = round2(netMargin0 - opMargin0);
+    const lossQuarters4 = qWin4.filter((q) => toNum(q.eps) < 0).length;
+
+    // 1. 本業虧損或營益率大幅惡化
+    const opDropPct = opMargin1 > 0 ? round2(((opMargin1 - opMargin0) / opMargin1) * 100) : 0;
+    const hitOpLoss = opMargin0 < 0 || (opMargin1 >= 5 && opDropPct >= 30);
+
+    // 2. 稅後虧損（最新季 EPS <= 0）
+    const hitNetLoss = eps0 <= 0;
+
+    // 3. 連續虧損或近四季 ≥2 季虧損
+    const hitConsecLoss = (eps0 < 0 && eps1 < 0) || lossQuarters4 >= 2;
+
+    // 4. 獲利靠業外（稅後淨利率高於營業利益率 > 3.0 個百分點，或本業低迷靠業外撐場）
+    const hitNonOp = diffMargin > 3.0 || (opMargin0 < 3.0 && netMargin0 > opMargin0 + 1.5);
+
+    // 5. 自由現金流為負（最新一季燒錢 < 0 或近四季累計自由現金流為負）
+    const hitFcfNeg = fcf0 < 0 || fcf4Sum < 0;
+
+    // 6. 營收動能衰退（最新季營收年增率 < 0，或最新月營收年增率 < 0，或近3月平均年增 < 0）
+    const hitRevDecline = revYoY0 < 0 || toNum(m0.yoy) < 0 || avgRevYoY3M < 0;
+
+    // 7. 存貨去化惡化（周轉率較去年同季年減 >= 5%，或較上季季減 >= 10%，或存貨周轉率過低 < 0.8 次）
+    const invYoYDropPct = inv4 > 0 ? round2(((inv4 - inv0) / inv4) * 100) : 0;
+    const invQoQDropPct = inv1 > 0 ? round2(((inv1 - inv0) / inv1) * 100) : 0;
+    const hitInvSlow = !stock.noInventory && (invYoYDropPct >= 5.0 || invQoQDropPct >= 10.0 || (inv0 > 0 && inv0 < 0.8));
 
     const items = [
       {
         id: 'op_loss',
-        label: '本業虧損（營業利益率為負）',
-        hit: opMargin < 0,
-        detail: `${q0.q || '最新季'} 營業利益率 ${opMargin.toFixed(2)}%`
+        label: '本業虧損或驟降（營益率為負或季減逾30%）',
+        hit: hitOpLoss,
+        detail: `${q0.q || '最新季'} 營業利益率 ${opMargin0.toFixed(2)}%（上季 ${opMargin1.toFixed(2)}%${opDropPct > 0 ? `，季減 ${opDropPct}%` : ''}）`
       },
       {
         id: 'net_loss',
-        label: '稅後虧損（EPS 為負）',
-        hit: eps0 < 0,
+        label: '稅後虧損（單季 EPS ≤ 0）',
+        hit: hitNetLoss,
         detail: `${q0.q || '最新季'} EPS ${eps0.toFixed(2)} 元`
       },
       {
         id: 'consec_loss',
-        label: '連續虧損（最近 ≥2 季）',
-        hit: eps0 < 0 && eps1 < 0,
-        detail: eps0 < 0 && eps1 < 0 ? `連兩季虧損 (${eps1}元、${eps0}元)` : '最近一季未虧損'
+        label: '連續或頻繁虧損（近四季 ≥2 季虧損）',
+        hit: hitConsecLoss,
+        detail: lossQuarters4 > 0
+          ? `近四季共有 ${lossQuarters4} 季虧損 (${qWin4.map((q) => `${q.q}:${toNum(q.eps).toFixed(2)}`).join(', ')})`
+          : '近四季皆為獲利'
       },
       {
         id: 'non_op_rely',
-        label: '獲利靠業外（淨利率＞營益率過多）',
-        hit: diffMargin > 5.0,
-        detail: `淨利率(歸母) ${netMargin.toFixed(2)}% − 營業利益率 ${opMargin.toFixed(2)}% = ${diffMargin >= 0 ? '+' : ''}${diffMargin.toFixed(2)} 個百分點`
+        label: '獲利靠業外（淨利率＞營益率逾 3 個百分點）',
+        hit: hitNonOp,
+        detail: `淨利率(歸母) ${netMargin0.toFixed(2)}% − 營業利益率 ${opMargin0.toFixed(2)}% = ${diffMargin >= 0 ? '+' : ''}${diffMargin.toFixed(2)} pp`
       },
       {
         id: 'fcf_neg',
-        label: '自由現金流為負（燒錢）',
-        hit: fcf0 < 0,
-        detail: `${q0.q || '最新季'} 自由現金流 ${fcf0.toLocaleString()} 百萬`
+        label: '自由現金流為負（單季或近四季累計燒錢）',
+        hit: hitFcfNeg,
+        detail: `${q0.q || '最新季'} FCF ${fcf0.toLocaleString()} 百萬（近四季累計 ${fcf4Sum >= 0 ? '+' : ''}${fcf4Sum.toLocaleString()} 百萬）`
       },
       {
         id: 'rev_decline',
-        label: '營收衰退（季營收年增率為負）',
-        hit: revYoY0 < 0,
-        detail: `${q0.q || '最新季'} 營收年增率 ${revYoY0.toFixed(1)}%`
+        label: '營收動能衰退（季營收或最新月營收年增為負）',
+        hit: hitRevDecline,
+        detail: `${q0.q || '最新季'} 營收年增 ${revYoY0.toFixed(1)}% ｜ 最新月(${m0.ym || '-'}) 年增 ${toNum(m0.yoy).toFixed(1)}%`
       },
       {
         id: 'inv_slowdown',
-        label: '存貨去化變慢（周轉率年減）',
-        hit: !stock.noInventory && inv0 < inv4,
+        label: '存貨去化變慢（周轉率年減≥5% / 季減≥10% / 低於0.8次）',
+        hit: hitInvSlow,
         detail: stock.noInventory
           ? '無存貨產業（免檢）'
-          : `存貨周轉率 ${inv0.toFixed(2)}（去年同季 ${inv4.toFixed(2)}）`
+          : `最新季周轉率 ${inv0.toFixed(2)} 次（上季 ${inv1.toFixed(2)} 次，去年同季 ${inv4.toFixed(2)} 次）`
       }
     ];
 
