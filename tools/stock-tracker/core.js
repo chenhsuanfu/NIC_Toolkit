@@ -371,12 +371,17 @@ export const StockCore = {
     const type = String(params.type || params['類型'] || '進攻型');
     const broker = String(params.broker || params['券商'] || 'F').toUpperCase();
     const date = String(params.date || params['進場日'] || new Date().toISOString().slice(0, 10));
-    const price = toNum(params.price ?? params['進場價'], 0);
+    const rawPrice = toNum(params.price ?? params['進場價'], 0);
     const shares = toNum(params.shares ?? params['進場股數'], 0);
+    const fee = Math.max(0, toNum(params.fee ?? params['手續費'], 0));
     const note = String(params.note || params['備註'] || '').trim();
 
     if (!symbol) throw new Error('請輸入股票代號 (如 NVDA 或 2330.TW)');
-    if (price <= 0 || shares <= 0) throw new Error('進場價與進場股數必須大於 0');
+    if (rawPrice <= 0 || shares <= 0) throw new Error('進場價與進場股數必須大於 0');
+
+    // 將手續費統一折算併入「進場價」中：(成交單價 × 股數 + 手續費) ÷ 股數
+    const totalCostNative = rawPrice * shares + fee;
+    const price = fee > 0 ? (Math.round((totalCostNative / shares) * 10000) / 10000) : rawPrice;
 
     const { usdTwd } = this.getOptions(state);
     const id = crypto.randomUUID ? crypto.randomUUID() : 'tr-' + Date.now();
@@ -399,14 +404,14 @@ export const StockCore = {
       s.stock.recentTrades.push(newTrade);
       // Optimistically update overview holdings
       const existing = s.stock.overview.find((r) => String(r['代號']).toUpperCase() === symbol);
-      const addedCostNative = price * shares;
+      const addedCostNative = totalCostNative;
       const addedCostUsd = market === 'US' ? addedCostNative : addedCostNative / usdTwd;
       const addedCostTwd = market === 'TW' ? addedCostNative : addedCostNative * usdTwd;
 
       if (existing) {
         const oldShares = toNum(existing['剩餘股數']);
         const oldAvg = toNum(existing['平均成本(原幣)']);
-        const curPrice = toNum(existing['現價(原幣)'], price);
+        const curPrice = toNum(existing['現價(原幣)'], rawPrice);
         const newShares = oldShares + shares;
         const newAvg = (oldShares * oldAvg + addedCostNative) / newShares;
         const newCostUsd = toNum(existing['成本(USD)']) + addedCostUsd;
@@ -431,8 +436,8 @@ export const StockCore = {
           '市場': market,
           '類型': type,
           '剩餘股數': String(shares),
-          '平均成本(原幣)': String(price),
-          '現價(原幣)': String(price),
+          '平均成本(原幣)': String(Math.round(price * 100) / 100),
+          '現價(原幣)': String(rawPrice),
           '成本(USD)': String(Math.round(addedCostUsd * 100) / 100),
           '成本(TWD)': String(Math.round(addedCostTwd)),
           '市值(USD)': String(Math.round(addedCostUsd * 100) / 100),
@@ -445,7 +450,13 @@ export const StockCore = {
       }
     });
 
-    return newTrade;
+    return {
+      ...newTrade,
+      rawPrice,
+      fee,
+      effectivePrice: price,
+      totalCostNative: Math.round(totalCostNative * 100) / 100
+    };
   },
 
   addExit(state, params, storeInstance) {
@@ -931,8 +942,9 @@ agentBridge.registerModule('stock-tracker', {
           type: { type: 'string', enum: ['防禦型', '進攻型', '樂透型'] },
           broker: { type: 'string', enum: ['B', 'S', 'F', 'C', 'T', 'Y'] },
           date: { type: 'string', description: 'YYYY-MM-DD' },
-          price: { type: 'number', description: '進場單價（原幣）' },
+          price: { type: 'number', description: '進場成交單價（原幣）' },
           shares: { type: 'number', description: '進場股數' },
+          fee: { type: 'number', description: '手續費（原幣，選填，將自動折算併入進場價）' },
           note: { type: 'string' }
         }
       }

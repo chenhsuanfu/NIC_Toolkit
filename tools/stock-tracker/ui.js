@@ -162,6 +162,7 @@ export class StockTrackerUI {
           <div class="card-title">
             ${prefillSymbol ? `加碼買進【${prefillSymbol}】新批次` : '新增股票進場紀錄 (N_BD_C)'}
           </div>
+          <span class="text-muted" style="font-size:12px;">手續費將自動折算併入「進場價」寫入 Google Sheet</span>
         </div>
         <form id="form-add-trade">
           <div class="form-grid">
@@ -190,18 +191,25 @@ export class StockTrackerUI {
             </div>
             <div class="form-group">
               <label class="form-label">進場成交單價 (原幣)</label>
-              <input class="form-control font-mono" type="number" step="any" name="price" placeholder="如 185.5" required />
+              <input class="form-control font-mono" type="number" step="any" min="0.0001" name="price" id="trade-input-price" placeholder="如 185.5" required />
             </div>
             <div class="form-group">
               <label class="form-label">買進股數</label>
-              <input class="form-control font-mono" type="number" step="any" name="shares" placeholder="如 100 或 1000" required />
+              <input class="form-control font-mono" type="number" step="any" min="0.0001" name="shares" id="trade-input-shares" placeholder="如 100 或 1000" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label">手續費 (原幣，自動併入進場價)</label>
+              <input class="form-control font-mono" type="number" step="any" min="0" name="fee" id="trade-input-fee" placeholder="0 (選填)" value="0" />
             </div>
             <div class="form-group">
               <label class="form-label">進場理由 / 備註</label>
               <input class="form-control" name="note" placeholder="選填" />
             </div>
           </div>
-          <div style="margin-top:12px; display:flex; justify-content:flex-end; gap:8px;">
+          <div style="margin-top:12px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <div id="trade-fee-preview" class="text-muted font-mono" style="font-size:12.5px;">
+              輸入成交單價、股數與手續費後，將即時預覽折算後之含手續費進場價
+            </div>
             <button type="submit" class="btn btn-primary">儲存進場並重算均價</button>
           </div>
         </form>
@@ -942,12 +950,39 @@ export class StockTrackerUI {
 
     const addTradeForm = container.querySelector('#form-add-trade');
     if (addTradeForm) {
+      const priceInp = addTradeForm.querySelector('#trade-input-price');
+      const sharesInp = addTradeForm.querySelector('#trade-input-shares');
+      const feeInp = addTradeForm.querySelector('#trade-input-fee');
+      const previewEl = addTradeForm.querySelector('#trade-fee-preview');
+
+      const updateFeePreview = () => {
+        if (!previewEl) return;
+        const p = toNum(priceInp?.value, 0);
+        const s = toNum(sharesInp?.value, 0);
+        const f = Math.max(0, toNum(feeInp?.value, 0));
+        if (p > 0 && s > 0) {
+          const rawTotal = p * s;
+          const total = rawTotal + f;
+          const effPrice = Math.round((total / s) * 10000) / 10000;
+          previewEl.innerHTML = f > 0
+            ? `試算：成交 <strong>${fmtDec(rawTotal)}</strong> + 手續費 <strong>${fmtDec(f)}</strong> = 總成本 <strong>${fmtDec(total)}</strong> ｜ 寫入進場單價：<strong style="color:var(--accent-blue);">${effPrice}</strong>`
+            : `試算：總成本 <strong>${fmtDec(rawTotal)}</strong>（手續費 0）｜ 寫入進場單價：<strong style="color:var(--accent-blue);">${p}</strong>`;
+        } else {
+          previewEl.textContent = '輸入成交單價、股數與手續費後，將即時預覽折算後之含手續費進場價';
+        }
+      };
+
+      [priceInp, sharesInp, feeInp].forEach((inp) => {
+        if (inp) inp.addEventListener('input', updateFeePreview);
+      });
+
       addTradeForm.addEventListener('submit', (e) => {
         e.preventDefault();
         try {
           const fd = new FormData(addTradeForm);
           const rec = StockCore.addTrade(store.getState(), Object.fromEntries(fd.entries()), store);
-          showToast(`已新增買進 ${rec['代號']} (${rec['進場股數']} 股 @ ${rec['進場價']})`);
+          const feeMsg = rec.fee > 0 ? ` (含手續費 ${rec.fee}，折算進場價 ${rec['進場價']})` : '';
+          showToast(`已新增買進 ${rec['代號']}：${rec['進場股數']} 股 @ ${rec['進場價']}${feeMsg}`);
           this.showAddForm = false;
           this.showBuyForSelected = false;
           this.selectedSymbol = rec['代號'];
