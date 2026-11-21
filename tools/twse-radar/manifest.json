@@ -1,7 +1,7 @@
 {
   "id": "twse-radar",
   "name": "TWSE 減碼行動雷達",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "description": "真實台股波段避險戰情室：整合全 5 因子（TAIEX 價量、外資現貨、外資台指期未平倉、大盤融資餘額、20 日年化波動率）與 252 日動態門檻，提供明日 T+1 減碼指令、年度日曆、歷次大跌複盤、What-If 盤後試算與參數最佳化掃描。",
   "storage": "localStorage:nic_twse_radar_v1",
   "dataSources": ["FinMind API (4 datasets + 20d Realized Volatility)", "CSV/Excel Upload", "Built-in Demo Data"],
