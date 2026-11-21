@@ -56,7 +56,7 @@ export const GoodStockCore = {
             yield: u.yield ?? null,
             peBands: [12, 16, 20],
             monthlyRevenues: Array.isArray(u.monthlyRevenues) ? u.monthlyRevenues : [],
-            quarters: [],
+            quarters: Array.isArray(u.quarters) ? u.quarters : [],
             annualDividends: [],
             priceHistory: [],
             dataSource: 'universe-index'

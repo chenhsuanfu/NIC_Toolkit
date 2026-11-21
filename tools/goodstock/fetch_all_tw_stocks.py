@@ -148,6 +148,44 @@ def main():
     except Exception as exc:
         print(f"[Warn] TPEx mopsfin_t187ap05_O skipped: {exc}")
 
+    # 7. TWSE + TPEx 官方季報 OpenAPI (綜合損益表：營收、營業利益、稅後淨利、EPS)
+    quarterly_endpoints = [
+        "https://openapi.twse.com.tw/v1/opendata/t187ap06_L_ci",
+        "https://openapi.twse.com.tw/v1/opendata/t187ap06_L_fh",
+        "https://openapi.twse.com.tw/v1/opendata/t187ap06_L_basi",
+        "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap06_O_ci"
+    ]
+    for q_url in quarterly_endpoints:
+        try:
+            for r in fetch_json(q_url):
+                code = str(r.get("公司代號", "")).strip()
+                if code not in stocks_map:
+                    continue
+                y_raw = str(r.get("年度", "")).strip()
+                q_raw = str(r.get("季別", "")).strip()
+                if not y_raw.isdigit() or not q_raw.isdigit():
+                    continue
+                q_label = f"{int(y_raw) + 1911}Q{int(q_raw)}"
+                rev_k = to_float(r.get("營業收入") or r.get("收益"), 0) or 0
+                op_k = to_float(r.get("營業利益（損失）") or r.get("營業利益") or r.get("繼續營業單位稅前淨利（淨損）"), 0) or 0
+                net_k = to_float(r.get("本期淨利（淨損）") or r.get("歸屬於母公司業主之淨利（損）") or r.get("稅後淨利"), 0) or 0
+                eps = to_float(r.get("基本每股盈餘（元）") or r.get("基本每股盈餘"), 0) or 0
+                op_margin = round((op_k / rev_k) * 100, 2) if rev_k > 0 else 0
+                net_margin = round((net_k / rev_k) * 100, 2) if rev_k > 0 else 0
+                stocks_map[code]["quarters"] = [{
+                    "q": q_label,
+                    "revM": round(rev_k / 1000.0, 2),
+                    "opMargin": op_margin,
+                    "netMargin": net_margin,
+                    "eps": round(eps, 2),
+                    "revYoY": stocks_map[code]["monthlyRevenues"][-1]["yoy"] if stocks_map[code]["monthlyRevenues"] else 0,
+                    "netProfitYoY": 0,
+                    "invTurnover": 0,
+                    "fcfM": 0
+                }]
+        except Exception as exc:
+            print(f"[Warn] Quarterly endpoint skipped ({q_url}): {exc}")
+
     final_list = [stocks_map[k] for k in sorted(stocks_map.keys())]
     out_path = Path(__file__).resolve().parent / "tw-universe-index.json"
     out_payload = {
