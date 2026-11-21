@@ -22,6 +22,8 @@ export class GoodStockUI {
     this.customPeBands = null;
     this.isFetchingLive = false;
     this.isSyncingAllPrices = false;
+    this.isSyncingAllFinancials = false;
+    this.syncFinProgress = null; // { done, total, successCount, failCount, lastCode }
     this.showAdvancedFilters = false; // Collapsed by default for clean mobile & desktop layout
 
     // Universal table sort state across all 5 screeners
@@ -190,7 +192,12 @@ export class GoodStockUI {
         <div class="action-toolbar-group">
           <input type="text" class="form-control font-mono" id="gs-quick-jump-input" placeholder="輸入代號/名稱 (如 3037)" style="width:148px; padding:5px 9px;" />
           <button class="btn btn-ghost btn-sm" id="btn-gs-quick-jump">查詢</button>
-          <button class="btn btn-ghost btn-sm" id="btn-gs-sync-all-prices">
+          <button class="btn ${this.isSyncingAllFinancials ? 'btn-primary' : 'btn-ghost'} btn-sm" id="btn-gs-sync-all-financials" ${this.isSyncingAllFinancials ? 'disabled' : ''}>
+            ${this.isSyncingAllFinancials && this.syncFinProgress
+              ? `同步財報 (${this.syncFinProgress.done}/${this.syncFinProgress.total})`
+              : `同步真實財報 (${universe.filter((s) => s.dataSource === 'finmind-live').length}/${universe.length})`}
+          </button>
+          <button class="btn btn-ghost btn-sm" id="btn-gs-sync-all-prices" ${this.isSyncingAllPrices ? 'disabled' : ''}>
             ${this.isSyncingAllPrices ? '同步中...' : `同步最新股價 (${universe.length}檔)`}
           </button>
         </div>
@@ -427,6 +434,7 @@ export class GoodStockUI {
                           ${s.code} ${s.name}
                         </a>
                         ${s.isHolding ? '<span class="pill" style="font-size:10px;">庫存</span>' : ''}
+                        ${s.dataSource === 'finmind-live' ? '<span class="pill pill-emerald" style="font-size:9.5px;" title="已同步 FinMind 真實財報">實</span>' : ''}
                       </div>
                     </td>
                     <td class="text-muted">${s.industry}</td>
@@ -821,6 +829,9 @@ export class GoodStockUI {
           <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
             <span style="font-size:18px; font-weight:800;">${stock.code} ${stock.name}</span>
             <span class="pill">${stock.market} · ${stock.industry}</span>
+            <span class="pill ${stock.dataSource === 'finmind-live' ? 'pill-emerald' : ''}">
+              ${stock.dataSource === 'finmind-live' ? '✓ FinMind 真實財報' : '預設快取 (點右側即時抓取)'}
+            </span>
             <span class="text-muted" style="font-size:12px;">財報:${stock.latestQuarter} ｜ 營收:${stock.latestMonth}</span>
             <span class="pill ${landmines.hitCount === 0 ? 'pill-emerald' : 'pill-rose'}">
               地雷 ${landmines.hitCount}/${landmines.totalCount}
@@ -1736,6 +1747,40 @@ export class GoodStockUI {
           if (showToast) showToast(`錯誤：${err.message}`);
         } finally {
           this.isFetchingLive = false;
+          rerender();
+        }
+      });
+    }
+
+    const syncAllFinBtn = container.querySelector('#btn-gs-sync-all-financials');
+    if (syncAllFinBtn) {
+      syncAllFinBtn.addEventListener('click', async () => {
+        if (this.isSyncingAllFinancials) return;
+        const allStocks = GoodStockData.getAllStocks();
+        const unsyncedCount = allStocks.filter((s) => s.dataSource !== 'finmind-live').length;
+        const onlyUnsynced = unsyncedCount > 0 && unsyncedCount < allStocks.length;
+        this.isSyncingAllFinancials = true;
+        this.syncFinProgress = { done: 0, total: onlyUnsynced ? unsyncedCount : allStocks.length, successCount: 0, failCount: 0 };
+        if (showToast) {
+          showToast(`開始從 FinMind 批次抓取 ${this.syncFinProgress.total} 檔真實季報與月營收，請稍候...`);
+        }
+        rerender();
+        try {
+          const res = await GoodStockData.syncAllFinMindFinancials((prog) => {
+            this.syncFinProgress = prog;
+            const btn = container.querySelector('#btn-gs-sync-all-financials');
+            if (btn) btn.textContent = `同步財報 (${prog.done}/${prog.total})`;
+          }, { onlyUnsynced });
+          if (showToast) {
+            showToast(res.successCount > 0
+              ? `真實財報同步完成！成功 ${res.successCount} 檔${res.failCount > 0 ? `，略過/失敗 ${res.failCount} 檔` : ''}`
+              : '無法連線 FinMind API 或已達免費額度上限，請稍後再試');
+          }
+        } catch (err) {
+          if (showToast) showToast(`同步真實財報失敗：${err.message}`);
+        } finally {
+          this.isSyncingAllFinancials = false;
+          this.syncFinProgress = null;
           rerender();
         }
       });

@@ -1460,14 +1460,68 @@ export const GoodStockData = {
 
         if (parsedQuarters.length >= 6) {
           base.quarters = parsedQuarters.slice(-10);
+          base.dataSource = 'finmind-live';
+          base.syncedAt = new Date().toISOString();
         }
       }
 
+      if (!base.dataSource && (revRows.length >= 14 || priceRows.length > 0)) {
+        base.dataSource = 'finmind-partial';
+        base.syncedAt = new Date().toISOString();
+      }
+
       this.saveCustomStock(base);
-      return { stock: base, source: 'finmind-live' };
+      return { stock: base, source: base.dataSource || 'finmind-live' };
     } catch (err) {
       if (existing) return { stock: existing, source: 'local-cache', warning: err.message };
       throw err;
     }
+  },
+
+  /**
+   * Batch sync real quarterly financial statements & monthly revenues for all stocks via FinMind API
+   * Uses gentle concurrency (2 at a time + 350ms pause) to respect free-tier rate limits.
+   */
+  async syncAllFinMindFinancials(onProgress = null, { onlyUnsynced = false } = {}) {
+    const all = this.getAllStocks();
+    const targets = onlyUnsynced
+      ? all.filter((s) => s.dataSource !== 'finmind-live')
+      : all;
+
+    let done = 0;
+    let successCount = 0;
+    let failCount = 0;
+    const total = targets.length;
+    const batchSize = 2;
+
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    for (let i = 0; i < targets.length; i += batchSize) {
+      const chunk = targets.slice(i, i + batchSize);
+      await Promise.all(
+        chunk.map(async (s) => {
+          try {
+            const res = await this.fetchLiveFinMindStock(s.code);
+            if (res && (res.source === 'finmind-live' || res.source === 'finmind-partial')) {
+              successCount++;
+            } else {
+              failCount++;
+            }
+          } catch (_) {
+            failCount++;
+          } finally {
+            done++;
+            if (typeof onProgress === 'function') {
+              onProgress({ done, total, successCount, failCount, lastCode: s.code, lastName: s.name });
+            }
+          }
+        })
+      );
+      if (i + batchSize < targets.length) {
+        await sleep(350);
+      }
+    }
+
+    return { total, successCount, failCount };
   }
 };
