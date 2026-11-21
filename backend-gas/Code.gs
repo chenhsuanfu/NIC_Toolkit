@@ -285,7 +285,7 @@ function buildFullSnapshot_() {
       fx: readSheetObjects_(assetSS, '匯率', 10, false),
       accounts: readSheetObjects_(assetSS, '帳戶', 50, false),
       debts: readSheetObjects_(assetSS, '債務處置表', 20, false),
-      recentLogs: readSheetObjects_(assetSS, 'log_V2', 60, true),
+      recentLogs: readSheetObjects_(assetSS, 'log_V2', 0, false),
       recentExpenses: readSheetObjects_(assetSS, '開銷明細', 60, true),
       snapshots: readSheetObjects_(assetSS, '資產快照', 36, true),
       salaryHistory: readSheetObjects_(assetSS, '薪資歷史', 20, false),
