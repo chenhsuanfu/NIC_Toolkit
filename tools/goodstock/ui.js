@@ -1127,15 +1127,20 @@ export class GoodStockUI {
               </tr>
             </thead>
             <tbody>
-              ${m12Desc.map((m) => `
+              ${m12Desc.map((m) => {
+                const mom = Number(m.mom);
+                const yoy = Number(m.yoy);
+                const cum = Number(m.cumYoY);
+                return `
                 <tr>
-                  <td class="font-mono" style="font-weight:700;">${m.ym}</td>
+                  <td class="font-mono" style="font-weight:700;">${m.ym || m.month || '-'}</td>
                   <td class="font-mono" style="text-align:right; font-weight:700;">${fmtInt(m.revM)}</td>
-                  <td class="font-mono ${m.mom >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right;">${m.mom >= 0 ? '+' : ''}${m.mom.toFixed(2)}%</td>
-                  <td class="font-mono ${m.yoy >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right; font-weight:700;">${m.yoy >= 0 ? '+' : ''}${m.yoy.toFixed(2)}%</td>
-                  <td class="font-mono ${m.cumYoY >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right;">${m.cumYoY >= 0 ? '+' : ''}${m.cumYoY.toFixed(2)}%</td>
+                  <td class="font-mono ${isFinite(mom) ? (mom >= 0 ? 'text-emerald' : 'text-rose') : 'text-muted'}" style="text-align:right;">${isFinite(mom) ? `${mom >= 0 ? '+' : ''}${mom.toFixed(2)}%` : '-'}</td>
+                  <td class="font-mono ${isFinite(yoy) ? (yoy >= 0 ? 'text-emerald' : 'text-rose') : 'text-muted'}" style="text-align:right; font-weight:700;">${isFinite(yoy) ? `${yoy >= 0 ? '+' : ''}${yoy.toFixed(2)}%` : '-'}</td>
+                  <td class="font-mono ${isFinite(cum) ? (cum >= 0 ? 'text-emerald' : 'text-rose') : 'text-muted'}" style="text-align:right;">${isFinite(cum) ? `${cum >= 0 ? '+' : ''}${cum.toFixed(2)}%` : '-'}</td>
                 </tr>
-              `).join('')}
+              `;
+              }).join('')}
             </tbody>
           </table>
         </div>
