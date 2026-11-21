@@ -779,10 +779,42 @@ export const AssetCore = {
     const totalNet = totalIncome - totalExpense;
     const avgSavingRatePct = totalIncome > 0 ? Number(((totalNet / totalIncome) * 100).toFixed(1)) : 0;
 
+    // Build Year x Month (1..12) matrix & Annual Summary for cross-year comparison
+    const allYearsAsc = Array.from(yearSet).sort((a, b) => a.localeCompare(b));
+    const matrixByYear = allYearsAsc.map((y) => {
+      const incomeArr = new Array(12).fill(null);
+      const expenseArr = new Array(12).fill(null);
+      const netArr = new Array(12).fill(null);
+      let yInc = 0, yExp = 0, activeMonths = 0;
+      for (let mIdx = 0; mIdx < 12; mIdx++) {
+        const ym = `${y}-${String(mIdx + 1).padStart(2, '0')}`;
+        const b = monthMap.get(ym);
+        if (b) {
+          incomeArr[mIdx] = b.income;
+          expenseArr[mIdx] = b.expense;
+          netArr[mIdx] = b.net;
+          yInc += b.income;
+          yExp += b.expense;
+          activeMonths += 1;
+        }
+      }
+      return {
+        year: y,
+        monthCount: activeMonths,
+        incomeTotal: yInc,
+        expenseTotal: yExp,
+        netTotal: yInc - yExp,
+        income: incomeArr,
+        expense: expenseArr,
+        net: netArr
+      };
+    });
+
     return {
       selectedYear: year || 'ALL',
       years: Array.from(yearSet).sort((a, b) => b.localeCompare(a)),
       months,
+      matrixByYear,
       totals: {
         income: totalIncome,
         expense: totalExpense,

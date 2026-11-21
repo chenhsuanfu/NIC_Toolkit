@@ -650,9 +650,8 @@ export class AssetTrackerUI {
     submit('#form-add-log', (p) => { const r = AssetCore.addLedgerLog(store.getState(), p, store); return `已寫入流水：${r['帳戶']} ${r['性質']} ${r['金額']}`; });
     submit('#form-add-salary', (p) => { const r = AssetCore.addSalaryRecord(store.getState(), p, store).record; this.activeTab = 'salary'; return `已新增薪資：${r.item} $${fmtInt(r.amount)}`; });
 
-    on('[data-monthly-year]', 'click', (el) => {
-      this.monthlyYear = el.getAttribute('data-monthly-year') || 'ALL';
-      this.selectedCashflowMonth = null;
+    on('[data-cf-metric]', 'click', (el) => {
+      this.cashflowMetric = el.getAttribute('data-cf-metric') || 'income';
       rerender();
     });
     on('[data-select-cf-month]', 'click', (el) => {
@@ -681,80 +680,131 @@ export class AssetTrackerUI {
   }
 
   _renderMonthlyTab(state) {
-    const year = this.monthlyYear || 'ALL';
-    const data = AssetCore.getMonthlyCashflow(state, { year });
+    const metric = this.cashflowMetric || 'income'; // 'net' | 'income' | 'expense'
+    const data = AssetCore.getMonthlyCashflow(state, { year: 'ALL' });
+    const rows = data.matrixByYear || [];
     const months = data.months || [];
     const activeMonth = this.selectedCashflowMonth
       ? months.find((m) => m.month === this.selectedCashflowMonth)
-      : months[0] || null;
+      : null;
+
+    const metricLabel = metric === 'income' ? '收入' : metric === 'expense' ? '支出' : '盈餘';
+    const palette = ['#3b82f6', '#ea580c', '#10b981', '#a855f7', '#ec4899', '#eab308'];
+
+    // Build SVG Multi-Year 1..12 Month Line Chart
+    const svgW = 540, svgH = 230, padL = 52, padR = 44, padT = 16, padB = 26;
+    const plotW = svgW - padL - padR;
+    const plotH = svgH - padT - padB;
+    const allVals = [];
+    rows.forEach((r) => (r[metric] || []).forEach((v) => { if (v !== null && v !== undefined) allVals.push(v); }));
+    const rawMin = allVals.length ? Math.min(0, ...allVals) : 0;
+    const rawMax = allVals.length ? Math.max(10000, ...allVals) : 100000;
+    const span = Math.max(1, rawMax - rawMin);
+    const xAt = (mIdx) => padL + (mIdx / 11) * plotW;
+    const yAt = (v) => padT + plotH - ((v - rawMin) / span) * plotH;
+    const fmtWan = (v) => `${(v / 10000).toFixed(1).replace(/\.0$/, '')}萬`;
+
+    const yTicks = [0, 0.25, 0.5, 0.75, 1].map((t) => rawMin + t * span);
+    const gridSvg = yTicks.map((v) => {
+      const y = yAt(v).toFixed(1);
+      return `
+        <line x1="${padL}" y1="${y}" x2="${svgW - padR}" y2="${y}" stroke="rgba(148,163,184,0.16)" stroke-dasharray="3,3" />
+        <text x="${padL - 6}" y="${Number(y) + 3.5}" text-anchor="end" fill="#94a3b8" font-size="10">${fmtWan(v)}</text>
+      `;
+    }).join('');
+    const xLabelsSvg = Array.from({ length: 12 }, (_, i) => `
+      <text x="${xAt(i).toFixed(1)}" y="${svgH - 6}" text-anchor="middle" fill="#94a3b8" font-size="10">${i + 1}</text>
+    `).join('');
+
+    const seriesSvg = rows.map((r, idx) => {
+      const color = palette[idx % palette.length];
+      const arr = r[metric] || [];
+      const pts = [];
+      let lastPt = null;
+      for (let i = 0; i < 12; i++) {
+        if (arr[i] !== null && arr[i] !== undefined) {
+          const pt = { x: xAt(i), y: yAt(arr[i]), v: arr[i], m: i + 1 };
+          pts.push(pt);
+          lastPt = pt;
+        }
+      }
+      if (!pts.length) return '';
+      const poly = pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+      const dots = pts.map((p) => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.2" fill="${color}" />`).join('');
+      const endLabel = lastPt
+        ? `<text x="${(lastPt.x + 6).toFixed(1)}" y="${(lastPt.y + 3.5).toFixed(1)}" fill="${color}" font-size="10.5" font-weight="700">${r.year}</text>`
+        : '';
+      return `<polyline fill="none" stroke="${color}" stroke-width="2" points="${poly}" />${dots}${endLabel}`;
+    }).join('');
+
+    const legendHtml = rows.map((r, idx) => {
+      const color = palette[idx % palette.length];
+      return `<span style="display:inline-flex; align-items:center; gap:5px; font-size:12px; color:var(--text-secondary);"><span style="width:9px; height:9px; border-radius:999px; background:${color}; display:inline-block;"></span>${r.year}</span>`;
+    }).join('');
 
     return `
+      <!-- Card 1: 每年每月比較折線圖 -->
       <div class="card" style="margin-bottom:14px;">
-        <div class="card-header" style="flex-wrap:wrap; gap:8px;">
-          <div>
-            <div class="card-title">每月收入與支出總表 (log_V2)</div>
-            <div class="text-muted" style="font-size:12px;">已排除帳戶間轉帳與對帳校正，點擊任一月份可展開該月詳細收支明細</div>
-          </div>
-          <div style="display:flex; gap:6px; flex-wrap:wrap;">
-            <button class="btn btn-sm ${year === 'ALL' ? 'btn-primary' : 'btn-ghost'}" data-monthly-year="ALL">全部</button>
-            ${data.years.map((y) => `
-              <button class="btn btn-sm ${String(year) === String(y) ? 'btn-primary' : 'btn-ghost'}" data-monthly-year="${y}">${y}</button>
-            `).join('')}
-          </div>
+        <div class="card-header" style="margin-bottom:10px;">
+          <div class="card-title">每年每月比較</div>
+        </div>
+        <div style="display:flex; gap:8px; margin-bottom:12px;">
+          <button class="btn btn-sm ${metric === 'net' ? 'btn-primary' : 'btn-ghost'}" style="border-radius:999px; padding:6px 16px;" data-cf-metric="net">盈餘</button>
+          <button class="btn btn-sm ${metric === 'income' ? 'btn-primary' : 'btn-ghost'}" style="border-radius:999px; padding:6px 16px;" data-cf-metric="income">收入</button>
+          <button class="btn btn-sm ${metric === 'expense' ? 'btn-primary' : 'btn-ghost'}" style="border-radius:999px; padding:6px 16px;" data-cf-metric="expense">支出</button>
         </div>
 
-        <div class="grid-kpi" style="margin-bottom:14px;">
-          <div class="card" style="padding:12px;">
-            <div class="kpi-label"><span>區間總收入 (${data.totals.monthCount} 個月)</span></div>
-            <div class="kpi-value mask-amount text-emerald">$${fmtInt(data.totals.income)}</div>
-          </div>
-          <div class="card" style="padding:12px;">
-            <div class="kpi-label"><span>區間總支出</span></div>
-            <div class="kpi-value mask-amount text-rose">$${fmtInt(data.totals.expense)}</div>
-          </div>
-          <div class="card" style="padding:12px;">
-            <div class="kpi-label"><span>區間淨結餘</span></div>
-            <div class="kpi-value mask-amount ${data.totals.net >= 0 ? 'text-emerald' : 'text-rose'}">${data.totals.net >= 0 ? '+' : ''}$${fmtInt(data.totals.net)}</div>
-          </div>
-          <div class="card" style="padding:12px;">
-            <div class="kpi-label"><span>平均儲蓄率</span></div>
-            <div class="kpi-value font-mono">${data.totals.savingRatePct.toFixed(1)}%</div>
-          </div>
+        <div style="width:100%; overflow-x:auto;">
+          <svg viewBox="0 0 ${svgW} ${svgH}" style="width:100%; height:auto; min-height:200px; display:block;">
+            ${gridSvg}
+            ${xLabelsSvg}
+            ${seriesSvg}
+          </svg>
         </div>
+        <div style="display:flex; gap:14px; flex-wrap:wrap; margin-top:8px;">
+          ${legendHtml || '<span class="text-muted" style="font-size:12px;">尚無資料</span>'}
+        </div>
+        <div class="text-muted" style="font-size:11.5px; margin-top:8px;">
+          註：依 log_V2「性質 = 收入 / 支出」自動彙總計算（已排除轉帳與對帳校正）。
+        </div>
+      </div>
 
+      <!-- Card 2: 年 × 月 橫向矩陣表 -->
+      <div class="card" style="margin-bottom:14px;">
+        <div class="card-header" style="margin-bottom:8px;">
+          <div class="card-title">${metricLabel}（年 × 月）</div>
+          <span class="text-muted" style="font-size:11.5px;">點擊任一月份數字可展開明細</span>
+        </div>
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>月份</th>
-                <th style="text-align:right;">收入 (TWD)</th>
-                <th style="text-align:right;">支出 (TWD)</th>
-                <th style="text-align:right;">月結餘</th>
-                <th style="text-align:right;">儲蓄率</th>
-                <th style="text-align:right;">筆數 (收/支)</th>
+                <th style="position:sticky; left:0; background:var(--bg-card); z-index:2;">年</th>
+                ${Array.from({ length: 12 }, (_, i) => `<th style="text-align:right; white-space:nowrap;">${i + 1}月</th>`).join('')}
               </tr>
             </thead>
             <tbody>
-              ${months.length ? months.map((m) => {
-                const isSel = activeMonth && activeMonth.month === m.month;
-                return `
-                  <tr data-select-cf-month="${m.month}" style="cursor:pointer; ${isSel ? 'background:rgba(59,130,246,0.12);' : ''}">
-                    <td class="font-mono" style="font-weight:700;">${isSel ? '▾ ' : '▸ '}${m.month}</td>
-                    <td class="font-mono mask-amount text-emerald" style="text-align:right; font-weight:600;">+$${fmtInt(m.income)}</td>
-                    <td class="font-mono mask-amount text-rose" style="text-align:right; font-weight:600;">-$${fmtInt(m.expense)}</td>
-                    <td class="font-mono mask-amount ${m.net >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right; font-weight:700;">${m.net >= 0 ? '+' : ''}$${fmtInt(m.net)}</td>
-                    <td class="font-mono" style="text-align:right;">${m.savingRatePct.toFixed(1)}%</td>
-                    <td class="font-mono text-muted" style="text-align:right;">${m.incomeCount} / ${m.expenseCount}</td>
-                  </tr>
-                `;
-              }).join('') : `<tr><td colspan="6" class="text-muted" style="text-align:center; padding:18px;">目前尚無 log_V2 收支紀錄</td></tr>`}
+              ${rows.length ? rows.map((r) => `
+                <tr>
+                  <td class="font-mono" style="font-weight:700; position:sticky; left:0; background:var(--bg-card); z-index:1;">${r.year}</td>
+                  ${(r[metric] || []).map((v, mIdx) => {
+                    if (v === null || v === undefined) {
+                      return `<td class="font-mono text-muted" style="text-align:right;">-</td>`;
+                    }
+                    const ym = `${r.year}-${String(mIdx + 1).padStart(2, '0')}`;
+                    const isSel = activeMonth && activeMonth.month === ym;
+                    const cls = metric === 'income' ? 'text-emerald' : metric === 'expense' ? 'text-rose' : (v >= 0 ? 'text-emerald' : 'text-rose');
+                    return `<td class="font-mono mask-amount ${cls}" data-select-cf-month="${ym}" style="text-align:right; font-weight:600; cursor:pointer; white-space:nowrap; ${isSel ? 'background:rgba(59,130,246,0.18); border-radius:6px;' : ''}">${fmtInt(v)}</td>`;
+                  }).join('')}
+                </tr>
+              `).join('') : `<tr><td colspan="13" class="text-muted" style="text-align:center; padding:16px;">目前尚無 log_V2 收支紀錄</td></tr>`}
             </tbody>
           </table>
         </div>
       </div>
 
       ${activeMonth ? `
-        <div class="grid-2">
+        <div class="grid-2" style="margin-bottom:14px;">
           <div class="card">
             <div class="card-header">
               <div class="card-title text-emerald">${activeMonth.month} 收入明細 (${activeMonth.incomeCount} 筆)</div>
@@ -770,7 +820,7 @@ export class AssetTrackerUI {
                       <td>${it.category}</td>
                       <td class="text-muted">${it.account}</td>
                       <td class="text-muted">${it.note || '-'}</td>
-                      <td class="font-mono mask-amount text-emerald" style="text-align:right; font-weight:600;">+$${fmtInt(it.twdAmount)}</td>
+                      <td class="font-mono mask-amount text-emerald" style="text-align:right; font-weight:600;">+${fmtInt(it.twdAmount)}</td>
                     </tr>
                   `).join('') : `<tr><td colspan="5" class="text-muted" style="text-align:center; padding:14px;">本月無收入紀錄</td></tr>`}
                 </tbody>
@@ -793,7 +843,7 @@ export class AssetTrackerUI {
                       <td>${it.category}</td>
                       <td class="text-muted">${it.account}</td>
                       <td class="text-muted">${it.note || '-'}</td>
-                      <td class="font-mono mask-amount text-rose" style="text-align:right; font-weight:600;">-$${fmtInt(it.twdAmount)}</td>
+                      <td class="font-mono mask-amount text-rose" style="text-align:right; font-weight:600;">-${fmtInt(it.twdAmount)}</td>
                     </tr>
                   `).join('') : `<tr><td colspan="5" class="text-muted" style="text-align:center; padding:14px;">本月無支出紀錄</td></tr>`}
                 </tbody>
@@ -802,6 +852,37 @@ export class AssetTrackerUI {
           </div>
         </div>
       ` : ''}
+
+      <!-- Card 3: 年度彙總 -->
+      <div class="card">
+        <div class="card-header" style="margin-bottom:8px;">
+          <div class="card-title">年度彙總</div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>年</th>
+                <th style="text-align:right;">月數</th>
+                <th style="text-align:right;">收入</th>
+                <th style="text-align:right;">支出</th>
+                <th style="text-align:right;">盈餘</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.length ? rows.map((r) => `
+                <tr>
+                  <td class="font-mono" style="font-weight:700;">${r.year}</td>
+                  <td class="font-mono" style="text-align:right;">${r.monthCount}</td>
+                  <td class="font-mono mask-amount text-emerald" style="text-align:right; font-weight:600;">${fmtInt(r.incomeTotal)}</td>
+                  <td class="font-mono mask-amount text-rose" style="text-align:right; font-weight:600;">${fmtInt(r.expenseTotal)}</td>
+                  <td class="font-mono mask-amount ${r.netTotal >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right; font-weight:700;">${fmtInt(r.netTotal)}</td>
+                </tr>
+              `).join('') : `<tr><td colspan="5" class="text-muted" style="text-align:center; padding:16px;">尚無資料</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      </div>
     `;
   }
 }
