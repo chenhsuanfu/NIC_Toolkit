@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="NIC工具集" />
   <title>NIC Toolkit | 個人財務與量化工具集</title>
   <link rel="manifest" href="./manifest.webmanifest" />
-  <link rel="stylesheet" href="./assets/css/main.css?v=33" />
+  <link rel="stylesheet" href="./assets/css/main.css?v=34" />
   <script src="./core/app-meta.js"></script>
 </head>
 <body>
@@ -36,6 +36,7 @@
     <div class="main-area">
       <header class="topbar">
         <div class="topbar-left">
+          <button class="btn btn-ghost btn-sm" id="btn-sidebar-toggle" title="收合 / 展開導覽列" aria-label="切換導覽列">☰</button>
           <h1 class="page-title" id="topbar-title">工具集總覽</h1>
           <span class="mode-badge sandbox" id="topbar-mode-badge">本機沙盒</span>
         </div>
@@ -63,6 +64,7 @@
 
     <!-- iPhone / Mobile Bottom Navigation -->
     <nav class="bottom-nav" id="mobile-nav"></nav>
+    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
   </div>
 
   <div class="toast-container" id="toast-container"></div>
@@ -131,6 +133,7 @@
       if (!registry.get(toolId)) toolId = 'hub';
       currentToolId = toolId;
       window.location.hash = toolId;
+      document.body.classList.remove('sidebar-mobile-open');
       renderShell();
     }
 
@@ -282,6 +285,28 @@
     }
 
     // Bind Topbar Actions
+    const SIDEBAR_KEY = 'nic_toolkit_sidebar_collapsed';
+    if (localStorage.getItem(SIDEBAR_KEY) === '1') {
+      document.body.classList.add('sidebar-collapsed');
+    }
+    const sidebarToggleBtn = document.getElementById('btn-sidebar-toggle');
+    const sidebarBackdrop = document.getElementById('sidebar-backdrop');
+    if (sidebarToggleBtn) {
+      sidebarToggleBtn.addEventListener('click', () => {
+        if (window.innerWidth <= 768) {
+          document.body.classList.toggle('sidebar-mobile-open');
+        } else {
+          const collapsed = document.body.classList.toggle('sidebar-collapsed');
+          localStorage.setItem(SIDEBAR_KEY, collapsed ? '1' : '0');
+        }
+      });
+    }
+    if (sidebarBackdrop) {
+      sidebarBackdrop.addEventListener('click', () => {
+        document.body.classList.remove('sidebar-mobile-open');
+      });
+    }
+
     document.getElementById('btn-theme-toggle').addEventListener('click', () => {
       const next = document.body.classList.contains('theme-light') ? 'dark' : 'light';
       applyTheme(next);

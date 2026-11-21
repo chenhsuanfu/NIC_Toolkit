@@ -22,6 +22,7 @@ export class AssetTrackerUI {
     this.reconcilingKey = null; // `${name}|${currency}`
     this.salaryYearFilter = 'ALL';
     this.salaryTypeFilter = 'ALL';
+    this.expenseAnalysisYear = '';
     this.efMode = 'fixed'; // fixed | expense | manual
     this.efManualMonthly = 60000;
     try {
@@ -89,13 +90,13 @@ export class AssetTrackerUI {
           <div class="kpi-sub mask-amount">總資產 $${fmtInt(sum.grossAssetsWithRealEstateTwd)} ｜ 負債 $${fmtInt(sum.totalDebtTwd)}</div>
         </div>
         <div class="card">
-          <div class="kpi-label">
+          <div class="kpi-label" style="flex-direction:column; align-items:flex-start; gap:6px;">
             <span>緊急預備金 (保障資金)</span>
-            <span style="display:inline-flex; gap:4px;">
-              <button type="button" class="btn btn-sm ${this.efMode === 'fixed' ? 'btn-primary' : 'btn-ghost'}" data-ef-mode="fixed" style="padding:2px 6px; font-size:11px;">固定開銷</button>
-              <button type="button" class="btn btn-sm ${this.efMode === 'expense' ? 'btn-primary' : 'btn-ghost'}" data-ef-mode="expense" style="padding:2px 6px; font-size:11px;">月支出</button>
-              <button type="button" class="btn btn-sm ${this.efMode === 'manual' ? 'btn-primary' : 'btn-ghost'}" data-ef-mode="manual" style="padding:2px 6px; font-size:11px;">手動</button>
-            </span>
+            <div style="display:flex; flex-wrap:wrap; gap:4px;">
+              <button type="button" class="btn btn-sm ${this.efMode === 'fixed' ? 'btn-primary' : 'btn-ghost'}" data-ef-mode="fixed" style="padding:2px 7px; font-size:11px;">固定開銷</button>
+              <button type="button" class="btn btn-sm ${this.efMode === 'expense' ? 'btn-primary' : 'btn-ghost'}" data-ef-mode="expense" style="padding:2px 7px; font-size:11px;">月支出</button>
+              <button type="button" class="btn btn-sm ${this.efMode === 'manual' ? 'btn-primary' : 'btn-ghost'}" data-ef-mode="manual" style="padding:2px 7px; font-size:11px;">手動</button>
+            </div>
           </div>
           <div class="kpi-value">${ef.months > 0 ? `${ef.months} 個月${ef.isPartialYear ? ' *' : ''}` : '--'}</div>
           ${this.efMode === 'manual' ? `
@@ -369,21 +370,65 @@ export class AssetTrackerUI {
           ${this._svgCashflow(cashflowHistory.slice(-18), cfStats)}
         </div>
         <div class="card">
-          <div class="card-header"><div class="card-title">開銷結構 (${eb.count} 筆，$${fmtInt(eb.totalExpenseSample)})</div></div>
-          <div style="display:flex; flex-direction:column; gap:9px;">
-            ${eb.byCategory.slice(0, 8).map((c) => `
-              <div>
-                <div style="display:flex; justify-content:space-between; font-size:12.5px; margin-bottom:3px;">
-                  <span>${c.name}</span><span class="font-mono mask-amount">$${fmtInt(c.amount)} <span class="text-muted">${(c.ratio * 100).toFixed(1)}%</span></span>
-                </div>
-                <div class="progress-track" style="margin-top:0; height:6px;"><div class="progress-fill" style="width:${Math.max(1, c.ratio * 100)}%;"></div></div>
-              </div>`).join('')}
-            <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:6px;">
-              ${eb.byPayer.map((p) => `<span class="pill">${p.name} ${(p.ratio * 100).toFixed(0)}%</span>`).join('')}
-              <span class="pill">固定 $${fmtInt(eb.fixedAmount)}</span>
-              <span class="pill">變動 $${fmtInt(eb.variableAmount)}</span>
-            </div>
+          <div class="card-header" style="margin-bottom:10px;">
+            <div class="card-title">開銷分析（點擊類別展開明細）</div>
+            <select id="select-exp-analysis-year" class="form-control" style="width:auto; padding:4px 10px; font-size:12px;">
+              ${(() => {
+                const ea = AssetCore.getExpenseAnalysis(state, { year: this.expenseAnalysisYear });
+                return [
+                  ...ea.availableYears.map((y) => `<option value="${y}" ${ea.selectedYear === y ? 'selected' : ''}>${y} 年</option>`),
+                  `<option value="ALL" ${ea.selectedYear === 'ALL' ? 'selected' : ''}>全部年度</option>`
+                ].join('');
+              })()}
+            </select>
           </div>
+          ${(() => {
+            const ea = AssetCore.getExpenseAnalysis(state, { year: this.expenseAnalysisYear });
+            const renderGroup = (title, dotColor, grp) => `
+              <div style="margin-top:12px; padding:10px 12px; border-radius:10px; background:var(--bg-elevated, rgba(255,255,255,0.025)); border:1px solid var(--border);">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                  <span style="font-size:13px; font-weight:700;"><span style="color:${dotColor};">●</span> ${title}</span>
+                  <span class="font-mono mask-amount" style="font-size:14px; font-weight:700;">$${fmtInt(grp.total)}</span>
+                </div>
+                ${grp.categories.length ? grp.categories.map((cat) => `
+                  <details class="exp-acc">
+                    <summary>
+                      <div>
+                        <div style="font-size:13px; font-weight:600;">${cat.name}</div>
+                        <div class="text-muted" style="font-size:11px;">${cat.count} 筆 ▾</div>
+                      </div>
+                      <span class="font-mono mask-amount" style="font-size:13.5px; font-weight:700;">$${fmtInt(cat.total)}</span>
+                    </summary>
+                    <div class="exp-acc-items">
+                      ${cat.items.map((it) => `
+                        <div class="exp-acc-item">
+                          <div>
+                            <div style="font-weight:500;">${it.title}</div>
+                            <div class="text-muted font-mono" style="font-size:11px;">${it.date}${it.payer ? ` · ${it.payer}` : ''}</div>
+                          </div>
+                          <span class="font-mono mask-amount" style="font-weight:600;">$${fmtInt(it.amount)}</span>
+                        </div>
+                      `).join('')}
+                    </div>
+                  </details>
+                `).join('') : `<div class="text-muted" style="font-size:12px; padding:8px 0;">尚無${title}紀錄</div>`}
+              </div>
+            `;
+            return `
+              <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:8px;">
+                <div style="padding:10px 12px; border-radius:10px; border:1px solid var(--border); border-left:3px solid #10b981;">
+                  <div class="text-muted" style="font-size:11px;">月固定開銷（近 ${ea.completeFixedMonths} 個完整月平均）</div>
+                  <div class="font-mono mask-amount" style="font-size:17px; font-weight:700; margin-top:4px;">$${fmtInt(ea.monthlyFixedAvg)}</div>
+                </div>
+                <div style="padding:10px 12px; border-radius:10px; border:1px solid var(--border);">
+                  <div class="text-muted" style="font-size:11px;">${ea.selectedYear === 'ALL' ? '全部年度' : `${ea.selectedYear} 年`}總開銷</div>
+                  <div class="font-mono mask-amount" style="font-size:17px; font-weight:700; margin-top:4px;">$${fmtInt(ea.yearTotal)}</div>
+                </div>
+              </div>
+              ${renderGroup('固定開銷', '#10b981', ea.fixedGroup)}
+              ${renderGroup('變動開銷', '#f59e0b', ea.variableGroup)}
+            `;
+          })()}
         </div>
       </div>`;
   }
@@ -718,6 +763,14 @@ export class AssetTrackerUI {
         } catch (err) {
           showToast(`⚠️ 快照記錄失敗：${err?.message || err}`);
         }
+      });
+    }
+
+    const expYearSel = container.querySelector('#select-exp-analysis-year');
+    if (expYearSel) {
+      expYearSel.addEventListener('change', (e) => {
+        this.expenseAnalysisYear = e.target.value;
+        this.render(container, store.getState(), store, showToast);
       });
     }
     const rerender = () => this.render(container, store.getState(), store, showToast);

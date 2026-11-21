@@ -448,7 +448,7 @@ export class StockTrackerUI {
           </div>
         </div>
 
-        <div class="table-wrap">
+        <div class="table-wrap desktop-table-only">
           <table class="data-table">
             <thead>
               <tr>
@@ -492,6 +492,43 @@ export class StockTrackerUI {
               }).join('')}
             </tbody>
           </table>
+        </div>
+
+        <div class="mobile-card-list">
+          ${holdings.map((r) => {
+            const sym = r['代號'];
+            const pnl = toNum(r['未實現(TWD)'], 0);
+            const roi = toRatio(r['報酬率']);
+            const cls = pnl >= 0 ? 'text-emerald' : 'text-rose';
+            const sign = pnl >= 0 ? '+' : '';
+            return `
+              <details class="m-stock-card">
+                <summary>
+                  <div class="m-stock-row1">
+                    <div style="display:flex; align-items:center; gap:6px;">
+                      <span class="font-mono" style="font-weight:700; font-size:14.5px; color:var(--accent-blue);">${sym}</span>
+                      <span class="pill" style="font-size:10px;">${r['市場']}</span>
+                      <span class="pill" style="font-size:10px;">${r['類型'] || '-'}</span>
+                    </div>
+                    <span class="pill ${pnl >= 0 ? 'pill-emerald' : 'pill-rose'}">${pnl >= 0 ? '▲ ' : '▼ '}${fmtPct(roi)}</span>
+                  </div>
+                  <div class="m-stock-row2">
+                    <span class="font-mono mask-amount" style="font-weight:700;">市值 $${fmtInt(r['市值(TWD)'])}</span>
+                    <span class="font-mono mask-amount ${cls}" style="font-weight:700;">${sign}$${fmtInt(pnl)}</span>
+                  </div>
+                </summary>
+                <div class="m-stock-detail">
+                  <div><span class="text-muted">現價：</span><span class="font-mono">${fmtDec(r['現價(原幣)'])}</span></div>
+                  <div><span class="text-muted">均價：</span><span class="font-mono">${fmtDec(r['平均成本(原幣)'])}</span></div>
+                  <div><span class="text-muted">股數：</span><span class="font-mono">${fmtDec(r['剩餘股數'], 0)}</span></div>
+                  <div><span class="text-muted">券商：</span><span>${r['券商分佈'] || '-'}</span></div>
+                  <div style="grid-column: span 2; margin-top:4px;">
+                    <button type="button" class="btn btn-ghost btn-sm" data-click-symbol="${sym}" style="width:100%;">查看分批庫存 / 出場 ▸</button>
+                  </div>
+                </div>
+              </details>
+            `;
+          }).join('')}
         </div>
       </div>
     `;

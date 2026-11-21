@@ -400,7 +400,7 @@ export class GoodStockUI {
           </div>
         </div>
 
-        <div class="table-wrap">
+        <div class="table-wrap desktop-table-only">
           <table class="data-table">
             <thead>
               <tr>
@@ -478,6 +478,40 @@ export class GoodStockUI {
               ${results.length === 0 ? `<tr><td colspan="15" class="text-muted" style="text-align:center; padding:20px;">無符合篩選條件的股票</td></tr>` : ''}
             </tbody>
           </table>
+        </div>
+
+        <div class="mobile-card-list">
+          ${results.length ? results.map((s) => {
+            const ev = s.sixEval;
+            const cur = ev.current;
+            return `
+              <details class="m-stock-card">
+                <summary>
+                  <div class="m-stock-row1">
+                    <div style="display:flex; align-items:center; gap:5px; min-width:0;">
+                      <span class="font-mono" style="font-weight:700; font-size:14px; color:var(--accent-blue);">${s.code} ${s.name}</span>
+                      ${s.isHolding ? '<span class="pill" style="font-size:9.5px;">庫存</span>' : ''}
+                    </div>
+                    <span class="pill ${cur.avgScore >= 3.2 ? 'pill-emerald' : ''}">${cur.avgScore.toFixed(2)} (${cur.grade})</span>
+                  </div>
+                  <div class="m-stock-row2">
+                    <span class="font-mono" style="font-weight:600;">$${fmtNum(s.price, 1)} <span class="text-muted">PE ${s.pe ?? '-'}</span></span>
+                    <span class="font-mono">雙箭頭 <b>${fmtNum(s.doubleArrow, 1)}%</b> · 地雷 ${s.landmines.hitCount}/7</span>
+                  </div>
+                </summary>
+                <div class="m-stock-detail">
+                  <div><span class="text-muted">產業：</span><span>${s.industry}</span></div>
+                  <div><span class="text-muted">較前月：</span>${this._renderDeltaBadge(ev.deltaMoM)}</div>
+                  <div><span class="text-muted">較前季：</span>${this._renderDeltaBadge(ev.deltaQoQ)}</div>
+                  <div><span class="text-muted">來源：</span><span>${s.dataSource === 'finmind-live' ? 'FinMind 即時' : '內建財報'}</span></div>
+                  <div style="grid-column: span 2; display:flex; gap:6px; margin-top:4px;">
+                    <button type="button" class="btn btn-primary btn-sm" data-open-stock="${s.code}" style="flex:1;">詳細健診</button>
+                    <button type="button" class="btn btn-ghost btn-sm" data-pk-select="${s.code}" style="flex:1;">加入 PK</button>
+                  </div>
+                </div>
+              </details>
+            `;
+          }).join('') : `<div class="text-muted" style="text-align:center; padding:18px;">無符合篩選條件的股票</div>`}
         </div>
       </div>
     `;

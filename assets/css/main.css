@@ -813,3 +813,162 @@ body.privacy-masked .mask-amount:hover {
     padding: 6px 2px;
   }
 }
+
+/* Collapsible Sidebar (Desktop Icon Rail & Mobile Slide-Out Drawer) */
+.sidebar {
+  transition: width 0.2s ease, transform 0.22s ease;
+}
+.sidebar-backdrop {
+  display: none;
+}
+@media (min-width: 769px) {
+  body.sidebar-collapsed .sidebar {
+    width: 66px;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  body.sidebar-collapsed .brand-box {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+  body.sidebar-collapsed .brand-title,
+  body.sidebar-collapsed .brand-sub,
+  body.sidebar-collapsed .sidebar-footer {
+    display: none;
+  }
+  body.sidebar-collapsed .nav-item {
+    justify-content: center;
+    padding: 10px 0;
+  }
+  body.sidebar-collapsed .nav-item span:last-child {
+    display: none;
+  }
+  body.sidebar-collapsed .main-area {
+    margin-left: 66px;
+  }
+}
+@media (max-width: 768px) {
+  .sidebar {
+    display: flex !important;
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 248px;
+    z-index: 950;
+    transform: translateX(-105%);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  }
+  body.sidebar-mobile-open .sidebar {
+    transform: translateX(0);
+  }
+  body.sidebar-mobile-open .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(2, 6, 23, 0.58);
+    backdrop-filter: blur(2px);
+    z-index: 940;
+  }
+}
+
+/* Responsive Mobile Stock / GoodStock Card List (Portrait = Option A Cards, Landscape = Option B Frozen First Col) */
+.mobile-card-list {
+  display: none;
+}
+@media (max-width: 768px) and (orientation: portrait) {
+  .desktop-table-only {
+    display: none !important;
+  }
+  .mobile-card-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+}
+@media (max-width: 960px) and (orientation: landscape) {
+  .table-wrap table th:first-child,
+  .table-wrap table td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 3;
+    background: var(--bg-card);
+    box-shadow: 2px 0 6px rgba(0, 0, 0, 0.24);
+  }
+  .table-wrap table thead th:first-child {
+    z-index: 4;
+  }
+}
+.m-stock-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.025));
+  overflow: hidden;
+}
+.m-stock-card summary {
+  list-style: none;
+  padding: 11px 12px;
+  cursor: pointer;
+}
+.m-stock-card summary::-webkit-details-marker {
+  display: none;
+}
+.m-stock-row1 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.m-stock-row2 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 12px;
+}
+.m-stock-detail {
+  padding: 9px 12px 11px;
+  border-top: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px;
+  font-size: 12px;
+}
+
+/* Expense Analysis Accordion */
+.exp-acc {
+  border-top: 1px solid var(--border);
+}
+.exp-acc:first-child {
+  border-top: none;
+}
+.exp-acc summary {
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 4px;
+  cursor: pointer;
+}
+.exp-acc summary::-webkit-details-marker {
+  display: none;
+}
+.exp-acc-items {
+  padding: 0 4px 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.exp-acc-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12.5px;
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--border);
+}
+.exp-acc-item:last-child {
+  border-bottom: none;
+}

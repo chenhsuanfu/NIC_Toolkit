@@ -1030,6 +1030,96 @@ export const AssetCore = {
     });
 
     return record;
+  },
+
+  /**
+   * 14. 開銷分析 (年度篩選 + 固定/變動分組 + 類別展開明細)
+   */
+  getExpenseAnalysis(state, { year = '' } = {}) {
+    const raw = Array.isArray(state?.asset?.recentExpenses) ? state.asset.recentExpenses : [];
+    const nowYm = new Date().toISOString().slice(0, 7);
+    const yearSet = new Set();
+    const normalized = [];
+
+    for (const r of raw) {
+      const dateStr = String(r['日期'] || '').trim().replace(/\//g, '-').slice(0, 10);
+      const m = dateStr.match(/^(\d{4})-(\d{2})/);
+      if (!m) continue;
+      const y = m[1];
+      const ym = `${m[1]}-${m[2]}`;
+      const amount = Math.abs(toNum(r['金額'], 0));
+      if (amount <= 0) continue;
+      yearSet.add(y);
+      normalized.push({
+        date: dateStr,
+        year: y,
+        ym,
+        amount: Math.round(amount),
+        fixedVar: String(r['固定變動'] || '變動').trim(),
+        category: String(r['類別'] || '其他').trim() || '其他',
+        subCategory: String(r['子類別'] || '').trim(),
+        title: String(r['名目'] || r['子類別'] || r['類別'] || '未命名').trim(),
+        payer: String(r['負擔人'] || '').trim()
+      });
+    }
+
+    const availableYears = Array.from(yearSet).sort((a, b) => b.localeCompare(a));
+    const selectedYear = year && (year === 'ALL' || availableYears.includes(String(year)))
+      ? String(year)
+      : (availableYears[0] || new Date().toISOString().slice(0, 4));
+
+    const filtered = selectedYear === 'ALL'
+      ? normalized
+      : normalized.filter((e) => e.year === selectedYear);
+
+    const buildGroup = (list) => {
+      const catMap = new Map();
+      let total = 0;
+      for (const it of list) {
+        total += it.amount;
+        if (!catMap.has(it.category)) {
+          catMap.set(it.category, { name: it.category, count: 0, total: 0, items: [] });
+        }
+        const g = catMap.get(it.category);
+        g.count += 1;
+        g.total += it.amount;
+        g.items.push(it);
+      }
+      const categories = Array.from(catMap.values())
+        .map((c) => {
+          c.items.sort((a, b) => b.date.localeCompare(a.date));
+          return c;
+        })
+        .sort((a, b) => b.total - a.total);
+      return { total, count: list.length, categories };
+    };
+
+    const fixedList = filtered.filter((e) => e.fixedVar === '固定');
+    const varList = filtered.filter((e) => e.fixedVar !== '固定');
+
+    // Complete-month fixed expense average (up to last 12 complete months)
+    const fixedByMonth = new Map();
+    for (const e of normalized) {
+      if (e.fixedVar !== '固定' || e.ym >= nowYm) continue;
+      fixedByMonth.set(e.ym, (fixedByMonth.get(e.ym) || 0) + e.amount);
+    }
+    const completeFixed = Array.from(fixedByMonth.entries())
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .slice(0, 12);
+    const completeFixedMonths = completeFixed.length;
+    const monthlyFixedAvg = completeFixedMonths > 0
+      ? Math.round(completeFixed.reduce((s, [, v]) => s + v, 0) / completeFixedMonths)
+      : 0;
+
+    return {
+      availableYears,
+      selectedYear,
+      yearTotal: filtered.reduce((s, e) => s + e.amount, 0),
+      monthlyFixedAvg,
+      completeFixedMonths,
+      fixedGroup: buildGroup(fixedList),
+      variableGroup: buildGroup(varList)
+    };
   }
 };
 
