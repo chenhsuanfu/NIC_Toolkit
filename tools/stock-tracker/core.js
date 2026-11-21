@@ -905,6 +905,102 @@ export const StockCore = {
       tier2UnallocatedPct: Math.round((100 - tier2TotalTargetPct) * 100) / 100,
       tier2Rows
     };
+  },
+
+  /**
+   * 8. Refresh Live Market Prices Directly (Bypasses Sleeping Google Sheets GOOGLEFINANCE)
+   * - TW stocks: FinMind TaiwanStockPrice API (CORS-friendly on mobile & desktop)
+   * - US stocks: FinMind USStockPrice API
+   * Updates local state overview (現價(原幣), 市值(TWD), 未實現(TWD), 報酬率) without touching sheet formulas.
+   */
+  async refreshLivePrices(state, storeInstance) {
+    const overview = Array.isArray(state?.stock?.overview) ? state.stock.overview : [];
+    if (!overview.length) return { updatedCount: 0, totalCount: 0, failedSymbols: [] };
+
+    const usdTwd = toNum(state?.stock?.fx?.usdTwd, 32.5);
+    const endDate = new Date().toISOString().slice(0, 10);
+    const startObj = new Date(Date.now() - 14 * 86400 * 1000);
+    const startDate = startObj.toISOString().slice(0, 10);
+
+    let finmindToken = '';
+    try {
+      const radarRaw = localStorage.getItem('nic_twse_radar_v1');
+      const radarObj = radarRaw ? JSON.parse(radarRaw) : null;
+      finmindToken = (radarObj?.finmindToken || localStorage.getItem('twse_radar_finmind_token') || '').trim();
+    } catch (_) {}
+
+    const fetchFinMindLatestClose = async (dataset, dataId) => {
+      const params = new URLSearchParams({ dataset, data_id: dataId, start_date: startDate, end_date: endDate });
+      if (finmindToken) params.set('token', finmindToken);
+      const resp = await fetch(`https://api.finmindtrade.com/api/v4/data?${params.toString()}`, { mode: 'cors' });
+      if (!resp.ok) return null;
+      const json = await resp.json();
+      if (json?.status !== 200 || !Array.isArray(json.data) || !json.data.length) return null;
+      const last = json.data[json.data.length - 1];
+      const closeVal = toNum(last.close ?? last.Close, 0);
+      return closeVal > 0 ? { price: closeVal, date: last.date || endDate } : null;
+    };
+
+    const priceMap = new Map();
+    const failedSymbols = [];
+
+    const tasks = overview
+      .filter((r) => toNum(r['剩餘股數'], 0) > 0 && r['代號'])
+      .map(async (r) => {
+        const rawSym = String(r['代號'] || '').trim().toUpperCase();
+        const market = String(r['市場'] || '').trim().toUpperCase();
+        const cleanCode = rawSym.replace(/\.TW$/i, '').replace(/\.TWO$/i, '');
+        const isTw = market === 'TW' || /^\d{4,6}[A-Z]?$/.test(cleanCode);
+        try {
+          const hit = isTw
+            ? await fetchFinMindLatestClose('TaiwanStockPrice', cleanCode)
+            : await fetchFinMindLatestClose('USStockPrice', cleanCode);
+          if (hit && hit.price > 0) {
+            priceMap.set(rawSym, hit);
+          } else {
+            failedSymbols.push(rawSym);
+          }
+        } catch (_) {
+          failedSymbols.push(rawSym);
+        }
+      });
+
+    await Promise.allSettled(tasks);
+
+    let updatedCount = 0;
+    if (priceMap.size > 0 && storeInstance && typeof storeInstance.getState === 'function') {
+      const curState = storeInstance.getState();
+      const list = curState?.stock?.overview || [];
+      for (const row of list) {
+        const rawSym = String(row['代號'] || '').trim().toUpperCase();
+        const hit = priceMap.get(rawSym);
+        if (!hit) continue;
+
+        const shares = toNum(row['剩餘股數'], 0);
+        const market = String(row['市場'] || '').trim().toUpperCase();
+        const isTw = market === 'TW' || /^\d{4,6}[A-Z]?$/.test(rawSym.replace(/\.TW$/i, ''));
+        const rate = isTw ? 1 : usdTwd;
+        const costTwd = toNum(row['投入成本(TWD)'], 0);
+        const marketTwd = Math.round(shares * hit.price * rate);
+        const unrealizedTwd = marketTwd - costTwd;
+        const roiPct = costTwd > 0 ? (unrealizedTwd / costTwd) * 100 : 0;
+
+        row['現價(原幣)'] = String(hit.price);
+        row['市值(TWD)'] = String(marketTwd);
+        row['未實現(TWD)'] = String(Math.round(unrealizedTwd));
+        row['報酬率'] = `${roiPct.toFixed(2)}%`;
+        updatedCount += 1;
+      }
+      curState.stock.priceUpdatedAt = new Date().toISOString();
+      if (typeof storeInstance._persistState === 'function') storeInstance._persistState();
+      if (typeof storeInstance._notify === 'function') storeInstance._notify('price-refresh');
+    }
+
+    return {
+      updatedCount,
+      totalCount: tasks.length,
+      failedSymbols
+    };
   }
 };
 
