@@ -349,13 +349,29 @@ export const GoodStockCore = {
       };
     });
 
+    const mList = stock.monthlyRevenues || [];
+    const monthlySeries = [];
+    for (let mOffset = 11; mOffset >= 0; mOffset--) {
+      const qOffset = Math.floor(mOffset / 3);
+      const win = this.scoreSixIndicatorsAtWindow(stock, qOffset, mOffset);
+      const mRec = mList[mList.length - 1 - mOffset];
+      let label = mRec?.month || mRec?.date || `M-${mOffset}`;
+      if (label.length >= 7) label = label.slice(0, 7);
+      monthlySeries.push({
+        label,
+        avgScore: win.avgScore,
+        byKey: win.byKey
+      });
+    }
+
     return {
       current,
       prevMonth,
       prevQuarter,
       deltaMoM,
       deltaQoQ,
-      itemComparisons
+      itemComparisons,
+      monthlySeries
     };
   },
 
@@ -680,6 +696,7 @@ export const GoodStockCore = {
 
     if (mode === 'six_indicators') {
       const minAvg = toNum(filters.minAvgScore, 0);
+      const maxAvg = filters.maxAvgScore !== undefined && filters.maxAvgScore !== '' ? toNum(filters.maxAvgScore, 4) : 4;
       const maxLandmines = filters.maxLandmines !== undefined && filters.maxLandmines !== '' ? toNum(filters.maxLandmines, 7) : 7;
       const minRev = toNum(filters.minRevScore, 0);
       const minOp = toNum(filters.minOpScore, 0);
@@ -694,7 +711,7 @@ export const GoodStockCore = {
       list = list.filter((s) => {
         const cur = s.sixEval.current;
         const byKey = cur.byKey;
-        if (cur.avgScore < minAvg) return false;
+        if (cur.avgScore < minAvg || cur.avgScore > maxAvg) return false;
         if (s.landmines.hitCount > maxLandmines) return false;
         if (byKey.revGrowth < minRev) return false;
         if (byKey.opMargin < minOp) return false;

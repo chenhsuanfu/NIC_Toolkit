@@ -12,6 +12,31 @@ const fmtDec = (n, d = 2) => toNum(n, 0).toLocaleString('zh-TW', { minimumFracti
 const accName = (a) => a['帳戶名'] || a['帳戶名稱'] || '';
 const accBal = (a) => toNum(a['目前餘額(自動)'] ?? a['原幣金額'], 0);
 
+const FIXED_SIM_KEY = 'nic_asset_fixed_sim_v1';
+const DEFAULT_FIXED_SIM = {
+  monthlyIncome: 89900,
+  items: [
+    { id: 'f1', group: '必要成本', name: '儲蓄', type: '', p1: 5000, p2: 5000, enabled: true },
+    { id: 'f2', group: '必要成本', name: '手機費', type: '通信', p1: 599, p2: 399, enabled: true },
+    { id: 'f3', group: '必要成本', name: '保險', type: '保險', p1: 2701, p2: 0, enabled: true },
+    { id: 'f4', group: '必要成本', name: '網路費', type: '通信', p1: 157, p2: 157, enabled: true },
+    { id: 'f5', group: '必要成本', name: '機油', type: '交通', p1: 400, p2: 0, enabled: true },
+    { id: 'f6', group: '必要成本', name: '機保養', type: '交通', p1: 300, p2: 0, enabled: true },
+    { id: 'f7', group: '必要成本', name: '車險_5203', type: '交通', p1: 2741, p2: 0, enabled: true },
+    { id: 'f8', group: '必要成本', name: '房貸', type: '房貸', p1: 11775, p2: 11775, enabled: true },
+    { id: 'f9', group: '必要成本', name: '信貸', type: '信貸', p1: 10012, p2: 10012, enabled: true },
+    { id: 'f10', group: '必要成本', name: '管理費', type: '房貸', p1: 1499, p2: 1499, enabled: true },
+    { id: 'f11', group: '必要成本', name: '水費', type: '水', p1: 168, p2: 0, enabled: true },
+    { id: 'f12', group: '必要成本', name: '電費', type: '電', p1: 648, p2: 0, enabled: true },
+    { id: 'f13', group: '必要成本', name: '房屋稅', type: '房貸', p1: 300, p2: 300, enabled: true },
+    { id: 'f14', group: '必要成本', name: 'TPASS', type: '交通', p1: 999, p2: 0, enabled: true },
+    { id: 'f15', group: '必要成本', name: '餐費', type: '餐費', p1: 18000, p2: 0, enabled: true },
+    { id: 'f16', group: '必要成本', name: '機車保管_大橋', type: '交通', p1: 400, p2: 0, enabled: true },
+    { id: 'f17', group: '可調成本', name: '一寸鮮_青花椰苗', type: '其他', p1: 1504, p2: 0, enabled: true },
+    { id: 'f18', group: '可調成本', name: '益生菌', type: '其他', p1: 0, p2: 0, enabled: true }
+  ]
+};
+
 export class AssetTrackerUI {
   constructor() {
     this.activeTab = 'accounts'; // accounts | analytics | salary | logs | debts
@@ -25,6 +50,7 @@ export class AssetTrackerUI {
     this.expenseAnalysisYear = '';
     this.efMode = 'fixed'; // fixed | expense | manual
     this.efManualMonthly = 60000;
+    this.fixedSim = this._loadFixedSim();
     try {
       const savedEf = JSON.parse(localStorage.getItem('nic_asset_ef_cfg_v1') || 'null');
       if (savedEf && ['fixed', 'expense', 'manual'].includes(savedEf.mode)) this.efMode = savedEf.mode;
@@ -168,6 +194,7 @@ export class AssetTrackerUI {
         <button class="sub-tab ${this.activeTab === 'monthly' ? 'active' : ''}" data-tab="monthly">每月收支</button>
         <button class="sub-tab ${this.activeTab === 'analytics' ? 'active' : ''}" data-tab="analytics">分析圖</button>
         <button class="sub-tab ${this.activeTab === 'fs_shared' ? 'active' : ''}" data-tab="fs_shared">FS共同資產</button>
+        <button class="sub-tab ${this.activeTab === 'fixed_sim' ? 'active' : ''}" data-tab="fixed_sim">固定開銷模擬</button>
         <button class="sub-tab ${this.activeTab === 'salary' ? 'active' : ''}" data-tab="salary">薪資 (N_薪資)</button>
         <button class="sub-tab ${this.activeTab === 'logs' ? 'active' : ''}" data-tab="logs">開銷與流水</button>
         <button class="sub-tab ${this.activeTab === 'debts' ? 'active' : ''}" data-tab="debts">負債</button>
@@ -177,6 +204,7 @@ export class AssetTrackerUI {
       ${this.activeTab === 'monthly' ? this._renderMonthlyTab(state) : ''}
       ${this.activeTab === 'analytics' ? this._renderAnalyticsTab(state) : ''}
       ${this.activeTab === 'fs_shared' ? this._renderFsSharedTab(state) : ''}
+      ${this.activeTab === 'fixed_sim' ? this._renderFixedSimTab() : ''}
       ${this.activeTab === 'salary' ? this._renderSalaryTab(state) : ''}
       ${this.activeTab === 'logs' ? this._renderLogsTab(state) : ''}
       ${this.activeTab === 'debts' ? this._renderDebtsTab(state) : ''}
@@ -773,6 +801,82 @@ export class AssetTrackerUI {
         this.render(container, store.getState(), store, showToast);
       });
     }
+
+    // Fixed Expense Simulator bindings
+    const simIncomeInp = container.querySelector('#input-sim-income');
+    if (simIncomeInp) {
+      simIncomeInp.addEventListener('change', () => {
+        this.fixedSim.monthlyIncome = Math.max(0, toNum(simIncomeInp.value, 0));
+        this._saveFixedSim();
+        this.render(container, store.getState(), store, showToast);
+      });
+    }
+    container.querySelectorAll('[data-sim-field]').forEach((el) => {
+      el.addEventListener('change', () => {
+        const id = el.getAttribute('data-sim-id');
+        const field = el.getAttribute('data-sim-field');
+        const item = this.fixedSim.items.find((x) => x.id === id);
+        if (!item) return;
+        if (field === 'enabled') item.enabled = el.checked;
+        else if (field === 'p1' || field === 'p2') item[field] = Math.max(0, toNum(el.value, 0));
+        else item[field] = el.value;
+        this._saveFixedSim();
+        this.render(container, store.getState(), store, showToast);
+      });
+    });
+    container.querySelectorAll('[data-sim-del]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-sim-del');
+        this.fixedSim.items = this.fixedSim.items.filter((x) => x.id !== id);
+        this._saveFixedSim();
+        this.render(container, store.getState(), store, showToast);
+      });
+    });
+    const simAddForm = container.querySelector('#form-sim-add');
+    if (simAddForm) {
+      simAddForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const fd = new FormData(simAddForm);
+        const name = String(fd.get('name') || '').trim();
+        if (!name) return;
+        this.fixedSim.items.push({
+          id: 'f_' + Date.now(),
+          group: String(fd.get('group') || '必要成本'),
+          name,
+          type: String(fd.get('type') || '其他').trim(),
+          p1: Math.max(0, toNum(fd.get('p1'), 0)),
+          p2: Math.max(0, toNum(fd.get('p2'), 0)),
+          enabled: true
+        });
+        this._saveFixedSim();
+        showToast(`✅ 已新增模擬項目「${name}」`);
+        this.render(container, store.getState(), store, showToast);
+      });
+    }
+    const simResetBtn = container.querySelector('#btn-sim-reset');
+    if (simResetBtn) {
+      simResetBtn.addEventListener('click', () => {
+        this.fixedSim = structuredClone(DEFAULT_FIXED_SIM);
+        this._saveFixedSim();
+        showToast('已重設為預設固定開銷模擬表');
+        this.render(container, store.getState(), store, showToast);
+      });
+    }
+    const simApplyEfBtn = container.querySelector('#btn-sim-apply-ef');
+    if (simApplyEfBtn) {
+      simApplyEfBtn.addEventListener('click', () => {
+        const total = this.fixedSim.items.filter((x) => x.enabled !== false).reduce((s, x) => s + toNum(x.p1, 0) + toNum(x.p2, 0), 0);
+        if (total > 0) {
+          this.efMode = 'manual';
+          this.efManualMonthly = Math.round(total);
+          try {
+            localStorage.setItem('nic_asset_ef_cfg_v1', JSON.stringify({ mode: this.efMode, manualMonthly: this.efManualMonthly }));
+          } catch (_) {}
+          showToast(`✅ 已將每月固定開銷 $${fmtInt(total)} 套用至緊急預備金基準！`);
+          this.render(container, store.getState(), store, showToast);
+        }
+      });
+    }
     const rerender = () => this.render(container, store.getState(), store, showToast);
     const on = (sel, ev, fn) => container.querySelectorAll(sel).forEach((el) => el.addEventListener(ev, (e) => fn(el, e)));
 
@@ -1075,6 +1179,114 @@ export class AssetTrackerUI {
             </tbody>
           </table>
         </div>
+      </div>
+    `;
+  }
+
+  // ---------------- Tab: 固定開銷模擬 ----------------
+  _loadFixedSim() {
+    try {
+      const raw = localStorage.getItem(FIXED_SIM_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.items)) return parsed;
+      }
+    } catch (_) {}
+    return structuredClone(DEFAULT_FIXED_SIM);
+  }
+
+  _saveFixedSim() {
+    try {
+      localStorage.setItem(FIXED_SIM_KEY, JSON.stringify(this.fixedSim));
+    } catch (_) {}
+  }
+
+  _renderFixedSimTab() {
+    const items = this.fixedSim.items || [];
+    const activeItems = items.filter((x) => x.enabled !== false);
+    const totalP1 = activeItems.reduce((s, x) => s + toNum(x.p1, 0), 0);
+    const totalP2 = activeItems.reduce((s, x) => s + toNum(x.p2, 0), 0);
+    const totalFixed = totalP1 + totalP2;
+    const income = toNum(this.fixedSim.monthlyIncome, 0);
+    const gap = income - totalFixed;
+
+    return `
+      <div class="grid-kpi" style="margin-bottom:14px;">
+        <div class="card">
+          <div class="kpi-label"><span>每月固定開銷</span></div>
+          <div class="kpi-value mask-amount">$${fmtInt(totalFixed)}</div>
+          <div class="kpi-sub mask-amount">炫甫 $${fmtInt(totalP1)} ｜ 垠宣 $${fmtInt(totalP2)}</div>
+        </div>
+        <div class="card">
+          <div class="kpi-label"><span>每月收入 (可編輯)</span></div>
+          <div style="display:flex; align-items:center; gap:6px; margin-top:4px;">
+            <span class="font-mono" style="font-weight:700;">$</span>
+            <input id="input-sim-income" class="form-control font-mono" type="number" step="500" value="${income}" style="font-size:17px; font-weight:700; padding:4px 8px;" />
+          </div>
+        </div>
+        <div class="card">
+          <div class="kpi-label"><span>GAP (收入 - 固定開銷)</span></div>
+          <div class="kpi-value mask-amount ${gap >= 0 ? 'text-emerald' : 'text-rose'}">${gap >= 0 ? '+' : ''}$${fmtInt(gap)}</div>
+          <div class="kpi-sub">${gap >= 0 ? '每月結餘空間' : '⚠️ 固定開銷超出月收入'}</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:14px;">
+        <div class="card-header" style="margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+          <div class="card-title">每月固定開銷模擬表（勾選與金額即時試算）</div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap;">
+            <button type="button" id="btn-sim-apply-ef" class="btn btn-primary btn-sm">套用至緊急預備金</button>
+            <button type="button" id="btn-sim-reset" class="btn btn-ghost btn-sm">重設預設值</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:36px;">啟用</th>
+                <th>屬性</th>
+                <th>項目</th>
+                <th>TYPE</th>
+                <th style="text-align:right;">炫甫</th>
+                <th style="text-align:right;">垠宣</th>
+                <th style="text-align:right;">花費</th>
+                <th style="width:42px;"></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${items.map((it) => {
+                const rowSum = toNum(it.p1, 0) + toNum(it.p2, 0);
+                const muted = it.enabled === false ? 'opacity:0.45;' : '';
+                return `
+                  <tr style="${muted}">
+                    <td><input type="checkbox" data-sim-id="${it.id}" data-sim-field="enabled" ${it.enabled !== false ? 'checked' : ''} /></td>
+                    <td><span class="pill" style="font-size:10.5px;">${it.group}</span></td>
+                    <td style="font-weight:600;">${it.name}</td>
+                    <td class="text-muted">${it.type || '-'}</td>
+                    <td style="text-align:right;"><input class="form-control font-mono" type="number" step="1" data-sim-id="${it.id}" data-sim-field="p1" value="${toNum(it.p1, 0)}" style="width:88px; text-align:right; padding:3px 6px; font-size:12.5px;" /></td>
+                    <td style="text-align:right;"><input class="form-control font-mono" type="number" step="1" data-sim-id="${it.id}" data-sim-field="p2" value="${toNum(it.p2, 0)}" style="width:88px; text-align:right; padding:3px 6px; font-size:12.5px;" /></td>
+                    <td class="font-mono mask-amount" style="text-align:right; font-weight:700;">$${fmtInt(rowSum)}</td>
+                    <td><button type="button" class="btn btn-ghost btn-sm" data-sim-del="${it.id}" title="刪除" style="padding:2px 6px;">✕</button></td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+
+        <form id="form-sim-add" style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border); display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end;">
+          <div><label class="form-label" style="font-size:11px;">屬性</label>
+            <select class="form-control" name="group" style="padding:5px 8px; font-size:12px;"><option value="必要成本">必要成本</option><option value="可調成本">可調成本</option></select></div>
+          <div><label class="form-label" style="font-size:11px;">項目</label>
+            <input class="form-control" name="name" placeholder="例如 健身房" required style="width:120px; padding:5px 8px; font-size:12px;" /></div>
+          <div><label class="form-label" style="font-size:11px;">TYPE</label>
+            <input class="form-control" name="type" placeholder="其他" style="width:80px; padding:5px 8px; font-size:12px;" /></div>
+          <div><label class="form-label" style="font-size:11px;">炫甫</label>
+            <input class="form-control font-mono" name="p1" type="number" value="0" style="width:88px; padding:5px 8px; font-size:12px;" /></div>
+          <div><label class="form-label" style="font-size:11px;">垠宣</label>
+            <input class="form-control font-mono" name="p2" type="number" value="0" style="width:88px; padding:5px 8px; font-size:12px;" /></div>
+          <button type="submit" class="btn btn-primary btn-sm">＋ 新增項目</button>
+        </form>
       </div>
     `;
   }

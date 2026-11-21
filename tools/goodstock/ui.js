@@ -314,13 +314,12 @@ export class GoodStockUI {
                 </select>
               </div>
               <div class="form-group">
-                <label class="form-label">當期總平均分門檻 (0~4)</label>
-                <select class="form-select" id="six-min-avg">
-                  <option value="0" ${Number(f.minAvgScore) === 0 ? 'selected' : ''}>不限 (0.0+)</option>
-                  <option value="2.5" ${Number(f.minAvgScore) === 2.5 ? 'selected' : ''}>≥ 2.5 分 (BB 以上)</option>
-                  <option value="3.0" ${Number(f.minAvgScore) === 3.0 ? 'selected' : ''}>≥ 3.0 分 (A 以上)</option>
-                  <option value="3.5" ${Number(f.minAvgScore) === 3.5 ? 'selected' : ''}>≥ 3.5 分 (AA 績優)</option>
-                </select>
+                <label class="form-label">當期平均分區間 (0.0 ~ 4.0)</label>
+                <div style="display:flex; align-items:center; gap:6px;">
+                  <input class="form-control font-mono" id="six-min-avg" type="number" step="0.1" min="0" max="4" value="${f.minAvgScore ?? 0}" style="width:76px; padding:6px 8px;" />
+                  <span class="text-muted">~</span>
+                  <input class="form-control font-mono" id="six-max-avg" type="number" step="0.1" min="0" max="4" value="${f.maxAvgScore ?? 4}" style="width:76px; padding:6px 8px;" />
+                </div>
               </div>
               <div class="form-group">
                 <label class="form-label">財務地雷上限 (共7項)</label>
@@ -942,6 +941,7 @@ export class GoodStockUI {
               </tbody>
             </table>
           </div>
+          ${this._renderSixHistoryCharts(sixEval.monthlySeries || [])}
         ` : ''}
 
         ${this.healthTab === 'six' ? `
@@ -1004,6 +1004,7 @@ export class GoodStockUI {
               </tbody>
             </table>
           </div>
+          ${this._renderSixHistoryCharts(sixEval.monthlySeries || [])}
         ` : ''}
 
         ${this.healthTab === 'growth' ? `
@@ -1033,6 +1034,7 @@ export class GoodStockUI {
               </tbody>
             </table>
           </div>
+          ${this._renderSixHistoryCharts(sixEval.monthlySeries || [])}
         ` : ''}
       </div>
     `;
@@ -1672,6 +1674,7 @@ export class GoodStockUI {
     bindSelect('six-scope', this.sixFilters, 'scope');
     bindSelect('six-industry', this.sixFilters, 'industry');
     bindSelect('six-min-avg', this.sixFilters, 'minAvgScore');
+    bindSelect('six-max-avg', this.sixFilters, 'maxAvgScore');
     bindSelect('six-max-landmines', this.sixFilters, 'maxLandmines');
     bindSelect('six-mom-mode', this.sixFilters, 'momDeltaMode');
     bindSelect('six-qoq-mode', this.sixFilters, 'qoqDeltaMode');
@@ -1876,5 +1879,117 @@ export class GoodStockUI {
         rerender();
       });
     }
+  }
+
+  _renderSixHistoryCharts(series) {
+    if (!Array.isArray(series) || series.length === 0) return '';
+    const W = 720;
+    const H1 = 210;
+    const L = 42, R = 14, T = 16, B = 32;
+    const pw = W - L - R;
+    const ph = H1 - T - B;
+    const n = series.length;
+    const step = pw / n;
+    const barW = Math.max(12, step * 0.68);
+    const scoreColor = (v) => {
+      if (v === null || v === undefined || !isFinite(v)) return 'transparent';
+      if (v >= 3.8) return '#dc143c';
+      if (v >= 2.8) return '#f59e0b';
+      if (v >= 1.8) return '#facc15';
+      if (v >= 0.8) return '#22c55e';
+      return '#64748b';
+    };
+
+    const avgSvg = `
+      <svg viewBox="0 0 ${W} ${H1}" style="width:100%; height:auto; display:block;">
+        ${[0, 1, 2, 3, 4].map((tick) => {
+          const y = T + ph - (tick / 4) * ph;
+          return `
+            <line x1="${L}" y1="${y.toFixed(1)}" x2="${W - R}" y2="${y.toFixed(1)}" stroke="${tick === 3 ? '#dc143c' : 'var(--border)'}" stroke-dasharray="${tick === 3 ? '4 3' : ''}" stroke-width="${tick === 3 ? '1.2' : '1'}" opacity="${tick === 3 ? '0.65' : '0.5'}" />
+            <text x="${L - 6}" y="${(y + 4).toFixed(1)}" text-anchor="end" fill="var(--text-muted)" font-size="10">${tick.toFixed(1)}</text>
+          `;
+        }).join('')}
+        ${series.map((pt, i) => {
+          const val = Math.max(0, Math.min(4, Number(pt.avgScore) || 0));
+          const bh = (val / 4) * ph;
+          const x = L + i * step + (step - barW) / 2;
+          const y = T + ph - bh;
+          const fill = val >= 3.0 ? '#dc143c' : '#22c55e';
+          return `
+            <rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" rx="3" fill="${fill}">
+              <title>${pt.label}：平均 ${val.toFixed(2)} 分</title>
+            </rect>
+            <text x="${(x + barW / 2).toFixed(1)}" y="${(y - 4).toFixed(1)}" text-anchor="middle" fill="var(--text-main)" font-size="9.5" font-weight="600">${val.toFixed(1)}</text>
+            <text x="${(x + barW / 2).toFixed(1)}" y="${H1 - 10}" text-anchor="middle" fill="var(--text-muted)" font-size="9">${pt.label.slice(2)}</text>
+          `;
+        }).join('')}
+      </svg>
+    `;
+
+    const subMetrics = [
+      { key: 'revGrowth', label: '營收' },
+      { key: 'opMargin', label: '營業利益' },
+      { key: 'profitGrowth', label: '稅後淨利' },
+      { key: 'eps', label: 'EPS' },
+      { key: 'invTurnover', label: '存貨周轉率' },
+      { key: 'fcf', label: '自由現金' }
+    ];
+
+    const rowH = 56;
+    const H2 = subMetrics.length * rowH + 26;
+    const L2 = 68;
+    const pw2 = W - L2 - R;
+    const step2 = pw2 / n;
+    const barW2 = Math.max(12, step2 * 0.68);
+
+    const subSvg = `
+      <svg viewBox="0 0 ${W} ${H2}" style="width:100%; height:auto; display:block;">
+        ${subMetrics.map((m, rIdx) => {
+          const top = rIdx * rowH + 8;
+          const innerH = rowH - 14;
+          const baseLine = top + innerH;
+          return `
+            <rect x="${L2}" y="${top}" width="${pw2}" height="${innerH}" fill="none" stroke="var(--border)" stroke-width="1" opacity="0.6" />
+            <text x="${L2 - 8}" y="${(top + innerH / 2 + 4).toFixed(1)}" text-anchor="end" fill="var(--text-main)" font-size="10.5" font-weight="600">${m.label}</text>
+            ${series.map((pt, i) => {
+              const raw = pt.byKey ? pt.byKey[m.key] : null;
+              if (raw === null || raw === undefined || !isFinite(raw)) return '';
+              const val = Math.max(0, Math.min(4, Number(raw)));
+              const bh = (val / 4) * (innerH - 4);
+              const x = L2 + i * step2 + (step2 - barW2) / 2;
+              const y = baseLine - bh;
+              return `
+                <rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW2.toFixed(1)}" height="${bh.toFixed(1)}" rx="2" fill="${scoreColor(val)}">
+                  <title>${pt.label} ${m.label}：${val} 分</title>
+                </rect>
+              `;
+            }).join('')}
+          `;
+        }).join('')}
+        ${series.map((pt, i) => {
+          const x = L2 + i * step2 + step2 / 2;
+          return `<text x="${x.toFixed(1)}" y="${H2 - 6}" text-anchor="middle" fill="var(--text-muted)" font-size="9">${pt.label.slice(2)}</text>`;
+        }).join('')}
+      </svg>
+    `;
+
+    return `
+      <div style="margin-top:16px; display:flex; flex-direction:column; gap:14px;">
+        <div style="padding:12px; border-radius:10px; border:1px solid var(--border); background:var(--bg-elevated, rgba(255,255,255,0.02));">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
+            <span style="font-size:13px; font-weight:700;">近 12 個月六大指標平均分走勢 (≥ 3.0 紅柱轉強)</span>
+            <span class="text-muted" style="font-size:11px;">紅 ≥ 3.0 ｜ 綠 &lt; 3.0</span>
+          </div>
+          ${avgSvg}
+        </div>
+        <div style="padding:12px; border-radius:10px; border:1px solid var(--border); background:var(--bg-elevated, rgba(255,255,255,0.02));">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
+            <span style="font-size:13px; font-weight:700;">六大指標分項 12 個月評分細覽 (0 ~ 4 分)</span>
+            <span class="text-muted" style="font-size:11px;">4分紅 ｜ 3分橘 ｜ 2分黃 ｜ 1分綠</span>
+          </div>
+          ${subSvg}
+        </div>
+      </div>
+    `;
   }
 }
