@@ -192,3 +192,31 @@ test('GAS updateStockPrices_ batch-writes 行情 and 總攬 without touching for
   // Verify NVDA: mktUsd = 1500, mktTwd = 48000, unrealUsd = 500, unrealTwd = 16000, roi = 0.5
   assert.deepEqual(usRow, [1500, 48000, 500, 16000, 0.5]);
 });
+
+test('GAS doPost fetchMarketFactors parses Yahoo Finance SOX and VIX series', () => {
+  const { ctx } = loadGasContext({
+    UrlFetchApp: {
+      fetch: (url) => ({
+        getResponseCode: () => 200,
+        getContentText: () => JSON.stringify({
+          chart: {
+            result: [{
+              timestamp: [1795046400, 1795132800],
+              indicators: { quote: [{ close: url.includes('SOX') ? [9500.123, 9419.72] : [25.4, 28.44] }] }
+            }]
+          }
+        })
+      })
+    }
+  });
+
+  const res = JSON.parse(ctx.doPost({
+    postData: { contents: JSON.stringify({ action: 'fetchMarketFactors', token: 'TEST_SECRET_TOKEN', range: '3mo' }) }
+  })._text);
+
+  assert.equal(res.ok, true);
+  assert.equal(res.data.sox.length, 2);
+  assert.equal(res.data.vix.length, 2);
+  assert.equal(res.data.sox[1].close, 9419.72);
+  assert.equal(res.data.vix[1].close, 28.44);
+});

@@ -272,6 +272,29 @@
               <span id="hero-s5-state" class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700">正常</span>
             </div>
             <div id="hero-s5-metric" class="text-[10.5px] font-mono text-slate-600 leading-snug tabular-nums">--</div>
+            <div class="flex items-center gap-1.5 mt-1.5 pt-1.5 border-t border-slate-200/70">
+              <button id="btn-refresh-sox-vix" type="button"
+                class="px-2 py-0.5 rounded-md bg-white border border-slate-300 hover:bg-blue-50 hover:border-blue-400 text-[10px] font-bold text-slate-700 transition cursor-pointer"
+                title="透過 GAS 代理向 Yahoo Finance 抓取最新 ^SOX 與 ^VIX">
+                🔄 更新
+              </button>
+              <button id="btn-toggle-manual-sox" type="button"
+                class="px-2 py-0.5 rounded-md bg-white border border-slate-300 hover:bg-slate-100 text-[10px] font-bold text-slate-600 transition cursor-pointer"
+                title="手動輸入最新一日 SOX 與 VIX 並重算">
+                ✎ 手動
+              </button>
+              <span id="sox-vix-status" class="text-[9.5px] text-slate-500 truncate"></span>
+            </div>
+            <div id="manual-sox-box" class="hidden mt-1.5 pt-1.5 border-t border-slate-200/70 flex flex-wrap items-center gap-1.5">
+              <input id="input-manual-sox" type="number" step="0.01" placeholder="SOX"
+                class="w-20 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[11px] font-mono text-slate-800" />
+              <input id="input-manual-vix" type="number" step="0.01" placeholder="VIX"
+                class="w-16 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[11px] font-mono text-slate-800" />
+              <button id="btn-apply-manual-sox" type="button"
+                class="px-2 py-0.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold cursor-pointer">
+                套用
+              </button>
+            </div>
           </div>
         </div>
 
@@ -3652,6 +3675,117 @@ if __name__ == "__main__":
 
         document.getElementById('btn-export-actions-csv').addEventListener('click', exportActionsCSV);
         document.getElementById('btn-run-grid').addEventListener('click', runGridSearch);
+        // 手動更新因子 5 (GAS 代理抓 Yahoo Finance ^SOX / ^VIX + 手動覆寫備援)
+        const persistRadarRawData = () => {
+          try {
+            const prev = JSON.parse(localStorage.getItem('nic_twse_radar_v1') || '{}');
+            localStorage.setItem('nic_twse_radar_v1', JSON.stringify({
+              ...prev,
+              version: 'v4',
+              params: state.params,
+              dataMeta: state.dataMeta,
+              rawData: state.rawData
+            }));
+          } catch (_) {}
+        };
+
+        const shiftDateStr = (dateStr, days) => {
+          const d = new Date(dateStr + 'T00:00:00Z');
+          d.setUTCDate(d.getUTCDate() + days);
+          return d.toISOString().slice(0, 10);
+        };
+
+        const btnRefreshSoxVix = document.getElementById('btn-refresh-sox-vix');
+        const soxStatusEl = document.getElementById('sox-vix-status');
+        if (btnRefreshSoxVix) {
+          btnRefreshSoxVix.addEventListener('click', async () => {
+            let cfg = null;
+            try { cfg = JSON.parse(localStorage.getItem('nic_toolkit_config_v1') || 'null'); } catch (_) {}
+            if (!cfg || !cfg.gasUrl || !cfg.apiToken) {
+              if (soxStatusEl) soxStatusEl.textContent = '請先設定 GAS 網址與 Token';
+              return;
+            }
+            btnRefreshSoxVix.disabled = true;
+            btnRefreshSoxVix.textContent = '⏳ 抓取中...';
+            if (soxStatusEl) soxStatusEl.textContent = '';
+            try {
+              const resp = await fetch(cfg.gasUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify({ action: 'fetchMarketFactors', token: cfg.apiToken, range: '3mo' })
+              });
+              const json = await resp.json();
+              if (!json || !json.ok || !json.data) {
+                throw new Error(json?.error || 'GAS 尚未支援 fetchMarketFactors，請更新 GAS 部署');
+              }
+              const soxSeries = (json.data.sox || []).map((x) => ({ date: shiftDateStr(x.date, 1), close: Number(x.close) })).sort((a, b) => a.date.localeCompare(b.date));
+              const vixSeries = (json.data.vix || []).map((x) => ({ date: shiftDateStr(x.date, 1), close: Number(x.close) })).sort((a, b) => a.date.localeCompare(b.date));
+              const asofLookup = (series, targetDate) => {
+                let hit = null;
+                for (let k = 0; k < series.length; k++) {
+                  if (series[k].date <= targetDate) hit = series[k].close;
+                  else break;
+                }
+                return hit;
+              };
+              let updatedRows = 0;
+              const minDate = soxSeries.length ? soxSeries[0].date : '';
+              for (let i = 0; i < state.rawData.length; i++) {
+                const row = state.rawData[i];
+                if (!row.Date || (minDate && row.Date < minDate)) continue;
+                const sVal = asofLookup(soxSeries, row.Date);
+                const vVal = asofLookup(vixSeries, row.Date);
+                if (sVal !== null) row.SOX_Close = sVal;
+                if (vVal !== null) row.VIX = vVal;
+                if (sVal !== null || vVal !== null) updatedRows++;
+              }
+              if (state.rawData.length && soxSeries.length) {
+                const lastRow = state.rawData[state.rawData.length - 1];
+                lastRow.SOX_Close = soxSeries[soxSeries.length - 1].close;
+                if (vixSeries.length) lastRow.VIX = vixSeries[vixSeries.length - 1].close;
+              }
+              persistRadarRawData();
+              refreshAll();
+              if (soxStatusEl) soxStatusEl.textContent = `已更新 (${updatedRows}日)`;
+            } catch (err) {
+              if (soxStatusEl) soxStatusEl.textContent = err?.message || '更新失敗';
+            } finally {
+              btnRefreshSoxVix.disabled = false;
+              btnRefreshSoxVix.textContent = '🔄 更新';
+            }
+          });
+        }
+
+        const btnToggleManualSox = document.getElementById('btn-toggle-manual-sox');
+        const manualSoxBox = document.getElementById('manual-sox-box');
+        const inputManualSox = document.getElementById('input-manual-sox');
+        const inputManualVix = document.getElementById('input-manual-vix');
+        const btnApplyManualSox = document.getElementById('btn-apply-manual-sox');
+        if (btnToggleManualSox && manualSoxBox) {
+          btnToggleManualSox.addEventListener('click', () => {
+            manualSoxBox.classList.toggle('hidden');
+            if (!manualSoxBox.classList.contains('hidden') && state.rawData.length) {
+              const last = state.rawData[state.rawData.length - 1];
+              if (inputManualSox && isFinite(last.SOX_Close)) inputManualSox.value = last.SOX_Close;
+              if (inputManualVix && isFinite(last.VIX)) inputManualVix.value = last.VIX;
+            }
+          });
+        }
+        if (btnApplyManualSox) {
+          btnApplyManualSox.addEventListener('click', () => {
+            if (!state.rawData.length) return;
+            const last = state.rawData[state.rawData.length - 1];
+            const sVal = parseFloat(inputManualSox?.value);
+            const vVal = parseFloat(inputManualVix?.value);
+            if (isFinite(sVal) && sVal > 0) last.SOX_Close = Number(sVal.toFixed(2));
+            if (isFinite(vVal) && vVal > 0) last.VIX = Number(vVal.toFixed(2));
+            persistRadarRawData();
+            refreshAll();
+            if (manualSoxBox) manualSoxBox.classList.add('hidden');
+            if (soxStatusEl) soxStatusEl.textContent = '已手動套用';
+          });
+        }
+
         window.addEventListener('resize', resizeActiveCharts);
       }
 

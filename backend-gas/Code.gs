@@ -163,6 +163,20 @@ function doPost(e) {
       return jsonResponse_({ ok: true, fromCache: false, cached: cachedOk, data: snapshot });
     }
 
+    if (body.action === 'fetchMarketFactors') {
+      const range = String(body.range || '3mo');
+      const sox = fetchYahooChartSeries_('^SOX', range);
+      const vix = fetchYahooChartSeries_('^VIX', range);
+      return jsonResponse_({
+        ok: true,
+        data: {
+          sox: sox,
+          vix: vix,
+          fetchedAt: new Date().toISOString()
+        }
+      });
+    }
+
     if (body.action !== 'batchMutate' || !Array.isArray(body.mutations)) {
       throw new Error('Invalid action or mutations array');
     }
@@ -465,4 +479,35 @@ function updateStockPrices_(stockSS, payload) {
       ovSheet.getRange(2, 10, oNumRows, 5).setValues(oColJN); // J..N
     }
   }
+}
+
+/**
+ * Fetch daily close series from Yahoo Finance Chart API (server-side, no CORS issues)
+ */
+function fetchYahooChartSeries_(symbol, range) {
+  const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' +
+    encodeURIComponent(symbol) + '?range=' + encodeURIComponent(range || '3mo') + '&interval=1d';
+  const resp = UrlFetchApp.fetch(url, {
+    muteHttpExceptions: true,
+    headers: { 'User-Agent': 'Mozilla/5.0' }
+  });
+  if (resp.getResponseCode() !== 200) {
+    throw new Error('Yahoo Finance 回應錯誤 (' + symbol + ': HTTP ' + resp.getResponseCode() + ')');
+  }
+  const json = JSON.parse(resp.getContentText());
+  const result = json && json.chart && json.chart.result && json.chart.result[0];
+  if (!result || !Array.isArray(result.timestamp)) return [];
+  const timestamps = result.timestamp;
+  const closes = (result.indicators && result.indicators.quote && result.indicators.quote[0] && result.indicators.quote[0].close) || [];
+  const out = [];
+  for (var i = 0; i < timestamps.length; i++) {
+    var c = Number(closes[i]);
+    if (!isFinite(c) || c <= 0) continue;
+    var d = new Date(timestamps[i] * 1000);
+    var yyyy = d.getUTCFullYear();
+    var mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    var dd = String(d.getUTCDate()).padStart(2, '0');
+    out.push({ date: yyyy + '-' + mm + '-' + dd, close: Number(c.toFixed(2)) });
+  }
+  return out;
 }
