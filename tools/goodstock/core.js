@@ -36,6 +36,62 @@ export const GoodStockCore = {
   },
 
   /**
+   * 台灣法定月營收 (每月10日前) 與季報 (3/31, 5/15, 8/14, 11/14) 公布提醒
+   */
+  getDisclosureReminder(stock, now = new Date()) {
+    const y = now.getFullYear();
+    const m = now.getMonth() + 1;
+    const d = now.getDate();
+
+    // 1. Monthly Revenue (due 10th of each month for previous month)
+    const mList = stock?.monthlyRevenues || [];
+    const lastRev = mList.length ? mList[mList.length - 1] : null;
+    const latestRevYm = lastRev ? String(lastRev.ym || lastRev.month || '').slice(0, 7) : '';
+
+    const prevM1 = m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
+    const nextRevDate = d <= 10 ? new Date(y, m - 1, 10) : new Date(y, m, 10);
+    const revDaysLeft = Math.max(0, Math.ceil((nextRevDate - now) / 86400000));
+    const nextRevDeadline = `${nextRevDate.getFullYear()}/${String(nextRevDate.getMonth() + 1).padStart(2, '0')}/10`;
+    const revNeedsUpdate = d >= 11 && (!latestRevYm || latestRevYm < prevM1);
+
+    // 2. Quarterly Financials (Q4: 3/31, Q1: 5/15, Q2: 8/14, Q3: 11/14)
+    const qList = stock?.quarters || [];
+    const latestQ = qList.length ? String(qList[qList.length - 1].q || '') : '';
+    const schedule = [
+      { q: `${y - 1}Q4`, due: new Date(y, 2, 31), label: `${y}/03/31` },
+      { q: `${y}Q1`, due: new Date(y, 4, 15), label: `${y}/05/15` },
+      { q: `${y}Q2`, due: new Date(y, 7, 14), label: `${y}/08/14` },
+      { q: `${y}Q3`, due: new Date(y, 10, 14), label: `${y}/11/14` },
+      { q: `${y}Q4`, due: new Date(y + 1, 2, 31), label: `${y + 1}/03/31` }
+    ];
+    let expectedQ = `${y - 1}Q3`;
+    let nextSchedule = schedule[0];
+    for (const s of schedule) {
+      if (now > s.due) {
+        expectedQ = s.q;
+      } else {
+        nextSchedule = s;
+        break;
+      }
+    }
+    const qDaysLeft = Math.max(0, Math.ceil((nextSchedule.due - now) / 86400000));
+    const qNeedsUpdate = !latestQ || latestQ < expectedQ;
+
+    return {
+      latestRevYm: latestRevYm || '尚無',
+      nextRevDeadline,
+      revDaysLeft,
+      revNeedsUpdate,
+      latestQ: latestQ || '尚無',
+      expectedQ,
+      nextQ: nextSchedule.q,
+      nextQDeadline: nextSchedule.label,
+      qDaysLeft,
+      qNeedsUpdate
+    };
+  },
+
+  /**
    * Retrieve all enriched stock objects (cross-referenced with user's holdings & watchlist in state)
    */
   getEnrichedUniverse(state) {

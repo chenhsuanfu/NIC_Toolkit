@@ -266,14 +266,32 @@ def main():
     except Exception:
         pass
 
-    # 2. Incremental FinMind 8-quarter financial backfill (up to BATCH_SIZE=100 stocks/day)
+    # 1b. Fetch paid-in capital (實收資本額) to compute Market Cap (億元) for large-cap-first sorting
+    for cap_url in (
+        "https://openapi.twse.com.tw/v1/opendata/t187ap03_L",
+        "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O"
+    ):
+        try:
+            for r in fetch_json(cap_url):
+                code = str(r.get("公司代號", "")).strip()
+                if code not in stocks_map:
+                    continue
+                cap = to_float(r.get("實收資本額"), 0) or 0
+                price = stocks_map[code].get("price", 0) or 0
+                if cap > 0 and price > 0:
+                    # 股數 = 實收資本額 / 10 (面額10元)；市值(億) = 股數 * 股價 / 1e8
+                    stocks_map[code]["marketCap"] = round((cap / 10.0) * price / 1e8, 2)
+        except Exception:
+            pass
+
+    # 2. Incremental FinMind 8-quarter financial backfill (up to BATCH_SIZE=100 stocks/day, largest market cap first)
     today_str = datetime.now().strftime("%Y-%m-%d")
     start_q = (datetime.now() - timedelta(days=365 * 3)).strftime("%Y-%m-%d")
     start_m = (datetime.now() - timedelta(days=365 * 2 + 90)).strftime("%Y-%m-01")
 
     candidates = sorted(
         stocks_map.values(),
-        key=lambda s: (s.get("finSyncedAt") or "", s["code"])
+        key=lambda s: (s.get("finSyncedAt") or "", -(s.get("marketCap") or 0), s["code"])
     )[:BATCH_SIZE]
 
     synced_now = 0

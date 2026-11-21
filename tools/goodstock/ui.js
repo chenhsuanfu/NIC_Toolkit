@@ -845,6 +845,7 @@ export class GoodStockUI {
 
     const landmines = stock.landmines;
     const sixEval = stock.sixEval;
+    const disc = GoodStockCore.getDisclosureReminder(stock);
     const growth = GoodStockCore.computeGrowthAnalysis(stock);
     const horizon = this.infoSection === 'target3y' ? 3 : 1;
     const targetData = GoodStockCore.estimateTargetPrices(stock, {
@@ -870,6 +871,15 @@ export class GoodStockUI {
               </button>
             `).join('')}
           </div>
+        </div>
+
+        <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:10px; padding:8px 10px; border-radius:8px; background:var(--bg-elevated, rgba(255,255,255,0.03)); font-size:12px;">
+          <span class="pill ${disc.revNeedsUpdate ? 'pill-rose' : ''}">
+            📅 營收：已收錄 ${disc.latestRevYm} ${disc.revNeedsUpdate ? '· 🔔 新營收可更新' : `· 下次公布 ${disc.nextRevDeadline} (剩 ${disc.revDaysLeft} 天)`}
+          </span>
+          <span class="pill ${disc.qNeedsUpdate ? 'pill-rose' : ''}">
+            📊 季報：已收錄 ${disc.latestQ} ${disc.qNeedsUpdate ? `· 🔔 ${disc.expectedQ} 待更新` : `· 下季 ${disc.nextQ} ${disc.nextQDeadline} 前 (剩 ${disc.qDaysLeft} 天)`}
+          </span>
         </div>
 
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-top:12px; padding-top:12px; border-top:1px solid var(--border-color);">
