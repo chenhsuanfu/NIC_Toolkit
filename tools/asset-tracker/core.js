@@ -886,12 +886,156 @@ export const AssetCore = {
         monthCount: months.length
       }
     };
+  },
+
+  /**
+   * 10. FS 共同資產 (Filter log_V2 where 標籤 === 'FS')
+   */
+  getFsSharedAssets(state) {
+    const logs = Array.isArray(state?.asset?.recentLogs) ? state.asset.recentLogs : [];
+    const opts = this.getConfigOptions(state);
+    const usdRate = opts.fxMap.USD || 32.5;
+    let totalTwd = 0;
+    let totalUsd = 0;
+    const items = [];
+
+    for (const r of logs) {
+      const tag = String(r['標籤'] || '').trim().toUpperCase();
+      if (tag !== 'FS') continue;
+      const cur = String(r['幣別'] || 'TWD').trim().toUpperCase();
+      const nature = String(r['性質'] || '').trim();
+      const rawAmt = toNum(r['金額'], 0);
+      const signedAmt = nature === '支出' ? -Math.abs(rawAmt) : Math.abs(rawAmt);
+      if (cur === 'USD') totalUsd += signedAmt;
+      else totalTwd += signedAmt;
+
+      const twdAmount = cur === 'USD' ? Math.round(signedAmt * usdRate) : Math.round(signedAmt);
+      items.push({
+        date: String(r['日期'] || '').slice(0, 10),
+        nature,
+        category: String(r['類別'] || '定存'),
+        account: String(r['帳戶'] || ''),
+        note: String(r['備註'] || ''),
+        currency: cur,
+        amount: signedAmt,
+        twdAmount
+      });
+    }
+
+    items.sort((a, b) => b.date.localeCompare(a.date));
+    const totalCombinedTwd = Math.round(totalTwd + totalUsd * usdRate);
+    return {
+      totalTwd: Math.round(totalTwd),
+      totalUsd: Number(totalUsd.toFixed(2)),
+      totalCombinedTwd,
+      count: items.length,
+      items
+    };
+  },
+
+  /**
+   * 11. 緊急預備金月數 (保障資金 ÷ 月支出 / 固定開銷 / 手動填入)
+   */
+  getEmergencyFundMetrics(state, { mode = 'fixed', manualMonthly = 0 } = {}) {
+    const sum = this.getSummary(state);
+    const protectionTwd = sum.protectionTwd || 0;
+    const nowYm = new Date().toISOString().slice(0, 7);
+
+    let monthlyBase = 0;
+    let sampleMonthCount = 0;
+
+    if (mode === 'manual') {
+      monthlyBase = Math.max(0, toNum(manualMonthly, 0));
+      sampleMonthCount = 12;
+    } else if (mode === 'expense') {
+      const cf = this.getMonthlyCashflow(state, { year: 'ALL' });
+      const complete = (cf.months || [])
+        .filter((m) => m.month < nowYm && m.expense > 0)
+        .slice(0, 12);
+      sampleMonthCount = complete.length;
+      if (complete.length > 0) {
+        monthlyBase = complete.reduce((s, m) => s + m.expense, 0) / complete.length;
+      }
+    } else {
+      // 'fixed': 完整月「固定開銷」平均 (最多取近 12 個完整月)
+      const expenses = Array.isArray(state?.asset?.recentExpenses) ? state.asset.recentExpenses : [];
+      const fixedByMonth = new Map();
+      for (const e of expenses) {
+        if (String(e['固定變動'] || '').trim() !== '固定') continue;
+        const ym = String(e['日期'] || '').trim().replace(/\//g, '-').slice(0, 7);
+        if (!/^\d{4}-\d{2}$/.test(ym) || ym >= nowYm) continue;
+        fixedByMonth.set(ym, (fixedByMonth.get(ym) || 0) + Math.abs(toNum(e['金額'], 0)));
+      }
+      const completeMonths = Array.from(fixedByMonth.entries())
+        .sort((a, b) => b[0].localeCompare(a[0]))
+        .slice(0, 12);
+      sampleMonthCount = completeMonths.length;
+      if (completeMonths.length > 0) {
+        monthlyBase = completeMonths.reduce((s, [, v]) => s + v, 0) / completeMonths.length;
+      }
+    }
+
+    const months = monthlyBase > 0 ? Number((protectionTwd / monthlyBase).toFixed(1)) : 0;
+    const isPartialYear = mode !== 'manual' && sampleMonthCount > 0 && sampleMonthCount < 12;
+
+    return {
+      protectionTwd,
+      mode,
+      monthlyBase: Math.round(monthlyBase),
+      months,
+      sampleMonthCount,
+      isPartialYear
+    };
+  },
+
+  /**
+   * 12. 本月儲蓄 (當月 收入 - 支出)
+   */
+  getCurrentMonthSavings(state) {
+    const cf = this.getMonthlyCashflow(state, { year: 'ALL' });
+    const nowYm = new Date().toISOString().slice(0, 7);
+    const cur = (cf.months || []).find((m) => m.month === nowYm) || (cf.months || [])[0];
+    return cur ? { month: cur.month, net: cur.net, income: cur.income, expense: cur.expense } : { month: nowYm, net: 0, income: 0, expense: 0 };
+  },
+
+  /**
+   * 13. 記錄資產快照 (Append-Only to 『資產快照』)
+   */
+  recordAssetSnapshot(state, params = {}, storeInstance) {
+    const sum = this.getSummary(state);
+    const fsData = this.getFsSharedAssets(state);
+    const otherTwd = Math.max(0, sum.totalFinancialAssetsTwd - sum.liquidSavingsTwd - sum.protectionTwd - sum.twStockTwd - sum.usStockTwd);
+    const date = String(params.date || new Date().toISOString().slice(0, 10));
+    const note = String(params.note || 'NIC Toolkit 一鍵快照');
+
+    const record = {
+      '日期': date,
+      '資金總額': sum.totalFinancialAssetsTwd,
+      '不動產': sum.realEstateTwd,
+      '總資產(含不動產)': sum.grossAssetsWithRealEstateTwd,
+      '總負債': sum.totalDebtTwd,
+      '淨值': sum.netWorthTwd,
+      '流動資金': sum.liquidSavingsTwd,
+      '保障資金': sum.protectionTwd,
+      '國內股票': sum.twStockTwd,
+      '海外股票': sum.usStockTwd,
+      '其他': otherTwd,
+      'FS共同資產': fsData.totalCombinedTwd,
+      '備註': note
+    };
+
+    storeInstance.mutate('asset.appendSnapshot', record, (s) => {
+      if (!Array.isArray(s.asset.snapshots)) s.asset.snapshots = [];
+      s.asset.snapshots.push(record);
+    });
+
+    return record;
   }
 };
 
 // Register headless module for AI Agent & CLI usage
 agentBridge.registerModule('asset-tracker', {
-  description: '個人與家庭資產、銀行帳戶、收支流水、分析圖與 N_薪資模組 (對接 F&S Asset Report_V2 試算表)',
+  description: '個人與家庭資產、銀行帳戶、收支流水、分析圖、FS共同資產與 N_薪資模組 (對接 F&S Asset Report_V2 試算表)',
   actions: {
     getSummary: (state) => AssetCore.getSummary(state),
     getConfigOptions: (state) => AssetCore.getConfigOptions(state),
@@ -900,6 +1044,9 @@ agentBridge.registerModule('asset-tracker', {
     getSortedLogs: (state, params) => AssetCore.getSortedLogs(state, params),
     getSalaryData: (state, params) => AssetCore.getSalaryData(state, params),
     getMonthlyCashflow: (state, params) => AssetCore.getMonthlyCashflow(state, params || {}),
+    getFsSharedAssets: (state) => AssetCore.getFsSharedAssets(state),
+    getEmergencyFundMetrics: (state, params) => AssetCore.getEmergencyFundMetrics(state, params || {}),
+    recordAssetSnapshot: (state, params, store) => AssetCore.recordAssetSnapshot(state, params || {}, store),
     addExpense: (state, params, store) => AssetCore.addExpense(state, params, store),
     addLedgerLog: (state, params, store) => AssetCore.addLedgerLog(state, params, store),
     reconcileAccountBalance: (state, params, store) => AssetCore.reconcileAccountBalance(state, params, store),

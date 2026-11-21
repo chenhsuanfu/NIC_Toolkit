@@ -22,6 +22,13 @@ export class AssetTrackerUI {
     this.reconcilingKey = null; // `${name}|${currency}`
     this.salaryYearFilter = 'ALL';
     this.salaryTypeFilter = 'ALL';
+    this.efMode = 'fixed'; // fixed | expense | manual
+    this.efManualMonthly = 60000;
+    try {
+      const savedEf = JSON.parse(localStorage.getItem('nic_asset_ef_cfg_v1') || 'null');
+      if (savedEf && ['fixed', 'expense', 'manual'].includes(savedEf.mode)) this.efMode = savedEf.mode;
+      if (savedEf && Number(savedEf.manualMonthly) > 0) this.efManualMonthly = Number(savedEf.manualMonthly);
+    } catch (_) {}
     this.sortState = {
       accounts: { col: 'twd', dir: 'desc' },
       salary: { col: 'date', dir: 'desc' },
@@ -63,6 +70,10 @@ export class AssetTrackerUI {
       this.selectedMainCat = opts.expenseMainCategories[0] || '餐費';
     }
     const today = new Date().toISOString().slice(0, 10);
+    const fsData = AssetCore.getFsSharedAssets(state);
+    const ef = AssetCore.getEmergencyFundMetrics(state, { mode: this.efMode, manualMonthly: this.efManualMonthly });
+    const curSavings = AssetCore.getCurrentMonthSavings(state);
+    const otherTwd = Math.max(0, sum.totalFinancialAssetsTwd - sum.liquidSavingsTwd - sum.protectionTwd - sum.twStockTwd - sum.usStockTwd);
 
     container.innerHTML = `
       <div class="grid-kpi">
@@ -73,19 +84,68 @@ export class AssetTrackerUI {
           <div class="progress-track"><div class="progress-fill" style="width:${Math.min(100, sum.goalProgress * 100)}%;"></div></div>
         </div>
         <div class="card">
-          <div class="kpi-label"><span>流動儲蓄 + 保障資金</span></div>
-          <div class="kpi-value mask-amount">$${fmtInt(sum.liquidSavingsTwd + sum.protectionTwd)}</div>
-          <div class="kpi-sub mask-amount">儲蓄 $${fmtInt(sum.liquidSavingsTwd)} ｜ 保障 $${fmtInt(sum.protectionTwd)}</div>
-        </div>
-        <div class="card">
-          <div class="kpi-label"><span>台美股帳戶總額</span></div>
-          <div class="kpi-value mask-amount">$${fmtInt(sum.twStockTwd + sum.usStockTwd)}</div>
-          <div class="kpi-sub mask-amount">台股 $${fmtInt(sum.twStockTwd)} ｜ 海外 $${fmtInt(sum.usStockTwd)}</div>
-        </div>
-        <div class="card">
           <div class="kpi-label"><span>總淨值 (含不動產扣負債)</span></div>
           <div class="kpi-value mask-amount">$${fmtInt(sum.netWorthTwd)}</div>
           <div class="kpi-sub mask-amount">總資產 $${fmtInt(sum.grossAssetsWithRealEstateTwd)} ｜ 負債 $${fmtInt(sum.totalDebtTwd)}</div>
+        </div>
+        <div class="card">
+          <div class="kpi-label">
+            <span>緊急預備金 (保障資金)</span>
+            <span style="display:inline-flex; gap:4px;">
+              <button type="button" class="btn btn-sm ${this.efMode === 'fixed' ? 'btn-primary' : 'btn-ghost'}" data-ef-mode="fixed" style="padding:2px 6px; font-size:11px;">固定開銷</button>
+              <button type="button" class="btn btn-sm ${this.efMode === 'expense' ? 'btn-primary' : 'btn-ghost'}" data-ef-mode="expense" style="padding:2px 6px; font-size:11px;">月支出</button>
+              <button type="button" class="btn btn-sm ${this.efMode === 'manual' ? 'btn-primary' : 'btn-ghost'}" data-ef-mode="manual" style="padding:2px 6px; font-size:11px;">手動</button>
+            </span>
+          </div>
+          <div class="kpi-value">${ef.months > 0 ? `${ef.months} 個月${ef.isPartialYear ? ' *' : ''}` : '--'}</div>
+          ${this.efMode === 'manual' ? `
+            <div style="display:flex; align-items:center; gap:6px; margin-top:6px;">
+              <span class="text-muted" style="font-size:11.5px;">月基準 $</span>
+              <input id="input-ef-manual" class="form-control font-mono" type="number" step="1000" min="1" value="${this.efManualMonthly}" style="width:110px; padding:3px 6px; font-size:12px;" />
+              <button type="button" id="btn-ef-manual-apply" class="btn btn-primary btn-sm" style="padding:3px 8px; font-size:11px;">套用</button>
+            </div>
+          ` : `
+            <div class="kpi-sub mask-amount">保障 $${fmtInt(ef.protectionTwd)} ÷ 月均 $${fmtInt(ef.monthlyBase)} (${ef.sampleMonthCount} 個完整月)</div>
+          `}
+          ${ef.isPartialYear ? `<div style="margin-top:6px; font-size:11px; color:#f59e0b; line-height:1.4;">* 目前只採 ${ef.sampleMonthCount} 個完整月平均（未滿 12 個月），若年繳項目尚未計入，預備金月數可能偏樂觀。</div>` : ''}
+        </div>
+        <div class="card">
+          <div class="kpi-label"><span>本月儲蓄 (${curSavings.month})</span></div>
+          <div class="kpi-value mask-amount ${curSavings.net >= 0 ? 'text-emerald' : 'text-rose'}">${curSavings.net >= 0 ? '+' : ''}${fmtInt(curSavings.net)}</div>
+          <div class="kpi-sub mask-amount">收 $${fmtInt(curSavings.income)} ｜ 支 $${fmtInt(curSavings.expense)}</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:14px;">
+        <div class="card-header" style="margin-bottom:10px;">
+          <div class="card-title">資產組成</div>
+          <button type="button" id="btn-record-snapshot" class="btn btn-primary btn-sm">📸 記錄資產快照</button>
+        </div>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(135px, 1fr)); gap:8px;">
+          <div style="padding:10px 12px; border-radius:10px; background:var(--bg-elevated, rgba(255,255,255,0.03)); border-left:3px solid #a855f7;">
+            <div class="text-muted" style="font-size:11.5px;">流動資金</div>
+            <div class="font-mono mask-amount" style="font-size:15px; font-weight:700; margin-top:2px;">$${fmtInt(sum.liquidSavingsTwd)}</div>
+          </div>
+          <div style="padding:10px 12px; border-radius:10px; background:var(--bg-elevated, rgba(255,255,255,0.03)); border-left:3px solid #10b981;">
+            <div class="text-muted" style="font-size:11.5px;">保障資金</div>
+            <div class="font-mono mask-amount" style="font-size:15px; font-weight:700; margin-top:2px;">$${fmtInt(sum.protectionTwd)}</div>
+          </div>
+          <div style="padding:10px 12px; border-radius:10px; background:var(--bg-elevated, rgba(255,255,255,0.03)); border-left:3px solid #f59e0b;">
+            <div class="text-muted" style="font-size:11.5px;">國內股票</div>
+            <div class="font-mono mask-amount" style="font-size:15px; font-weight:700; margin-top:2px;">$${fmtInt(sum.twStockTwd)}</div>
+          </div>
+          <div style="padding:10px 12px; border-radius:10px; background:var(--bg-elevated, rgba(255,255,255,0.03)); border-left:3px solid #eab308;">
+            <div class="text-muted" style="font-size:11.5px;">海外股票</div>
+            <div class="font-mono mask-amount" style="font-size:15px; font-weight:700; margin-top:2px;">$${fmtInt(sum.usStockTwd)}</div>
+          </div>
+          <div style="padding:10px 12px; border-radius:10px; background:var(--bg-elevated, rgba(255,255,255,0.03)); border-left:3px solid #64748b;">
+            <div class="text-muted" style="font-size:11.5px;">其他</div>
+            <div class="font-mono mask-amount" style="font-size:15px; font-weight:700; margin-top:2px;">$${fmtInt(otherTwd)}</div>
+          </div>
+          <div data-tab="fs_shared" style="cursor:pointer; padding:10px 12px; border-radius:10px; background:var(--bg-elevated, rgba(255,255,255,0.03)); border-left:3px solid #38bdf8;" title="點擊查看 FS共同資產明細">
+            <div class="text-muted" style="font-size:11.5px;">FS共同資產 ↗</div>
+            <div class="font-mono mask-amount" style="font-size:15px; font-weight:700; margin-top:2px;">$${fmtInt(fsData.totalCombinedTwd)}</div>
+          </div>
         </div>
       </div>
 
@@ -106,6 +166,7 @@ export class AssetTrackerUI {
         <button class="sub-tab ${this.activeTab === 'accounts' ? 'active' : ''}" data-tab="accounts">帳戶與對帳</button>
         <button class="sub-tab ${this.activeTab === 'monthly' ? 'active' : ''}" data-tab="monthly">每月收支</button>
         <button class="sub-tab ${this.activeTab === 'analytics' ? 'active' : ''}" data-tab="analytics">分析圖</button>
+        <button class="sub-tab ${this.activeTab === 'fs_shared' ? 'active' : ''}" data-tab="fs_shared">FS共同資產</button>
         <button class="sub-tab ${this.activeTab === 'salary' ? 'active' : ''}" data-tab="salary">薪資 (N_薪資)</button>
         <button class="sub-tab ${this.activeTab === 'logs' ? 'active' : ''}" data-tab="logs">開銷與流水</button>
         <button class="sub-tab ${this.activeTab === 'debts' ? 'active' : ''}" data-tab="debts">負債</button>
@@ -114,6 +175,7 @@ export class AssetTrackerUI {
       ${this.activeTab === 'accounts' ? this._renderAccountsTab(state, opts, sum) : ''}
       ${this.activeTab === 'monthly' ? this._renderMonthlyTab(state) : ''}
       ${this.activeTab === 'analytics' ? this._renderAnalyticsTab(state) : ''}
+      ${this.activeTab === 'fs_shared' ? this._renderFsSharedTab(state) : ''}
       ${this.activeTab === 'salary' ? this._renderSalaryTab(state) : ''}
       ${this.activeTab === 'logs' ? this._renderLogsTab(state) : ''}
       ${this.activeTab === 'debts' ? this._renderDebtsTab(state) : ''}
@@ -621,6 +683,43 @@ export class AssetTrackerUI {
 
   // ---------------- Events ----------------
   _bindEvents(container, state, store, showToast) {
+    container.querySelectorAll('[data-ef-mode]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this.efMode = btn.getAttribute('data-ef-mode') || 'fixed';
+        try {
+          localStorage.setItem('nic_asset_ef_cfg_v1', JSON.stringify({ mode: this.efMode, manualMonthly: this.efManualMonthly }));
+        } catch (_) {}
+        this.render(container, store.getState(), store, showToast);
+      });
+    });
+
+    const efApplyBtn = container.querySelector('#btn-ef-manual-apply');
+    if (efApplyBtn) {
+      efApplyBtn.addEventListener('click', () => {
+        const inp = container.querySelector('#input-ef-manual');
+        const val = Number(inp?.value || 0);
+        if (val > 0) {
+          this.efManualMonthly = val;
+          try {
+            localStorage.setItem('nic_asset_ef_cfg_v1', JSON.stringify({ mode: this.efMode, manualMonthly: this.efManualMonthly }));
+          } catch (_) {}
+          this.render(container, store.getState(), store, showToast);
+        }
+      });
+    }
+
+    const snapBtn = container.querySelector('#btn-record-snapshot');
+    if (snapBtn) {
+      snapBtn.addEventListener('click', () => {
+        try {
+          const rec = AssetCore.recordAssetSnapshot(store.getState(), {}, store);
+          showToast(`📸 已記錄 ${rec['日期']} 資產快照（資金總額 $${fmtInt(rec['資金總額'])}），已排入雲端同步！`);
+          this.render(container, store.getState(), store, showToast);
+        } catch (err) {
+          showToast(`⚠️ 快照記錄失敗：${err?.message || err}`);
+        }
+      });
+    }
     const rerender = () => this.render(container, store.getState(), store, showToast);
     const on = (sel, ev, fn) => container.querySelectorAll(sel).forEach((el) => el.addEventListener(ev, (e) => fn(el, e)));
 
@@ -879,6 +978,47 @@ export class AssetTrackerUI {
                   <td class="font-mono mask-amount ${r.netTotal >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right; font-weight:700;">${fmtInt(r.netTotal)}</td>
                 </tr>
               `).join('') : `<tr><td colspan="5" class="text-muted" style="text-align:center; padding:16px;">尚無資料</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
+  // ---------------- Tab: FS共同資產 ----------------
+  _renderFsSharedTab(state) {
+    const fsData = AssetCore.getFsSharedAssets(state);
+    return `
+      <div class="card" style="margin-bottom:14px;">
+        <div class="kpi-label"><span>FS 共同資產合計（台幣）</span><span class="pill">${fsData.count} 筆紀錄</span></div>
+        <div class="kpi-value mask-amount">$${fmtInt(fsData.totalCombinedTwd)}</div>
+        <div class="kpi-sub mask-amount">TWD ${fmtInt(fsData.totalTwd)} · USD ${fmtDec(fsData.totalUsd, 2)}</div>
+      </div>
+      <div class="card">
+        <div class="card-header" style="margin-bottom:8px;">
+          <div class="card-title">FS 明細</div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>日期</th>
+                <th>類別</th>
+                <th>帳戶</th>
+                <th>備註</th>
+                <th style="text-align:right;">金額</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${fsData.items.length ? fsData.items.map((it) => `
+                <tr>
+                  <td class="font-mono" style="white-space:nowrap;">${it.date}</td>
+                  <td>${it.category}</td>
+                  <td class="text-muted">${it.account}</td>
+                  <td class="text-muted">${it.note || '-'}</td>
+                  <td class="font-mono mask-amount ${it.amount >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right; font-weight:600;">${it.amount >= 0 ? '+' : ''}${fmtInt(it.amount)} ${it.currency}</td>
+                </tr>
+              `).join('') : `<tr><td colspan="5" class="text-muted" style="text-align:center; padding:18px;">目前 log_V2 中尚無標籤為「FS」的紀錄</td></tr>`}
             </tbody>
           </table>
         </div>

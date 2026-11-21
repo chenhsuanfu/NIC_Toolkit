@@ -295,6 +295,34 @@ function doPost(e) {
           syncedIds.push(mut.id);
           break;
         }
+        case 'asset.appendSnapshot': {
+          const sh = assetSS.getSheetByName('資產快照');
+          if (!sh) throw new Error('F&S 試算表找不到「資產快照」分頁');
+          const lastCol = Math.max(sh.getLastColumn(), 3);
+          const headers = sh.getRange(1, 1, 1, lastCol).getDisplayValues()[0].map((h) => String(h).trim());
+          const aliasMap = {
+            '日期': p['日期'] || Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM-dd'),
+            '資金總額': Number(p['資金總額'] ?? p.financialAssetsTwd ?? 0),
+            '金融資產': Number(p['資金總額'] ?? p.financialAssetsTwd ?? 0),
+            '不動產': Number(p['不動產'] ?? p.realEstateTwd ?? 0),
+            '總資產(含不動產)': Number(p['總資產(含不動產)'] ?? p.grossAssetsTwd ?? 0),
+            '總負債': Number(p['總負債'] ?? p.totalDebtTwd ?? 0),
+            '負債': Number(p['總負債'] ?? p.totalDebtTwd ?? 0),
+            '淨值': Number(p['淨值'] ?? p.netWorthTwd ?? 0),
+            '流動資金': Number(p['流動資金'] ?? p.liquidSavingsTwd ?? 0),
+            '保障資金': Number(p['保障資金'] ?? p.protectionTwd ?? 0),
+            '國內股票': Number(p['國內股票'] ?? p.twStockTwd ?? 0),
+            '海外股票': Number(p['海外股票'] ?? p.usStockTwd ?? 0),
+            '其他': Number(p['其他'] ?? p.otherTwd ?? 0),
+            'FS共同資產': Number(p['FS共同資產'] ?? p.fsSharedTwd ?? 0),
+            'FS共同池': Number(p['FS共同資產'] ?? p.fsSharedTwd ?? 0),
+            '備註': String(p['備註'] || 'NIC Toolkit 快照')
+          };
+          const row = headers.map((h) => (Object.prototype.hasOwnProperty.call(aliasMap, h) ? aliasMap[h] : ''));
+          sh.appendRow(row);
+          syncedIds.push(mut.id);
+          break;
+        }
         case 'stock.updatePrices': {
           updateStockPrices_(stockSS, p);
           syncedIds.push(mut.id);
