@@ -690,6 +690,107 @@ export const AssetCore = {
     });
 
     return { status: 'ok', record: newRec };
+  },
+
+  /**
+   * 9. Monthly Income & Expense Cashflow Table (Based on log_V2)
+   */
+  getMonthlyCashflow(state, { year = 'ALL' } = {}) {
+    const rawLogs = Array.isArray(state?.asset?.recentLogs) ? state.asset.recentLogs : [];
+    const usdRate = toNum(state?.stock?.fx?.usdTwd || state?.asset?.fx?.usdTwd, 32.5);
+    const monthMap = new Map();
+    const yearSet = new Set();
+
+    const normDate = (raw) => {
+      const s = String(raw || '').trim();
+      if (!s) return '';
+      const m = s.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+      if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+      return s.slice(0, 10);
+    };
+
+    for (const r of rawLogs) {
+      const nature = String(r['性質'] || '').trim();
+      if (nature !== '收入' && nature !== '支出') continue;
+
+      const dateStr = normDate(r['日期']);
+      if (!/^\d{4}-\d{2}/.test(dateStr)) continue;
+      const ym = dateStr.slice(0, 7);
+      const y = dateStr.slice(0, 4);
+      yearSet.add(y);
+
+      if (year && year !== 'ALL' && y !== String(year)) continue;
+
+      const rawAmt = Math.abs(toNum(r['金額'], 0));
+      const cur = String(r['幣別'] || 'TWD').toUpperCase();
+      const twdAmt = cur === 'USD' ? rawAmt * usdRate : rawAmt;
+
+      if (!monthMap.has(ym)) {
+        monthMap.set(ym, {
+          month: ym,
+          year: y,
+          income: 0,
+          expense: 0,
+          net: 0,
+          savingRatePct: 0,
+          incomeCount: 0,
+          expenseCount: 0,
+          incomeItems: [],
+          expenseItems: []
+        });
+      }
+      const bucket = monthMap.get(ym);
+      const item = {
+        date: dateStr,
+        nature,
+        category: String(r['類別'] || '其他'),
+        account: String(r['帳戶'] || ''),
+        currency: cur,
+        amount: rawAmt,
+        twdAmount: Math.round(twdAmt),
+        note: String(r['備註'] || '')
+      };
+
+      if (nature === '收入') {
+        bucket.income += twdAmt;
+        bucket.incomeCount += 1;
+        bucket.incomeItems.push(item);
+      } else {
+        bucket.expense += twdAmt;
+        bucket.expenseCount += 1;
+        bucket.expenseItems.push(item);
+      }
+    }
+
+    const months = Array.from(monthMap.values())
+      .sort((a, b) => b.month.localeCompare(a.month))
+      .map((m) => {
+        m.income = Math.round(m.income);
+        m.expense = Math.round(m.expense);
+        m.net = m.income - m.expense;
+        m.savingRatePct = m.income > 0 ? Number(((m.net / m.income) * 100).toFixed(1)) : 0;
+        m.incomeItems.sort((a, b) => b.date.localeCompare(a.date));
+        m.expenseItems.sort((a, b) => b.date.localeCompare(a.date));
+        return m;
+      });
+
+    const totalIncome = months.reduce((s, m) => s + m.income, 0);
+    const totalExpense = months.reduce((s, m) => s + m.expense, 0);
+    const totalNet = totalIncome - totalExpense;
+    const avgSavingRatePct = totalIncome > 0 ? Number(((totalNet / totalIncome) * 100).toFixed(1)) : 0;
+
+    return {
+      selectedYear: year || 'ALL',
+      years: Array.from(yearSet).sort((a, b) => b.localeCompare(a)),
+      months,
+      totals: {
+        income: totalIncome,
+        expense: totalExpense,
+        net: totalNet,
+        savingRatePct: avgSavingRatePct,
+        monthCount: months.length
+      }
+    };
   }
 };
 
@@ -703,6 +804,7 @@ agentBridge.registerModule('asset-tracker', {
     getSortedExpenses: (state, params) => AssetCore.getSortedExpenses(state, params),
     getSortedLogs: (state, params) => AssetCore.getSortedLogs(state, params),
     getSalaryData: (state, params) => AssetCore.getSalaryData(state, params),
+    getMonthlyCashflow: (state, params) => AssetCore.getMonthlyCashflow(state, params || {}),
     addExpense: (state, params, store) => AssetCore.addExpense(state, params, store),
     addLedgerLog: (state, params, store) => AssetCore.addLedgerLog(state, params, store),
     reconcileAccountBalance: (state, params, store) => AssetCore.reconcileAccountBalance(state, params, store),

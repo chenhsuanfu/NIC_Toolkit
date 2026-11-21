@@ -3658,10 +3658,9 @@ if __name__ == "__main__":
         state.rawData = restoredReal ? state.rawData : generateDemoData();
         bindEvents();
         syncDrawerControls();
-        refreshAll();
-        if (window.lucide?.createIcons) window.lucide.createIcons();
 
-        // 每次啟動背景比對伺服器端 real_twse_v4.csv（GitHub Actions 每日自動更新），若日期更新則自動載入
+        // 若本機尚無快取，先直接載入 real_twse_v4.csv 再單次渲染（避免先閃示範資料再重繪）
+        let loadedServerCsv = false;
         try {
           const resp = await fetch('./real_twse_v4.csv?t=' + Date.now(), { cache: 'no-cache' });
           if (resp.ok) {
@@ -3672,9 +3671,15 @@ if __name__ == "__main__":
             if (!restoredReal || (lastLineDate && lastLineDate > currentLastDate)) {
               const csvFile = new File([csvText], 'real_twse_v4.csv', { type: 'text/csv' });
               handleFileUpload(csvFile);
+              loadedServerCsv = true;
             }
           }
         } catch (_) {}
+
+        if (!loadedServerCsv) {
+          refreshAll();
+        }
+        if (window.lucide?.createIcons) window.lucide.createIcons();
       });
     })();
   </script>

@@ -77,7 +77,21 @@ export class StockTrackerUI {
       query: this.searchQuery
     });
 
+    const cfg = store.getConfig();
+    const lastSyncText = cfg.lastSyncAt
+      ? new Date(cfg.lastSyncAt).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
+      : '尚未同步';
+
     container.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+        <div class="text-muted" style="font-size:12px;">
+          行情來源：Google Sheets (N_BD_C) ｜ 最後更新：<strong class="font-mono">${lastSyncText}</strong>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" id="btn-force-refresh-prices">
+          🔄 強制刷新現價
+        </button>
+      </div>
+
       <!-- Clean Minimalist KPI Cards -->
       <div class="grid-kpi">
         <div class="card">
@@ -1077,6 +1091,23 @@ export class StockTrackerUI {
         if (inp) {
           inp.focus();
           inp.setSelectionRange(inp.value.length, inp.value.length);
+        }
+      });
+    }
+
+    const refreshPriceBtn = container.querySelector('#btn-force-refresh-prices');
+    if (refreshPriceBtn) {
+      refreshPriceBtn.addEventListener('click', async () => {
+        refreshPriceBtn.disabled = true;
+        refreshPriceBtn.textContent = '⏳ 正在拉取最新現價...';
+        try {
+          await store.syncWithCloud({ forceRefresh: true, pushFirst: true, silent: false });
+          showToast('✅ 已強制從 Google Sheets 拉取最新現價與市值！');
+          this.render(container, store.getState(), store, showToast);
+        } catch (err) {
+          showToast(`⚠️ 刷新失敗：${err?.message || err}`);
+          refreshPriceBtn.disabled = false;
+          refreshPriceBtn.textContent = '🔄 強制刷新現價';
         }
       });
     }

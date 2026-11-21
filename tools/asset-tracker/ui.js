@@ -104,6 +104,7 @@ export class AssetTrackerUI {
 
       <div class="sub-tabs">
         <button class="sub-tab ${this.activeTab === 'accounts' ? 'active' : ''}" data-tab="accounts">帳戶與對帳</button>
+        <button class="sub-tab ${this.activeTab === 'monthly' ? 'active' : ''}" data-tab="monthly">每月收支</button>
         <button class="sub-tab ${this.activeTab === 'analytics' ? 'active' : ''}" data-tab="analytics">分析圖</button>
         <button class="sub-tab ${this.activeTab === 'salary' ? 'active' : ''}" data-tab="salary">薪資 (N_薪資)</button>
         <button class="sub-tab ${this.activeTab === 'logs' ? 'active' : ''}" data-tab="logs">開銷與流水</button>
@@ -111,6 +112,7 @@ export class AssetTrackerUI {
       </div>
 
       ${this.activeTab === 'accounts' ? this._renderAccountsTab(state, opts, sum) : ''}
+      ${this.activeTab === 'monthly' ? this._renderMonthlyTab(state) : ''}
       ${this.activeTab === 'analytics' ? this._renderAnalyticsTab(state) : ''}
       ${this.activeTab === 'salary' ? this._renderSalaryTab(state) : ''}
       ${this.activeTab === 'logs' ? this._renderLogsTab(state) : ''}
@@ -648,6 +650,17 @@ export class AssetTrackerUI {
     submit('#form-add-log', (p) => { const r = AssetCore.addLedgerLog(store.getState(), p, store); return `已寫入流水：${r['帳戶']} ${r['性質']} ${r['金額']}`; });
     submit('#form-add-salary', (p) => { const r = AssetCore.addSalaryRecord(store.getState(), p, store).record; this.activeTab = 'salary'; return `已新增薪資：${r.item} $${fmtInt(r.amount)}`; });
 
+    on('[data-monthly-year]', 'click', (el) => {
+      this.monthlyYear = el.getAttribute('data-monthly-year') || 'ALL';
+      this.selectedCashflowMonth = null;
+      rerender();
+    });
+    on('[data-select-cf-month]', 'click', (el) => {
+      const m = el.getAttribute('data-select-cf-month');
+      this.selectedCashflowMonth = this.selectedCashflowMonth === m ? null : m;
+      rerender();
+    });
+
     on('[data-start-reconcile]', 'click', (el) => {
       this.reconcilingKey = el.getAttribute('data-start-reconcile');
       rerender();
@@ -665,5 +678,130 @@ export class AssetTrackerUI {
         rerender();
       } catch (err) { showToast(`錯誤：${err.message}`); }
     });
+  }
+
+  _renderMonthlyTab(state) {
+    const year = this.monthlyYear || 'ALL';
+    const data = AssetCore.getMonthlyCashflow(state, { year });
+    const months = data.months || [];
+    const activeMonth = this.selectedCashflowMonth
+      ? months.find((m) => m.month === this.selectedCashflowMonth)
+      : months[0] || null;
+
+    return `
+      <div class="card" style="margin-bottom:14px;">
+        <div class="card-header" style="flex-wrap:wrap; gap:8px;">
+          <div>
+            <div class="card-title">每月收入與支出總表 (log_V2)</div>
+            <div class="text-muted" style="font-size:12px;">已排除帳戶間轉帳與對帳校正，點擊任一月份可展開該月詳細收支明細</div>
+          </div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap;">
+            <button class="btn btn-sm ${year === 'ALL' ? 'btn-primary' : 'btn-ghost'}" data-monthly-year="ALL">全部</button>
+            ${data.years.map((y) => `
+              <button class="btn btn-sm ${String(year) === String(y) ? 'btn-primary' : 'btn-ghost'}" data-monthly-year="${y}">${y}</button>
+            `).join('')}
+          </div>
+        </div>
+
+        <div class="grid-kpi" style="margin-bottom:14px;">
+          <div class="card" style="padding:12px;">
+            <div class="kpi-label"><span>區間總收入 (${data.totals.monthCount} 個月)</span></div>
+            <div class="kpi-value mask-amount text-emerald">$${fmtInt(data.totals.income)}</div>
+          </div>
+          <div class="card" style="padding:12px;">
+            <div class="kpi-label"><span>區間總支出</span></div>
+            <div class="kpi-value mask-amount text-rose">$${fmtInt(data.totals.expense)}</div>
+          </div>
+          <div class="card" style="padding:12px;">
+            <div class="kpi-label"><span>區間淨結餘</span></div>
+            <div class="kpi-value mask-amount ${data.totals.net >= 0 ? 'text-emerald' : 'text-rose'}">${data.totals.net >= 0 ? '+' : ''}$${fmtInt(data.totals.net)}</div>
+          </div>
+          <div class="card" style="padding:12px;">
+            <div class="kpi-label"><span>平均儲蓄率</span></div>
+            <div class="kpi-value font-mono">${data.totals.savingRatePct.toFixed(1)}%</div>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>月份</th>
+                <th style="text-align:right;">收入 (TWD)</th>
+                <th style="text-align:right;">支出 (TWD)</th>
+                <th style="text-align:right;">月結餘</th>
+                <th style="text-align:right;">儲蓄率</th>
+                <th style="text-align:right;">筆數 (收/支)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${months.length ? months.map((m) => {
+                const isSel = activeMonth && activeMonth.month === m.month;
+                return `
+                  <tr data-select-cf-month="${m.month}" style="cursor:pointer; ${isSel ? 'background:rgba(59,130,246,0.12);' : ''}">
+                    <td class="font-mono" style="font-weight:700;">${isSel ? '▾ ' : '▸ '}${m.month}</td>
+                    <td class="font-mono mask-amount text-emerald" style="text-align:right; font-weight:600;">+$${fmtInt(m.income)}</td>
+                    <td class="font-mono mask-amount text-rose" style="text-align:right; font-weight:600;">-$${fmtInt(m.expense)}</td>
+                    <td class="font-mono mask-amount ${m.net >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right; font-weight:700;">${m.net >= 0 ? '+' : ''}$${fmtInt(m.net)}</td>
+                    <td class="font-mono" style="text-align:right;">${m.savingRatePct.toFixed(1)}%</td>
+                    <td class="font-mono text-muted" style="text-align:right;">${m.incomeCount} / ${m.expenseCount}</td>
+                  </tr>
+                `;
+              }).join('') : `<tr><td colspan="6" class="text-muted" style="text-align:center; padding:18px;">目前尚無 log_V2 收支紀錄</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      ${activeMonth ? `
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title text-emerald">${activeMonth.month} 收入明細 (${activeMonth.incomeCount} 筆)</div>
+              <span class="pill pill-emerald mask-amount">+$${fmtInt(activeMonth.income)}</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>日期</th><th>類別</th><th>帳戶</th><th>備註</th><th style="text-align:right;">金額</th></tr></thead>
+                <tbody>
+                  ${activeMonth.incomeItems.length ? activeMonth.incomeItems.map((it) => `
+                    <tr>
+                      <td class="font-mono" style="white-space:nowrap;">${it.date}</td>
+                      <td>${it.category}</td>
+                      <td class="text-muted">${it.account}</td>
+                      <td class="text-muted">${it.note || '-'}</td>
+                      <td class="font-mono mask-amount text-emerald" style="text-align:right; font-weight:600;">+$${fmtInt(it.twdAmount)}</td>
+                    </tr>
+                  `).join('') : `<tr><td colspan="5" class="text-muted" style="text-align:center; padding:14px;">本月無收入紀錄</td></tr>`}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title text-rose">${activeMonth.month} 支出明細 (${activeMonth.expenseCount} 筆)</div>
+              <span class="pill pill-rose mask-amount">-$${fmtInt(activeMonth.expense)}</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>日期</th><th>類別</th><th>帳戶</th><th>備註</th><th style="text-align:right;">金額</th></tr></thead>
+                <tbody>
+                  ${activeMonth.expenseItems.length ? activeMonth.expenseItems.map((it) => `
+                    <tr>
+                      <td class="font-mono" style="white-space:nowrap;">${it.date}</td>
+                      <td>${it.category}</td>
+                      <td class="text-muted">${it.account}</td>
+                      <td class="text-muted">${it.note || '-'}</td>
+                      <td class="font-mono mask-amount text-rose" style="text-align:right; font-weight:600;">-$${fmtInt(it.twdAmount)}</td>
+                    </tr>
+                  `).join('') : `<tr><td colspan="5" class="text-muted" style="text-align:center; padding:14px;">本月無支出紀錄</td></tr>`}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      ` : ''}
+    `;
   }
 }

@@ -11,12 +11,17 @@ export class TwseRadarUI {
   }
 
   render(container, _state, _store, showToast) {
+    // Keep existing iframe alive across background cloud sync / visibility resume / theme toggle
+    if (container.querySelector('#twse-radar-iframe')) {
+      return;
+    }
+
     container.innerHTML = `
       <div class="radar-iframe-shell">
         <iframe
           id="twse-radar-iframe"
-          src="./tools/twse-radar/radar.html?v=${encodeURIComponent(window.NIC_APP_VERSION || 'v18')}"
-          title="TWSE 減碼行動雷達 v3.0"
+          src="./tools/twse-radar/radar.html?v=${encodeURIComponent(window.NIC_APP_VERSION || 'v22')}"
+          title="TWSE 減碼行動雷達 v4.0"
           class="radar-iframe"
           loading="eager"
         ></iframe>
