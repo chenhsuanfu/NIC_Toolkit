@@ -996,10 +996,48 @@ export const StockCore = {
       if (typeof storeInstance._notify === 'function') storeInstance._notify('price-refresh');
     }
 
+    let sheetSynced = false;
+    let sheetError = '';
+    if (priceMap.size > 0 && storeInstance && typeof storeInstance.getConfig === 'function') {
+      const cfg = storeInstance.getConfig();
+      if (cfg.mode === 'cloud' && cfg.gasUrl && cfg.apiToken) {
+        try {
+          const pricesObj = {};
+          for (const [sym, hit] of priceMap.entries()) {
+            pricesObj[sym] = hit.price;
+          }
+          const resp = await fetch(cfg.gasUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+              token: cfg.apiToken,
+              mutations: [{
+                id: `price-${Date.now()}`,
+                type: 'stock.updatePrices',
+                payload: { prices: pricesObj, usdTwd }
+              }]
+            })
+          });
+          if (resp.ok) {
+            const json = await resp.json();
+            if (json && json.ok) {
+              sheetSynced = true;
+            } else {
+              sheetError = json?.error || '請更新 GAS 部署版本以支援寫回 N_BD_C';
+            }
+          }
+        } catch (err) {
+          sheetError = err?.message || '雲端寫回失敗';
+        }
+      }
+    }
+
     return {
       updatedCount,
       totalCount: tasks.length,
-      failedSymbols
+      failedSymbols,
+      sheetSynced,
+      sheetError
     };
   }
 };

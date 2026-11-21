@@ -200,6 +200,11 @@ function doPost(e) {
           syncedIds.push(mut.id);
           break;
         }
+        case 'stock.updatePrices': {
+          updateStockPrices_(stockSS, p);
+          syncedIds.push(mut.id);
+          break;
+        }
         default: {
           unsupportedTypes.push(String(mut.type || 'unknown'));
           break;
@@ -287,4 +292,74 @@ function buildFullSnapshot_() {
       cashflowHistory: readSheetObjects_(assetSS, '收支歷史', 36, true)
     }
   };
+}
+
+/**
+ * Update latest market prices into N_BD_C 『行情』(C:自動價, F:更新時間) & 『總攬』(G:現價, J~N:市值/未實現/報酬率)
+ * Does NOT overwrite manual prices (D) or formulas (E) in 『行情』.
+ */
+function updateStockPrices_(stockSS, payload) {
+  const prices = (payload && payload.prices) || {};
+  const usdTwd = Number(payload && payload.usdTwd) || 32.5;
+  const now = new Date();
+  const keys = Object.keys(prices);
+  if (!keys.length) return;
+
+  const normSym = function (s) {
+    return String(s || '').trim().toUpperCase();
+  };
+  const priceLookup = {};
+  for (var i = 0; i < keys.length; i++) {
+    var k = normSym(keys[i]);
+    var v = Number(prices[keys[i]]);
+    if (k && isFinite(v) && v > 0) {
+      priceLookup[k] = v;
+      priceLookup[k.replace(/\.TW$/i, '').replace(/\.TWO$/i, '')] = v;
+    }
+  }
+
+  // 1. Update 『行情』 (A:代號, B:市場, C:自動價, D:手動價, E:採用價, F:更新時間)
+  var quoteSheet = stockSS.getSheetByName('行情');
+  if (quoteSheet && quoteSheet.getLastRow() >= 2) {
+    var qRange = quoteSheet.getRange(2, 1, quoteSheet.getLastRow() - 1, 6);
+    var qVals = qRange.getValues();
+    for (var r = 0; r < qVals.length; r++) {
+      var sym = normSym(qVals[r][0]);
+      var clean = sym.replace(/\.TW$/i, '').replace(/\.TWO$/i, '');
+      var newPrice = priceLookup[sym] || priceLookup[clean];
+      if (newPrice) {
+        quoteSheet.getRange(r + 2, 3).setValue(newPrice); // C: 自動價
+        quoteSheet.getRange(r + 2, 6).setValue(now);      // F: 更新時間
+      }
+    }
+  }
+
+  // 2. Update 『總攬』 (B:代號, C:市場, E:剩餘股數, G:現價, H:成本USD, I:成本TWD, J:市值USD, K:市值TWD, L:未實現USD, M:未實現TWD, N:報酬率)
+  var ovSheet = stockSS.getSheetByName('總攬');
+  if (ovSheet && ovSheet.getLastRow() >= 2) {
+    var oVals = ovSheet.getRange(2, 1, ovSheet.getLastRow() - 1, 14).getValues();
+    for (var rowIdx = 0; rowIdx < oVals.length; rowIdx++) {
+      var oSym = normSym(oVals[rowIdx][1]); // B: 代號
+      if (!oSym) continue;
+      var oClean = oSym.replace(/\.TW$/i, '').replace(/\.TWO$/i, '');
+      var pVal = priceLookup[oSym] || priceLookup[oClean];
+      if (!pVal) continue;
+
+      var market = normSym(oVals[rowIdx][2]); // C: 市場
+      var shares = Number(oVals[rowIdx][4] || 0); // E: 剩餘股數
+      var costUsd = Number(oVals[rowIdx][7] || 0); // H: 成本(USD)
+      var costTwd = Number(oVals[rowIdx][8] || 0); // I: 成本(TWD)
+      var isTw = market === 'TW' || /^\d{4,6}[A-Z]?$/.test(oClean);
+
+      var mktTwd = isTw ? Math.round(shares * pVal) : Math.round(shares * pVal * usdTwd);
+      var mktUsd = isTw ? Number((mktTwd / usdTwd).toFixed(2)) : Number((shares * pVal).toFixed(2));
+      var unrealTwd = mktTwd - costTwd;
+      var unrealUsd = Number((mktUsd - costUsd).toFixed(2));
+      var roi = costTwd > 0 ? unrealTwd / costTwd : 0;
+
+      var sheetRow = rowIdx + 2;
+      ovSheet.getRange(sheetRow, 7).setValue(pVal);          // G: 現價(原幣)
+      ovSheet.getRange(sheetRow, 10, 1, 5).setValues([[mktUsd, mktTwd, unrealUsd, unrealTwd, roi]]); // J..N
+    }
+  }
 }

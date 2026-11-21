@@ -1106,7 +1106,10 @@ export class StockTrackerUI {
           const res = await StockCore.refreshLivePrices(store.getState(), store);
           if (res.updatedCount > 0) {
             const failNote = res.failedSymbols.length ? `（${res.failedSymbols.length} 檔維持原價）` : '';
-            showToast(`✅ 已直接更新 ${res.updatedCount}/${res.totalCount} 檔最新市場現價！${failNote}`);
+            const sheetNote = res.sheetSynced
+              ? '，並已同步寫回 Google Sheets (N_BD_C)！'
+              : (res.sheetError ? `（N_BD_C 未寫回：${res.sheetError}）` : '');
+            showToast(`✅ 已更新 ${res.updatedCount}/${res.totalCount} 檔最新市價${failNote}${sheetNote}`);
           } else {
             showToast('⚠️ 無法從行情 API 取得新價格，請稍後再試或檢查網路');
           }
