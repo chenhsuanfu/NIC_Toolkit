@@ -980,15 +980,20 @@ export const StockCore = {
         const market = String(row['市場'] || '').trim().toUpperCase();
         const isTw = market === 'TW' || /^\d{4,6}[A-Z]?$/.test(rawSym.replace(/\.TW$/i, ''));
         const rate = isTw ? 1 : usdTwd;
-        const costTwd = toNum(row['投入成本(TWD)'], 0);
+        const costTwd = toNum(row['成本(TWD)'] ?? row['投入成本(TWD)'], 0);
+        const costUsd = toNum(row['成本(USD)'], 0);
         const marketTwd = Math.round(shares * hit.price * rate);
+        const marketUsd = isTw ? Number((marketTwd / usdTwd).toFixed(2)) : Number((shares * hit.price).toFixed(2));
         const unrealizedTwd = marketTwd - costTwd;
-        const roiPct = costTwd > 0 ? (unrealizedTwd / costTwd) * 100 : 0;
+        const unrealizedUsd = Number((marketUsd - costUsd).toFixed(2));
+        const roiRatio = costTwd > 0 ? unrealizedTwd / costTwd : 0;
 
         row['現價(原幣)'] = String(hit.price);
+        row['市值(USD)'] = String(marketUsd);
         row['市值(TWD)'] = String(marketTwd);
+        row['未實現(USD)'] = String(unrealizedUsd);
         row['未實現(TWD)'] = String(Math.round(unrealizedTwd));
-        row['報酬率'] = `${roiPct.toFixed(2)}%`;
+        row['報酬率'] = String(roiRatio);
         updatedCount += 1;
       }
       curState.stock.priceUpdatedAt = new Date().toISOString();
