@@ -1623,9 +1623,12 @@ export class GoodStockUI {
     }
 
     container.querySelectorAll('[data-open-stock]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        this.openStockInfo(btn.getAttribute('data-open-stock'), 'all');
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const code = btn.getAttribute('data-open-stock');
+        this.openStockInfo(code, 'all');
         rerender();
+        try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) {}
       });
     });
 
