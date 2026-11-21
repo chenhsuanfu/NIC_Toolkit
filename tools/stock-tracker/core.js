@@ -1020,6 +1020,7 @@ export const StockCore = {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({
+              action: 'batchMutate',
               token: cfg.apiToken,
               mutations: [{
                 id: `price-${Date.now()}`,
