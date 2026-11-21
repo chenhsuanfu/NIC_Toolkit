@@ -10,13 +10,16 @@ fetch_real_twse_v4.py
   pip install requests pandas yfinance
   python fetch_real_twse_v4.py
 """
+import os
+from datetime import datetime
+from pathlib import Path
 import requests
 import pandas as pd
 import yfinance as yf
 
-START_DATE = "2019-01-01"
-END_DATE = "2026-11-20"
-FINMIND_TOKEN = ""  # 選填：免費註冊可提高每小時抓取額度
+START_DATE = os.environ.get("START_DATE", "2019-01-01")
+END_DATE = os.environ.get("END_DATE") or datetime.now().strftime("%Y-%m-%d")
+FINMIND_TOKEN = os.environ.get("FINMIND_TOKEN", "")  # 選填：免費註冊可提高每小時抓取額度
 
 API_URL = "https://api.finmindtrade.com/api/v4/data"
 
@@ -117,6 +120,7 @@ def main():
             merged[c] = merged[c].round(dec)
 
     out_path = "real_twse_v4.csv"
+    out_path = os.environ.get("OUT_CSV_PATH") or str(Path(__file__).resolve().parent / "real_twse_v4.csv")
     merged.to_csv(out_path, index=False, encoding="utf-8-sig")
     print(f"完成！共輸出 {len(merged)} 筆全 5 因子真實台股資料至 {out_path}")
 

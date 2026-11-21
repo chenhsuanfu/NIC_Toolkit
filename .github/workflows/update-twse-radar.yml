@@ -1,0 +1,42 @@
+name: Update TWSE Radar v4 Data (All 5 Factors)
+
+on:
+  schedule:
+    # Mon-Fri 16:30 Asia/Taipei (08:30 UTC), after TWSE/TAIFEX post-market data release
+    - cron: '30 8 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install --no-cache-dir requests pandas yfinance
+
+      - name: Fetch latest TWSE + SOX + VIX + USD/TWD data
+        env:
+          FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+        run: python tools/twse-radar/fetch_real_twse_v4.py
+
+      - name: Commit and push updated real_twse_v4.csv
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet tools/twse-radar/real_twse_v4.csv; then
+            echo "No new trading data today."
+            exit 0
+          fi
+          git add tools/twse-radar/real_twse_v4.csv
+          git commit -m "chore(twse-radar): auto-update real_twse_v4.csv ($(date +'%Y-%m-%d'))"
+          git push

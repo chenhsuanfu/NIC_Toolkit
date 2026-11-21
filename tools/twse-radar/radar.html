@@ -2458,16 +2458,22 @@ if __name__ == "__main__":
           );
         }
 
+        const isMobile = window.innerWidth < 640;
         state.charts.price.setOption({
           animation: false,
           title: {
-            text: state.view.showAllSignals ? '大盤走勢 × 所有有效警戒日' : '大盤走勢 × 實際減碼日直標 (一眼看清哪天該減碼)',
-            left: 10, top: 6,
-            textStyle: { fontSize: 12.5, fontWeight: 700, color: '#1E293B' }
+            text: state.view.showAllSignals
+              ? (isMobile ? '大盤走勢 × 警戒日' : '大盤走勢 × 所有有效警戒日')
+              : (isMobile ? '大盤走勢 × 實際減碼日' : '大盤走勢 × 實際減碼日直標 (一眼看清哪天該減碼)'),
+            left: isMobile ? 6 : 10, top: isMobile ? 4 : 6,
+            textStyle: { fontSize: isMobile ? 11.5 : 12.5, fontWeight: 700, color: '#1E293B' }
           },
-          legend: { right: 16, top: 6, itemWidth: 14, itemHeight: 8, textStyle: { fontSize: 11, color: '#64748B' } },
+          legend: isMobile
+            ? { type: 'scroll', left: 6, right: 6, top: 24, itemWidth: 10, itemHeight: 7, itemGap: 8, textStyle: { fontSize: 10, color: '#64748B' } }
+            : { type: 'scroll', right: 16, top: 6, itemWidth: 14, itemHeight: 8, textStyle: { fontSize: 11, color: '#64748B' } },
           tooltip: {
             trigger: 'axis',
+            confine: true,
             backgroundColor: 'rgba(15, 23, 42, 0.96)',
             borderColor: '#334155',
             padding: [10, 14],
@@ -2510,9 +2516,9 @@ if __name__ == "__main__":
                 </div>`;
             }
           },
-          grid: { left: 60, right: 24, top: 48, bottom: 26 },
-          xAxis: { type: 'category', data: dates, boundaryGap: false, axisLine: { lineStyle: { color: '#CBD5E1' } }, axisLabel: { color: '#64748B', fontSize: 10.5 } },
-          yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: '#E2E8F0', type: 'dashed' } }, axisLabel: { color: '#64748B', fontSize: 10.5 } },
+          grid: isMobile ? { left: 46, right: 10, top: 56, bottom: 24 } : { left: 60, right: 24, top: 48, bottom: 26 },
+          xAxis: { type: 'category', data: dates, boundaryGap: false, axisLine: { lineStyle: { color: '#CBD5E1' } }, axisLabel: { color: '#64748B', fontSize: isMobile ? 9.5 : 10.5, hideOverlap: true } },
+          yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: '#E2E8F0', type: 'dashed' } }, axisLabel: { color: '#64748B', fontSize: isMobile ? 9.5 : 10.5 } },
           dataZoom: [{ type: 'inside', start: zoomRange.start, end: zoomRange.end }],
           series: seriesPrice
         }, true);
@@ -2521,17 +2527,21 @@ if __name__ == "__main__":
         state.charts.equity.setOption({
           animation: false,
           title: {
-            text: `避險策略淨值 vs Buy & Hold（含 ${state.params.feePct.toFixed(2)}% 成本）＆ 右軸持股水位 %`,
-            left: 10, top: 4,
-            textStyle: { fontSize: 12, fontWeight: 700, color: '#334155' }
+            text: isMobile
+              ? '避險淨值 vs B&H ＆ 持股水位%'
+              : `避險策略淨值 vs Buy & Hold（含 ${state.params.feePct.toFixed(2)}% 成本）＆ 右軸持股水位 %`,
+            left: isMobile ? 6 : 10, top: 4,
+            textStyle: { fontSize: isMobile ? 11 : 12, fontWeight: 700, color: '#334155' }
           },
-          legend: { right: 54, top: 4, itemWidth: 14, itemHeight: 8, textStyle: { fontSize: 11, color: '#64748B' } },
-          tooltip: { trigger: 'axis', backgroundColor: 'rgba(15, 23, 42, 0.95)', borderColor: '#334155', textStyle: { color: '#F8FAFC', fontSize: 11.5 } },
-          grid: { left: 60, right: 50, top: 34, bottom: 48 },
-          xAxis: { type: 'category', data: dates, boundaryGap: false, axisLine: { lineStyle: { color: '#CBD5E1' } }, axisLabel: { color: '#64748B', fontSize: 10.5 } },
+          legend: isMobile
+            ? { type: 'scroll', left: 6, right: 6, top: 22, itemWidth: 10, itemHeight: 7, itemGap: 8, textStyle: { fontSize: 10, color: '#64748B' } }
+            : { type: 'scroll', right: 54, top: 4, itemWidth: 14, itemHeight: 8, textStyle: { fontSize: 11, color: '#64748B' } },
+          tooltip: { trigger: 'axis', confine: true, backgroundColor: 'rgba(15, 23, 42, 0.95)', borderColor: '#334155', textStyle: { color: '#F8FAFC', fontSize: 11.5 } },
+          grid: isMobile ? { left: 40, right: 36, top: 50, bottom: 44 } : { left: 60, right: 50, top: 34, bottom: 48 },
+          xAxis: { type: 'category', data: dates, boundaryGap: false, axisLine: { lineStyle: { color: '#CBD5E1' } }, axisLabel: { color: '#64748B', fontSize: isMobile ? 9.5 : 10.5, hideOverlap: true } },
           yAxis: [
-            { type: 'value', scale: true, splitLine: { lineStyle: { color: '#E2E8F0', type: 'dashed' } }, axisLabel: { color: '#64748B', fontSize: 10.5, formatter: '{value}x' } },
-            { type: 'value', min: minPos, max: 110, splitLine: { show: false }, axisLabel: { color: '#94A3B8', fontSize: 10, formatter: '{value}%' } }
+            { type: 'value', scale: true, splitLine: { lineStyle: { color: '#E2E8F0', type: 'dashed' } }, axisLabel: { color: '#64748B', fontSize: isMobile ? 9.5 : 10.5, formatter: '{value}x' } },
+            { type: 'value', min: minPos, max: 110, splitLine: { show: false }, axisLabel: { color: '#94A3B8', fontSize: isMobile ? 9 : 10, formatter: '{value}%' } }
           ],
           dataZoom: [
             { type: 'inside', start: zoomRange.start, end: zoomRange.end },
@@ -2785,13 +2795,16 @@ if __name__ == "__main__":
         // 水下回撤圖
         if (!state.charts.drawdown) state.charts.drawdown = echarts.init(document.getElementById('chart-drawdown'));
         const dates = rows.map(r => r.Date);
+        const isMobileDD = window.innerWidth < 640;
         state.charts.drawdown.setOption({
           animation: false,
-          tooltip: { trigger: 'axis', backgroundColor: 'rgba(15, 23, 42, 0.95)', borderColor: '#334155', textStyle: { color: '#F8FAFC', fontSize: 11.5 } },
-          legend: { right: 16, top: 0, textStyle: { fontSize: 11.5, color: '#475569' } },
-          grid: { left: 56, right: 20, top: 32, bottom: 28 },
-          xAxis: { type: 'category', data: dates, boundaryGap: false, axisLine: { lineStyle: { color: '#CBD5E1' } }, axisLabel: { color: '#64748B', fontSize: 10.5 } },
-          yAxis: { type: 'value', max: 0, splitLine: { lineStyle: { color: '#E2E8F0', type: 'dashed' } }, axisLabel: { color: '#64748B', fontSize: 10.5, formatter: '{value}%' } },
+          tooltip: { trigger: 'axis', confine: true, backgroundColor: 'rgba(15, 23, 42, 0.95)', borderColor: '#334155', textStyle: { color: '#F8FAFC', fontSize: 11.5 } },
+          legend: isMobileDD
+            ? { type: 'scroll', left: 6, right: 6, top: 0, itemWidth: 10, itemHeight: 7, textStyle: { fontSize: 10, color: '#475569' } }
+            : { right: 16, top: 0, textStyle: { fontSize: 11.5, color: '#475569' } },
+          grid: isMobileDD ? { left: 42, right: 10, top: 32, bottom: 24 } : { left: 56, right: 20, top: 32, bottom: 28 },
+          xAxis: { type: 'category', data: dates, boundaryGap: false, axisLine: { lineStyle: { color: '#CBD5E1' } }, axisLabel: { color: '#64748B', fontSize: isMobileDD ? 9.5 : 10.5, hideOverlap: true } },
+          yAxis: { type: 'value', max: 0, splitLine: { lineStyle: { color: '#E2E8F0', type: 'dashed' } }, axisLabel: { color: '#64748B', fontSize: isMobileDD ? 9.5 : 10.5, formatter: '{value}%' } },
           series: [
             { name: '買進持有 (Buy & Hold)', type: 'line', data: Array.from(res.bhDD, v => Number(v.toFixed(2))), showSymbol: false, lineStyle: { color: '#F43F5E', width: 1.4 }, areaStyle: { color: 'rgba(244, 63, 94, 0.15)' } },
             { name: '5因子避險策略', type: 'line', data: Array.from(res.stratDD, v => Number(v.toFixed(2))), showSymbol: false, lineStyle: { color: '#0284C7', width: 1.8 }, areaStyle: { color: 'rgba(2, 132, 199, 0.18)' } }
@@ -3648,17 +3661,20 @@ if __name__ == "__main__":
         refreshAll();
         if (window.lucide?.createIcons) window.lucide.createIcons();
 
-        // 若本機尚無 v4 真實資料快取，自動載入內建 real_twse_v4.csv
-        if (!restoredReal) {
-          try {
-            const resp = await fetch('./real_twse_v4.csv', { cache: 'no-cache' });
-            if (resp.ok) {
-              const csvText = await resp.text();
+        // 每次啟動背景比對伺服器端 real_twse_v4.csv（GitHub Actions 每日自動更新），若日期更新則自動載入
+        try {
+          const resp = await fetch('./real_twse_v4.csv?t=' + Date.now(), { cache: 'no-cache' });
+          if (resp.ok) {
+            const csvText = await resp.text();
+            const lines = csvText.trim().split(/\r?\n/);
+            const lastLineDate = lines.length > 1 ? lines[lines.length - 1].split(',')[0].trim() : '';
+            const currentLastDate = restoredReal && state.rawData.length ? state.rawData[state.rawData.length - 1].Date : '';
+            if (!restoredReal || (lastLineDate && lastLineDate > currentLastDate)) {
               const csvFile = new File([csvText], 'real_twse_v4.csv', { type: 'text/csv' });
               handleFileUpload(csvFile);
             }
-          } catch (_) {}
-        }
+          }
+        } catch (_) {}
       });
     })();
   </script>
