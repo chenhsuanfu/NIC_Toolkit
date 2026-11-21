@@ -914,7 +914,7 @@
   <div id="param-drawer-wrap" class="fixed inset-0 z-50 hidden">
     <div id="param-drawer-backdrop" class="drawer-backdrop fixed inset-0 bg-slate-950/45 opacity-0"></div>
     <aside id="param-drawer-panel"
-      class="drawer-panel fixed top-0 right-0 h-full w-full max-w-[395px] bg-white shadow-2xl border-l border-slate-200 flex flex-col translate-x-full">
+      class="drawer-panel fixed inset-y-0 right-0 max-h-[100dvh] w-full max-w-[395px] bg-white shadow-2xl border-l border-slate-200 flex flex-col translate-x-full">
       <div class="bg-[#0F172A] text-white px-5 py-4 flex items-center justify-between shrink-0">
         <div>
           <h3 class="text-sm font-bold flex items-center gap-2">
@@ -928,7 +928,7 @@
         </button>
       </div>
 
-      <div class="flex-1 overflow-y-auto p-4 space-y-4">
+      <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 pb-28 space-y-4" style="-webkit-overflow-scrolling: touch; touch-action: pan-y;">
 
         <!-- 區塊 0：五大高命中率濾網一鍵開關 -->
         <div class="rounded-xl border-2 border-blue-200 bg-blue-50/50 p-3.5 space-y-2.5">
