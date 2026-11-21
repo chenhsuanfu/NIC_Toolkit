@@ -1807,6 +1807,34 @@ export class GoodStockUI {
     if (syncAllFinBtn) {
       syncAllFinBtn.addEventListener('click', async () => {
         if (this.isSyncingAllFinancials) return;
+        // Auto-include any newly added TW stock holdings & watchlist into GoodStockData
+        const curState = store.getState();
+        const existingCodes = new Set(GoodStockData.getAllStocks().map((s) => s.code));
+        const extraTwCodes = new Set();
+        for (const r of (curState?.stock?.overview || [])) {
+          const c = String(r['代號'] || '').replace(/\.TW$/i, '').trim();
+          if (/^\d{4}$/.test(c) && !existingCodes.has(c)) extraTwCodes.add(c);
+        }
+        for (const w of (curState?.stock?.watchlist || [])) {
+          const c = String(w['代號'] || '').replace(/\.TW$/i, '').trim();
+          if (/^\d{4}$/.test(c) && !existingCodes.has(c)) extraTwCodes.add(c);
+        }
+        for (const c of extraTwCodes) {
+          const uMatch = GoodStockCore._universeIndex?.stocks?.find((u) => u.code === c);
+          GoodStockData.saveCustomStock({
+            code: c,
+            name: uMatch?.name || c,
+            industry: uMatch?.industry || '上市櫃',
+            price: uMatch?.price || 0,
+            peBands: [12, 16, 20],
+            monthlyRevenues: uMatch?.monthlyRevenues || [],
+            quarters: [],
+            annualDividends: [],
+            priceHistory: [],
+            inUserPortfolio: true
+          });
+        }
+
         const allStocks = GoodStockData.getAllStocks();
         const unsyncedCount = allStocks.filter((s) => s.dataSource !== 'finmind-live').length;
         const onlyUnsynced = unsyncedCount > 0 && unsyncedCount < allStocks.length;
