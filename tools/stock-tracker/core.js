@@ -980,14 +980,19 @@ export const StockCore = {
         const market = String(row['市場'] || '').trim().toUpperCase();
         const isTw = market === 'TW' || /^\d{4,6}[A-Z]?$/.test(rawSym.replace(/\.TW$/i, ''));
         const rate = isTw ? 1 : usdTwd;
-        const costTwd = toNum(row['成本(TWD)'] ?? row['投入成本(TWD)'], 0);
-        const costUsd = toNum(row['成本(USD)'], 0);
+        const avgCostNative = toNum(row['平均成本(原幣)'], 0);
+        const fallbackCostTwd = Math.round(shares * avgCostNative * rate);
+        const costTwd = toNum(row['成本(TWD)'] ?? row['投入成本(TWD)'], 0) || fallbackCostTwd;
+        const fallbackCostUsd = isTw ? Number((costTwd / usdTwd).toFixed(2)) : Number((shares * avgCostNative).toFixed(2));
+        const costUsd = toNum(row['成本(USD)'], 0) || fallbackCostUsd;
         const marketTwd = Math.round(shares * hit.price * rate);
         const marketUsd = isTw ? Number((marketTwd / usdTwd).toFixed(2)) : Number((shares * hit.price).toFixed(2));
         const unrealizedTwd = marketTwd - costTwd;
         const unrealizedUsd = Number((marketUsd - costUsd).toFixed(2));
         const roiRatio = costTwd > 0 ? unrealizedTwd / costTwd : 0;
 
+        row['成本(TWD)'] = String(costTwd);
+        row['成本(USD)'] = String(costUsd);
         row['現價(原幣)'] = String(hit.price);
         row['市值(USD)'] = String(marketUsd);
         row['市值(TWD)'] = String(marketTwd);

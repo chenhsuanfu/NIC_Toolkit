@@ -117,19 +117,19 @@ export class StockTrackerUI {
           <div class="kpi-sub mask-amount">已實現累計 $${fmtInt(summary.realizedTwd)}</div>
         </div>
 
-        <div class="card">
+        <div class="card" data-filter-market-card="TW" style="cursor:pointer; transition:border-color 0.15s, box-shadow 0.15s; ${this.filterMarket === 'TW' ? 'border-color:var(--accent-blue); box-shadow:0 0 0 1px var(--accent-blue);' : ''}" title="點擊篩選台股標的（再點一次恢復全部）">
           <div class="kpi-label">
             <span>台股部位 (TW)</span>
-            <span class="pill">TWD 計價</span>
+            <span class="pill ${this.filterMarket === 'TW' ? 'pill-emerald' : ''}">${this.filterMarket === 'TW' ? '✓ 篩選中' : 'TWD 計價'}</span>
           </div>
           <div class="kpi-value mask-amount">$${fmtInt(summary.twMarketTwd)}</div>
           <div class="kpi-sub">佔總持倉 ${summary.totalMarketTwd ? ((summary.twMarketTwd / summary.totalMarketTwd) * 100).toFixed(1) : 0}%</div>
         </div>
 
-        <div class="card">
+        <div class="card" data-filter-market-card="US" style="cursor:pointer; transition:border-color 0.15s, box-shadow 0.15s; ${this.filterMarket === 'US' ? 'border-color:var(--accent-blue); box-shadow:0 0 0 1px var(--accent-blue);' : ''}" title="點擊篩選美股標的（再點一次恢復全部）">
           <div class="kpi-label">
             <span>美股部位 (US)</span>
-            <span class="pill">USD 折合 TWD</span>
+            <span class="pill ${this.filterMarket === 'US' ? 'pill-emerald' : ''}">${this.filterMarket === 'US' ? '✓ 篩選中' : 'USD 折合 TWD'}</span>
           </div>
           <div class="kpi-value mask-amount">$${fmtInt(summary.usMarketTwd)}</div>
           <div class="kpi-sub">佔總持倉 ${summary.totalMarketTwd ? ((summary.usMarketTwd / summary.totalMarketTwd) * 100).toFixed(1) : 0}%</div>
@@ -1121,6 +1121,15 @@ export class StockTrackerUI {
         }
       });
     }
+
+    container.querySelectorAll('[data-filter-market-card]').forEach((card) => {
+      card.addEventListener('click', () => {
+        const mkt = card.getAttribute('data-filter-market-card');
+        this.filterMarket = this.filterMarket === mkt ? 'ALL' : mkt;
+        this.activeTab = 'holdings';
+        this.render(container, store.getState(), store, showToast);
+      });
+    });
 
     container.querySelectorAll('[data-jump-symbol]').forEach((cell) => {
       cell.addEventListener('click', () => {
