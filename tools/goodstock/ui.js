@@ -171,6 +171,14 @@ export class GoodStockUI {
   }
 
   render(container, state, store, showToast) {
+    if (!this._universeTriggered) {
+      this._universeTriggered = true;
+      GoodStockCore.loadUniverseIndex().then((idx) => {
+        if (idx && idx.stocks?.length) {
+          this.render(container, store.getState(), store, showToast);
+        }
+      });
+    }
     const universe = GoodStockCore.getEnrichedUniverse(state);
     const industries = Array.from(new Set(universe.map((s) => s.industry))).filter(Boolean);
 

@@ -1,0 +1,42 @@
+name: Update GoodStock TWSE+TPEx Universe (Weekly)
+
+on:
+  schedule:
+    # Every Saturday 09:00 Asia/Taipei (01:00 UTC)
+    - cron: '0 1 * * 6'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-universe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install --no-cache-dir requests
+
+      - name: Fetch all TWSE + TPEx stocks from FinMind
+        env:
+          FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+        run: python tools/goodstock/fetch_all_tw_stocks.py
+
+      - name: Commit and push updated tw-universe-index.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet tools/goodstock/tw-universe-index.json; then
+            echo "No changes in tw-universe-index.json."
+            exit 0
+          fi
+          git add tools/goodstock/tw-universe-index.json
+          git commit -m "chore(goodstock): weekly update TWSE+TPEx universe ($(date +'%Y-%m-%d'))"
+          git push

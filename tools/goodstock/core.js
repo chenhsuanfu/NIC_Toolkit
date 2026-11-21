@@ -13,11 +13,54 @@ const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 const mean = (arr) => (arr.length ? arr.reduce((s, x) => s + Number(x || 0), 0) / arr.length : 0);
 
 export const GoodStockCore = {
+  _universeIndex: null,
+  _universePromise: null,
+
+  async loadUniverseIndex() {
+    if (this._universeIndex) return this._universeIndex;
+    if (this._universePromise) return this._universePromise;
+    this._universePromise = (async () => {
+      try {
+        const resp = await fetch('./tools/goodstock/tw-universe-index.json', { cache: 'no-cache' });
+        if (!resp.ok) return null;
+        const json = await resp.json();
+        if (json && Array.isArray(json.stocks) && json.stocks.length > 0) {
+          this._universeIndex = json;
+          return json;
+        }
+      } catch (_) {}
+      return null;
+    })();
+    return this._universePromise;
+  },
+
   /**
    * Retrieve all enriched stock objects (cross-referenced with user's holdings & watchlist in state)
    */
   getEnrichedUniverse(state) {
-    const rawList = GoodStockData.getAllStocks();
+    const baseList = GoodStockData.getAllStocks();
+    const byCode = new Map(baseList.map((s) => [s.code, s]));
+    if (this._universeIndex && Array.isArray(this._universeIndex.stocks)) {
+      for (const u of this._universeIndex.stocks) {
+        if (!u || !u.code) continue;
+        if (!byCode.has(u.code)) {
+          byCode.set(u.code, {
+            code: u.code,
+            name: u.name || u.code,
+            market: u.market || 'TWSE',
+            industry: u.industry || '其他',
+            price: toNum(u.price, 0),
+            pe: u.pe ?? null,
+            pb: u.pb ?? null,
+            yield: u.yield ?? null,
+            monthlyRevenues: Array.isArray(u.monthlyRevenues) ? u.monthlyRevenues : [],
+            quarters: [],
+            dataSource: 'universe-index'
+          });
+        }
+      }
+    }
+    const rawList = Array.from(byCode.values());
     const overview = state?.stock?.overview || [];
     const watchlist = state?.stock?.watchlist || [];
 
@@ -50,7 +93,7 @@ export const GoodStockCore = {
       const q0 = qList[qList.length - 1] || {};
       const qPrev4 = qList.slice(-4);
       const ttmEps = round2(qPrev4.reduce((sum, q) => sum + toNum(q.eps), 0));
-      const pe = ttmEps > 0 ? round2(s.price / ttmEps) : null;
+      const pe = ttmEps > 0 ? round2(s.price / ttmEps) : (s.pe ?? null);
 
       const mList = s.monthlyRevenues || [];
       const m0 = mList[mList.length - 1] || {};
