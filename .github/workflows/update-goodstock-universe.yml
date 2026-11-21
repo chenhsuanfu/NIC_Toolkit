@@ -1,9 +1,9 @@
-name: Update GoodStock TWSE+TPEx Universe (Weekly)
+name: Update GoodStock TWSE+TPEx Universe (Daily 100-Stock Backfill)
 
 on:
   schedule:
-    # Every Saturday 09:00 Asia/Taipei (01:00 UTC)
-    - cron: '0 1 * * 6'
+    # Daily 03:00 Asia/Taipei (19:00 UTC) — completely separated from 16:30 TWSE Radar quota
+    - cron: '0 19 * * *'
   workflow_dispatch:
 
 permissions:
@@ -24,9 +24,10 @@ jobs:
       - name: Install dependencies
         run: pip install --no-cache-dir requests
 
-      - name: Fetch all TWSE + TPEx stocks from FinMind
+      - name: Refresh TWSE+TPEx prices & backfill 100 stocks 8Q financials
         env:
           FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+          GOODSTOCK_BATCH_SIZE: '100'
         run: python tools/goodstock/fetch_all_tw_stocks.py
 
       - name: Commit and push updated tw-universe-index.json
@@ -38,5 +39,5 @@ jobs:
             exit 0
           fi
           git add tools/goodstock/tw-universe-index.json
-          git commit -m "chore(goodstock): weekly update TWSE+TPEx universe ($(date +'%Y-%m-%d'))"
+          git commit -m "chore(goodstock): daily 100-stock 8Q financials backfill ($(date +'%Y-%m-%d'))"
           git push
