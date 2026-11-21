@@ -479,12 +479,29 @@ class LocalFirstStore {
       const pairCode = params.get('pair');
       if (pairCode) {
         const decoded = JSON.parse(atob(decodeURIComponent(pairCode)));
-        if (decoded.gasUrl || decoded.apiToken) {
-          this.saveConfig({
-            gasUrl: decoded.gasUrl || '',
-            apiToken: decoded.apiToken || '',
-            mode: decoded.mode || 'cloud'
-          });
+        if (decoded.radar && typeof decoded.radar === 'object') {
+          try {
+            const curRaw = localStorage.getItem('nic_twse_radar_v1');
+            const cur = curRaw ? JSON.parse(curRaw) : {};
+            const next = { ...cur };
+            if (typeof decoded.radar.t === 'string' && decoded.radar.t.trim()) {
+              next.finmindToken = decoded.radar.t.trim();
+              localStorage.setItem('twse_radar_finmind_token', next.finmindToken);
+            }
+            if (decoded.radar.p && typeof decoded.radar.p === 'object') {
+              next.params = { ...(cur.params || {}), ...decoded.radar.p };
+            }
+            localStorage.setItem('nic_twse_radar_v1', JSON.stringify(next));
+          } catch (_) {}
+        }
+        if (decoded.gasUrl || decoded.apiToken || decoded.radar) {
+          if (decoded.gasUrl || decoded.apiToken) {
+            this.saveConfig({
+              gasUrl: decoded.gasUrl || '',
+              apiToken: decoded.apiToken || '',
+              mode: decoded.mode || 'cloud'
+            });
+          }
           // Only strip URL in standalone mode so iOS Safari "Add to Home Screen" keeps ?pair=...
           const isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
           if (isStandalone && rawUrl === window.location.search) {

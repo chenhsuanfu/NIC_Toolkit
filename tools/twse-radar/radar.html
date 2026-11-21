@@ -1,0 +1,3725 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TWSE 減碼行動雷達 v3.0｜真實台股波段避險戰情室</title>
+
+  <!-- Google Fonts: Inter + Noto Sans TC + JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'Noto Sans TC', 'Microsoft JhengHei', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'Inter', 'monospace'],
+          }
+        }
+      }
+    };
+  </script>
+
+  <!-- Apache ECharts 5 CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+
+  <!-- SheetJS (xlsx) CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+
+  <style>
+    .tabular-nums {
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* 細緻現代捲軸 */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #F1F5F9;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #CBD5E1;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94A3B8;
+    }
+
+    /* 滑桿美化 */
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      height: 5px;
+      border-radius: 9999px;
+      background: #E2E8F0;
+      outline: none;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 15px;
+      height: 15px;
+      border-radius: 9999px;
+      background: #0F172A;
+      border: 2px solid #FFFFFF;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.35);
+      cursor: pointer;
+      transition: transform 0.12s ease, background-color 0.12s ease;
+    }
+    input[type="range"]::-webkit-slider-thumb:hover {
+      transform: scale(1.15);
+      background: #2563EB;
+    }
+    input[type="range"]:disabled {
+      opacity: 0.38;
+      cursor: not-allowed;
+    }
+
+    /* Toast 動畫 */
+    @keyframes toastSlideIn {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .toast-anim {
+      animation: toastSlideIn 0.22s ease-out forwards;
+    }
+
+    /* Drawer 滑出動畫 */
+    .drawer-backdrop {
+      transition: opacity 0.2s ease;
+    }
+    .drawer-panel {
+      transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    /* 卡片選中高亮 */
+    .action-card-selected {
+      box-shadow: 0 0 0 2px #2563EB;
+      background-color: #EFF6FF !important;
+    }
+  </style>
+</head>
+
+<body class="bg-[#F8FAFC] text-slate-800 font-sans antialiased selection:bg-blue-100 selection:text-blue-900">
+
+  <!-- ==================== 自訂 Toast 通知容器 ==================== -->
+  <div id="toast-container" class="fixed top-16 right-4 z-[70] flex flex-col gap-2 max-w-md pointer-events-none"></div>
+
+  <!-- ==================== 頂部導覽列 ==================== -->
+  <header class="sticky top-0 z-40 bg-[#0F172A] text-white border-b border-slate-800 shadow-md">
+    <div class="max-w-[1920px] mx-auto px-4 lg:px-6 py-2.5 flex flex-wrap items-center justify-between gap-3">
+
+      <!-- 品牌與真實資料狀態徽章 -->
+      <div class="flex flex-wrap items-center gap-3">
+        <div class="flex items-center gap-2.5">
+          <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 via-rose-500 to-indigo-600 flex items-center justify-center shadow-inner shrink-0">
+            <i data-lucide="radar" class="w-5 h-5 text-white"></i>
+          </div>
+          <div>
+            <h1 class="text-sm sm:text-base font-bold tracking-tight text-white leading-tight">
+              TWSE 減碼行動雷達 <span class="text-amber-400 font-mono">v3.0</span>
+            </h1>
+            <p class="text-[11px] text-slate-400 leading-tight">真實台股波段避險戰情室</p>
+          </div>
+        </div>
+
+        <!-- 誠實資料來源徽章 (點擊可開啟資料中心) -->
+        <button id="btn-status-badge" type="button"
+          class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition cursor-pointer bg-amber-500/15 text-amber-300 border-amber-400/40 hover:bg-amber-500/25">
+          <span id="status-badge-text">⚠️ 示範模擬數據 (點擊匯入真實台股)</span>
+        </button>
+      </div>
+
+      <!-- 頂部功能按鈕列 -->
+      <div class="flex flex-wrap items-center gap-2">
+        <button id="btn-open-datacenter" type="button"
+          class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-bold transition shadow-sm cursor-pointer">
+          <i data-lucide="database" class="w-3.5 h-3.5"></i>
+          <span>載入真實台股資料</span>
+        </button>
+
+        <button id="btn-open-whatif" type="button"
+          class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 active:bg-amber-600 text-slate-950 text-xs font-bold transition shadow-sm cursor-pointer">
+          <i data-lucide="calculator" class="w-3.5 h-3.5"></i>
+          <span>今晚盤後試算 (What-If)</span>
+        </button>
+
+        <button id="btn-open-drawer" type="button"
+          class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 text-xs font-semibold transition cursor-pointer">
+          <i data-lucide="sliders-horizontal" class="w-3.5 h-3.5"></i>
+          <span>快速調參</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ==================== 主內容容器 ==================== -->
+  <main class="max-w-[1920px] mx-auto px-4 lg:px-6 py-4 space-y-4">
+
+    <!-- ==================== TOP HERO：明日 T+1 減碼行動指令列 ==================== -->
+    <section id="hero-action-bar" class="rounded-2xl border-2 bg-white shadow-sm overflow-hidden transition-colors">
+      <div class="p-4 sm:p-5 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+
+        <!-- 左側：最新日期、指數與超明確行動判決 -->
+        <div class="flex items-start sm:items-center gap-4 min-w-0">
+          <div id="hero-icon-box" class="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex flex-col items-center justify-center shrink-0 shadow-sm border-2 bg-emerald-600 border-emerald-400 text-white">
+            <span id="hero-emoji" class="text-2xl leading-none">🟢</span>
+            <span id="hero-score-tag" class="text-[11px] font-mono font-bold mt-1 tabular-nums">0/3分</span>
+          </div>
+
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-2 text-xs">
+              <span class="font-bold uppercase tracking-wider text-slate-400">明日 T+1 減碼行動指令</span>
+              <span id="hero-date-pill" class="font-mono font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 tabular-nums">--</span>
+              <span id="hero-close-pill" class="font-mono font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-800 tabular-nums">TAIEX --</span>
+              <span id="hero-priceonly-pill" class="hidden px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-700 font-semibold text-[11px]">
+                純價量模式 (無籌碼欄位)
+              </span>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2.5 mt-1.5">
+              <h2 id="hero-verdict" class="text-xl sm:text-2xl font-extrabold tracking-tight text-emerald-700">
+                🟢 安全持有（維持 100%）
+              </h2>
+              <span id="hero-pos-transition" class="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-emerald-100 text-emerald-800 tabular-nums">
+                明日目標倉位：100%
+              </span>
+            </div>
+
+            <p id="hero-rationale" class="text-xs sm:text-sm text-slate-600 mt-1 leading-relaxed">
+              正在計算最新盤後動態門檻與訊號狀態...
+            </p>
+          </div>
+        </div>
+
+        <!-- 右側：3 顆即時訊號狀態膠囊 (數值 vs 252日動態門檻) -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 xl:w-[620px] shrink-0">
+          <!-- 訊號 1 膠囊 -->
+          <div id="hero-pill-1" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 transition">
+            <div class="flex items-center justify-between gap-1 mb-1">
+              <span class="text-[11px] font-bold text-slate-700">1. 外資期現雙空</span>
+              <span id="hero-s1-state" class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700">安全</span>
+            </div>
+            <div id="hero-s1-metric" class="text-[11px] font-mono text-slate-600 leading-snug tabular-nums">--</div>
+          </div>
+
+          <!-- 訊號 2 膠囊 -->
+          <div id="hero-pill-2" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 transition">
+            <div class="flex items-center justify-between gap-1 mb-1">
+              <span class="text-[11px] font-bold text-slate-700">2. 趨勢量價破線</span>
+              <span id="hero-s2-state" class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700">安全</span>
+            </div>
+            <div id="hero-s2-metric" class="text-[11px] font-mono text-slate-600 leading-snug tabular-nums">--</div>
+          </div>
+
+          <!-- 訊號 3 膠囊 -->
+          <div id="hero-pill-3" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 transition">
+            <div class="flex items-center justify-between gap-1 mb-1">
+              <span class="text-[11px] font-bold text-slate-700">3. 恐慌波動/融資</span>
+              <span id="hero-s3-state" class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700">安全</span>
+            </div>
+            <div id="hero-s3-metric" class="text-[11px] font-mono text-slate-600 leading-snug tabular-nums">--</div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ==================== 主功能分頁導覽列與分頁內容 ==================== -->
+    <section class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+
+      <!-- 4 分頁標籤列 -->
+      <div class="border-b border-slate-200 px-3 sm:px-5 bg-slate-50/80 flex items-center justify-between flex-wrap gap-2">
+        <nav class="flex overflow-x-auto -mb-px gap-1 sm:gap-2" role="tablist">
+          <button type="button" data-tab="tab-radar"
+            class="tab-btn whitespace-nowrap px-3.5 py-3.5 text-xs sm:text-sm font-bold border-b-2 border-slate-900 text-slate-900 transition cursor-pointer">
+            🎯 減碼雷達 &amp; 行動清單
+          </button>
+          <button type="button" data-tab="tab-calendar"
+            class="tab-btn whitespace-nowrap px-3.5 py-3.5 text-xs sm:text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-800 transition cursor-pointer">
+            📅 年度減碼日曆 (一秒掃全年)
+          </button>
+          <button type="button" data-tab="tab-audit"
+            class="tab-btn whitespace-nowrap px-3.5 py-3.5 text-xs sm:text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-800 transition cursor-pointer">
+            📊 避險績效 &amp; 歷次大跌複盤
+          </button>
+          <button type="button" data-tab="tab-optimize"
+            class="tab-btn whitespace-nowrap px-3.5 py-3.5 text-xs sm:text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-800 transition cursor-pointer">
+            ⚙️ 參數最佳化掃描
+          </button>
+        </nav>
+
+        <div id="header-meta-info" class="hidden xl:flex items-center gap-3 text-[11px] font-mono text-slate-500 py-2 tabular-nums">
+          <span>有效樣本：--</span>
+        </div>
+      </div>
+
+      <!-- =================================================================== -->
+      <!-- 分頁 1：🎯 減碼雷達 & 行動清單 (預設視圖：68% 圖表 / 32% 行動清單) -->
+      <!-- =================================================================== -->
+      <div id="tab-radar" class="tab-panel p-4 sm:p-5">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+
+          <!-- 左側 (68% -> 8/12)：主走勢行動圖 + 聯動淨值/倉位圖 -->
+          <div class="lg:col-span-8 space-y-3 min-w-0">
+
+            <!-- 圖表控制列：清晰模式切換 + 陰影開關 + 快速縮放 -->
+            <div class="rounded-xl bg-slate-50 border border-slate-200 px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-3">
+              <!-- 模式與疊加切換 -->
+              <div class="flex flex-wrap items-center gap-3 text-xs">
+                <div class="inline-flex rounded-lg bg-white border border-slate-200 p-0.5 shadow-sm">
+                  <button id="btn-mode-actions" type="button"
+                    class="px-2.5 py-1 rounded-md font-bold bg-slate-900 text-white transition cursor-pointer">
+                    ● 僅顯示實際加減碼日 (最清晰)
+                  </button>
+                  <button id="btn-mode-allsignals" type="button"
+                    class="px-2.5 py-1 rounded-md font-medium text-slate-600 hover:text-slate-900 transition cursor-pointer">
+                    ○ 顯示所有亮燈日
+                  </button>
+                </div>
+
+                <label class="inline-flex items-center gap-1.5 cursor-pointer select-none font-medium text-slate-700">
+                  <input id="chk-defense-band" type="checkbox" checked class="w-4 h-4 rounded text-amber-600 border-slate-300 cursor-pointer" />
+                  <span>減碼防禦陰影帶</span>
+                </label>
+
+                <label class="inline-flex items-center gap-1.5 cursor-pointer select-none font-medium text-slate-700">
+                  <input id="chk-crash-band" type="checkbox" checked class="w-4 h-4 rounded text-rose-600 border-slate-300 cursor-pointer" />
+                  <span>疊加事後大跌紅區</span>
+                </label>
+              </div>
+
+              <!-- 快速縮放按鈕 -->
+              <div class="flex items-center gap-1.5">
+                <button type="button" data-zoom="3m" class="zoom-btn px-2.5 py-1 rounded-lg text-xs font-semibold bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 transition cursor-pointer">近 3 個月</button>
+                <button type="button" data-zoom="1y" class="zoom-btn px-2.5 py-1 rounded-lg text-xs font-semibold bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 transition cursor-pointer">近 1 年</button>
+                <button type="button" data-zoom="3y" class="zoom-btn px-2.5 py-1 rounded-lg text-xs font-semibold bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 transition cursor-pointer">近 3 年</button>
+                <button type="button" data-zoom="all" class="zoom-btn px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-900 border border-slate-900 text-white transition cursor-pointer">全部區間</button>
+              </div>
+            </div>
+
+            <!-- 主圖：大盤走勢 × 實際加減碼點位 -->
+            <div class="rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
+              <div id="chart-radar-price" class="w-full h-[380px] sm:h-[420px]"></div>
+            </div>
+
+            <!-- 副圖：聯動策略淨值 vs Buy & Hold + 右軸持股水位階梯 -->
+            <div class="rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
+              <div id="chart-radar-equity" class="w-full h-[225px] sm:h-[245px]"></div>
+            </div>
+          </div>
+
+          <!-- 右側 (32% -> 4/12)：哪天該減碼？歷史行動清單 -->
+          <div class="lg:col-span-4 rounded-2xl border border-slate-200 bg-slate-50/70 flex flex-col h-[660px] lg:h-[742px] overflow-hidden">
+            <!-- 清單頂部標題與匯出 -->
+            <div class="p-3.5 bg-white border-b border-slate-200 space-y-2.5 shrink-0">
+              <div class="flex items-center justify-between gap-2">
+                <div>
+                  <h3 class="text-sm font-extrabold text-slate-900 flex items-center gap-1.5">
+                    <span>哪天該減碼？歷史行動清單</span>
+                  </h3>
+                  <p class="text-[11px] text-slate-500">依最新日期排序・點擊任一卡片直接縮放定位圖表</p>
+                </div>
+                <button id="btn-export-actions-csv" type="button"
+                  class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold transition shadow-sm cursor-pointer shrink-0">
+                  <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                  <span>匯出 CSV</span>
+                </button>
+              </div>
+
+              <!-- 篩選膠囊 -->
+              <div class="flex flex-wrap items-center gap-1.5" id="action-filter-group">
+                <button type="button" data-filter="all"
+                  class="action-filter-btn px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-900 text-white transition cursor-pointer">
+                  全部 (<span id="cnt-all">0</span>)
+                </button>
+                <button type="button" data-filter="cut"
+                  class="action-filter-btn px-2.5 py-1 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 transition cursor-pointer">
+                  ✂️ 減碼/重砍 (<span id="cnt-cut">0</span>)
+                </button>
+                <button type="button" data-filter="buyback"
+                  class="action-filter-btn px-2.5 py-1 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 transition cursor-pointer">
+                  🔄 回補 (<span id="cnt-buyback">0</span>)
+                </button>
+                <button type="button" data-filter="hit"
+                  class="action-filter-btn px-2.5 py-1 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 transition cursor-pointer">
+                  ✅ 命中大跌 (<span id="cnt-hit">0</span>)
+                </button>
+              </div>
+            </div>
+
+            <!-- 可捲動卡片清單 -->
+            <div id="action-list-container" class="flex-1 overflow-y-auto p-3 space-y-2.5">
+              <!-- JS 動態生成 -->
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- =================================================================== -->
+      <!-- 分頁 2：📅 年度減碼日曆 (一秒掃全年)                                -->
+      <!-- =================================================================== -->
+      <div id="tab-calendar" class="tab-panel hidden p-4 sm:p-6 space-y-5">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 class="text-base font-extrabold text-slate-900">年度減碼行動日曆熱力圖</h3>
+            <p class="text-xs text-slate-500 mt-0.5">一秒檢視整年 12 個月的減碼日、重砍日、防禦區間與回補日；點擊日曆上任意一天立即跳回雷達圖特寫。</p>
+          </div>
+
+          <!-- 年份選擇膠囊列 -->
+          <div id="calendar-year-pills" class="flex flex-wrap items-center gap-1.5"></div>
+        </div>
+
+        <!-- 圖例說明列 -->
+        <div class="flex flex-wrap items-center gap-4 text-xs font-medium text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5">
+          <span class="inline-flex items-center gap-1.5"><span class="w-3.5 h-3.5 rounded bg-[#E2E8F0] border border-slate-300"></span>正常持有 (100%)</span>
+          <span class="inline-flex items-center gap-1.5"><span class="w-3.5 h-3.5 rounded bg-[#FECDD3] border border-rose-300"></span>減碼防禦持有中 (&lt;100%)</span>
+          <span class="inline-flex items-center gap-1.5"><span class="w-3.5 h-3.5 rounded bg-[#F59E0B]"></span>✂️ 首次黃燈減碼執行日</span>
+          <span class="inline-flex items-center gap-1.5"><span class="w-3.5 h-3.5 rounded bg-[#E11D48]"></span>🚨 首次紅燈重砍執行日</span>
+          <span class="inline-flex items-center gap-1.5"><span class="w-3.5 h-3.5 rounded bg-[#10B981]"></span>🔄 警報解除回補執行日</span>
+        </div>
+
+        <!-- ECharts 日曆容器 -->
+        <div class="rounded-2xl border border-slate-200 bg-white p-3 sm:p-4 shadow-sm overflow-x-auto">
+          <div id="chart-calendar" class="w-full min-w-[780px] h-[300px]"></div>
+        </div>
+
+        <!-- 該年度統計摘要卡片 -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3.5" id="calendar-year-stats">
+          <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div class="text-xs font-semibold text-slate-500">該年度減碼 / 重砍次數</div>
+            <div id="cal-stat-cuts" class="text-2xl font-extrabold font-mono text-amber-600 mt-1 tabular-nums">-- 次</div>
+            <div id="cal-stat-buybacks" class="text-[11px] text-slate-500 mt-0.5 tabular-nums">回補操作：-- 次</div>
+          </div>
+
+          <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div class="text-xs font-semibold text-slate-500">減碼防禦總天數</div>
+            <div id="cal-stat-defdays" class="text-2xl font-extrabold font-mono text-rose-600 mt-1 tabular-nums">-- 日</div>
+            <div id="cal-stat-defratio" class="text-[11px] text-slate-500 mt-0.5 tabular-nums">佔全年交易日 --%</div>
+          </div>
+
+          <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div class="text-xs font-semibold text-slate-500">年度報酬 (大盤 vs 避險策略)</div>
+            <div id="cal-stat-ret" class="text-xl font-extrabold font-mono text-indigo-700 mt-1 tabular-nums">--% vs --%</div>
+            <div class="text-[11px] text-slate-500 mt-0.5">含單邊交易摩擦成本</div>
+          </div>
+
+          <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div class="text-xs font-semibold text-slate-500">年度最大回撤 MDD 對比</div>
+            <div id="cal-stat-mdd" class="text-xl font-extrabold font-mono text-emerald-700 mt-1 tabular-nums">--% → --%</div>
+            <div id="cal-stat-mdd-diff" class="text-[11px] text-slate-500 mt-0.5 tabular-nums">回撤改善 --</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- =================================================================== -->
+      <!-- 分頁 3：📊 避險績效 & 歷次大跌複盤                                  -->
+      <!-- =================================================================== -->
+      <div id="tab-audit" class="tab-panel hidden p-4 sm:p-6 space-y-6">
+
+        <!-- 5 張關鍵 KPI 卡片 -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3.5">
+          <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div class="text-xs font-semibold text-slate-500">減碼命中率 (Action Precision)</div>
+            <div id="kpi-action-prec" class="text-2xl font-extrabold font-mono text-blue-600 mt-1 tabular-nums">--%</div>
+            <div id="kpi-action-prec-sub" class="text-[11px] text-slate-500 mt-1 tabular-nums">成功躲過後續大跌：-- / -- 次</div>
+          </div>
+
+          <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div class="text-xs font-semibold text-slate-500">波段大跌捕捉率 (Event Recall)</div>
+            <div id="kpi-event-recall" class="text-2xl font-extrabold font-mono text-emerald-600 mt-1 tabular-nums">--%</div>
+            <div id="kpi-event-recall-sub" class="text-[11px] text-slate-500 mt-1 tabular-nums">抓到歷史股災波段：-- / -- 次</div>
+          </div>
+
+          <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div class="text-xs font-semibold text-slate-500">總加減碼次數 (年均操作)</div>
+            <div id="kpi-trades" class="text-2xl font-extrabold font-mono text-amber-600 mt-1 tabular-nums">-- 次</div>
+            <div id="kpi-trades-sub" class="text-[11px] text-slate-500 mt-1 tabular-nums">平均每年 -- 次｜累計成本 --%</div>
+          </div>
+
+          <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-slate-500">最大回撤改善 (MDD)</span>
+              <span id="kpi-mdd-badge" class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700 tabular-nums">--</span>
+            </div>
+            <div id="kpi-mdd" class="text-xl font-extrabold font-mono text-rose-600 mt-1.5 tabular-nums">--% → --%</div>
+            <div class="text-[11px] text-slate-500 mt-1">買進持有 B&amp;H → 避險策略</div>
+          </div>
+
+          <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div class="text-xs font-semibold text-slate-500">累積淨報酬對比 (含成本)</div>
+            <div id="kpi-net-ret" class="text-xl font-extrabold font-mono text-indigo-700 mt-1.5 tabular-nums">--% vs --%</div>
+            <div id="kpi-calmar-sub" class="text-[11px] text-slate-500 mt-1 tabular-nums">Calmar：-- → --</div>
+          </div>
+        </div>
+
+        <!-- ECharts 水下回撤對比圖 -->
+        <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <div>
+              <h3 class="text-sm font-extrabold text-slate-900">水下回撤對比圖 (Underwater Drawdown %)</h3>
+              <p class="text-[11px] text-slate-500">直觀檢視每次大跌發生時，避險減碼策略如何大幅收斂帳面最大虧損深度</p>
+            </div>
+          </div>
+          <div id="chart-drawdown" class="w-full h-[270px]"></div>
+        </div>
+
+        <!-- 歷次大跌波段事件複盤表 -->
+        <div class="space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 class="text-sm font-extrabold text-slate-900">歷次波段大跌事件複盤表 (Crash Wave Audit)</h3>
+              <p class="text-xs text-slate-500 mt-0.5">將連續或間隔 ≤ 10 交易日的大跌標記歸納為獨立波段，檢視「首次減碼時已跌多少」與「幫你避開多少主跌段」。</p>
+            </div>
+            <span id="audit-wave-pill" class="px-3 py-1 rounded-lg bg-slate-100 border border-slate-200 text-xs font-mono font-bold text-slate-700 tabular-nums">
+              共 -- 次大跌波段
+            </span>
+          </div>
+
+          <div class="overflow-x-auto rounded-xl border border-slate-200">
+            <table class="w-full text-xs text-left">
+              <thead class="bg-slate-100 text-slate-600 border-b border-slate-200">
+                <tr>
+                  <th class="px-3 py-3 font-bold">波段</th>
+                  <th class="px-3 py-3 font-bold">波段高點日 ～ 見底日</th>
+                  <th class="px-3 py-3 font-bold text-right">波段最大跌幅</th>
+                  <th class="px-3 py-3 font-bold text-center">避險狀態</th>
+                  <th class="px-3 py-3 font-bold">首次減碼執行日</th>
+                  <th class="px-3 py-3 font-bold text-right">減碼前已跌</th>
+                  <th class="px-3 py-3 font-bold text-right">成功避開後續跌幅</th>
+                  <th class="px-3 py-3 font-bold text-center">操作</th>
+                </tr>
+              </thead>
+              <tbody id="tbody-crash-waves" class="divide-y divide-slate-100 bg-white tabular-nums"></tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- =================================================================== -->
+      <!-- 分頁 4：⚙️ 參數最佳化掃描                                            -->
+      <!-- =================================================================== -->
+      <div id="tab-optimize" class="tab-panel hidden p-4 sm:p-6 space-y-5">
+
+        <!-- 當前參數總覽卡片 + 快速編輯入口 -->
+        <div class="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div class="space-y-1.5">
+            <div class="flex items-center gap-2">
+              <h3 class="text-sm font-extrabold text-slate-900">目前運作中的量化參數配置</h3>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700">即時同步全站</span>
+            </div>
+            <div id="opt-current-params-summary" class="flex flex-wrap gap-2 text-xs font-mono text-slate-700 tabular-nums">
+              <!-- JS 動態渲染目前參數標籤 -->
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 shrink-0">
+            <button id="btn-opt-open-drawer" type="button"
+              class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-slate-800 text-xs font-bold transition cursor-pointer">
+              <i data-lucide="sliders-horizontal" class="w-3.5 h-3.5"></i>
+              <span>開啟完整參數面板</span>
+            </button>
+            <button id="btn-opt-reset" type="button"
+              class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-xs font-semibold transition cursor-pointer">
+              <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+              <span>恢復預設參數</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 一鍵網格最佳化橫幅 -->
+        <div class="rounded-2xl bg-gradient-to-r from-[#0F172A] to-[#1E293B] text-white p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
+            <div class="flex items-center gap-2">
+              <h3 class="text-base font-bold">一鍵參數網格最佳化掃描 (Grid Search)</h3>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-400/20 text-amber-300 border border-amber-400/30">命中率 + MDD 改善排序</span>
+            </div>
+            <p class="text-xs text-slate-300 mt-1 leading-relaxed max-w-2xl">
+              針對目前載入的台股資料，自動測試「期貨/現貨分位門檻 × 波動率分位門檻 × 破線確認天數 (1/2/3天)」共 54 組核心參數組合，依綜合評分（減碼命中率 50% + MDD 壓縮改善 50%）列出前 8 名推薦參數。
+            </p>
+          </div>
+          <button id="btn-run-grid" type="button"
+            class="shrink-0 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-500 hover:bg-blue-400 active:bg-blue-600 text-white text-xs sm:text-sm font-bold shadow-lg transition cursor-pointer">
+            <i data-lucide="zap" class="w-4 h-4"></i>
+            <span>開始網格掃描</span>
+          </button>
+        </div>
+
+        <!-- 進度條 -->
+        <div id="grid-progress-wrap" class="hidden space-y-1.5">
+          <div class="flex justify-between text-xs font-semibold text-slate-600">
+            <span id="grid-progress-text">掃描中...</span>
+            <span id="grid-progress-pct" class="font-mono tabular-nums">0%</span>
+          </div>
+          <div class="w-full h-2 rounded-full bg-slate-200 overflow-hidden">
+            <div id="grid-progress-bar" class="h-full bg-blue-600 transition-all duration-150" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <!-- Top 8 推薦參數表格 -->
+        <div class="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+          <table class="w-full text-xs text-left">
+            <thead class="bg-slate-100 text-slate-600 border-b border-slate-200">
+              <tr>
+                <th class="px-3 py-3 font-bold text-center">排名</th>
+                <th class="px-3 py-3 font-bold">參數組合 (籌碼分位 / 波動分位 / 破線確認)</th>
+                <th class="px-3 py-3 font-bold text-right">減碼命中率</th>
+                <th class="px-3 py-3 font-bold text-right">大跌捕捉率</th>
+                <th class="px-3 py-3 font-bold text-right">策略 MDD</th>
+                <th class="px-3 py-3 font-bold text-right">MDD 壓縮改善</th>
+                <th class="px-3 py-3 font-bold text-right">加減碼次數</th>
+                <th class="px-3 py-3 font-bold text-right">綜合評分</th>
+                <th class="px-3 py-3 font-bold text-center">操作</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-grid" class="divide-y divide-slate-100 tabular-nums">
+              <tr>
+                <td colspan="9" class="px-4 py-12 text-center text-slate-400">
+                  點擊上方「開始網格掃描」，自動尋找最適合目前資料集的減碼參數組合
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+
+    </section>
+  </main>
+
+  <!-- ========================================================================= -->
+  <!-- MODAL 1：真實台股資料中心 (3 Modes: FinMind 直連 / 拖曳匯入 / Python 腳本) -->
+  <!-- ========================================================================= -->
+  <div id="datacenter-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/60 backdrop-blur-sm p-3 sm:p-4">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden">
+
+      <!-- Modal Header -->
+      <div class="bg-[#0F172A] text-white px-5 py-4 flex items-center justify-between shrink-0">
+        <div>
+          <h3 class="text-base font-bold flex items-center gap-2">
+            <i data-lucide="database" class="w-4 h-4 text-blue-400"></i>
+            <span>真實台股資料中心 (TAIEX + 外資期現貨 + 融資)</span>
+          </h3>
+          <p class="text-[11px] text-slate-400 mt-0.5">選擇任一方式載入真實台灣加權指數盤後數據，匯入後全站將立即切換為真實歷史回測</p>
+        </div>
+        <button id="btn-close-datacenter" type="button" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- 3 Mode Tabs -->
+      <div class="border-b border-slate-200 bg-slate-50 px-4 flex overflow-x-auto gap-1 shrink-0">
+        <button type="button" data-dctab="dc-finmind"
+          class="dc-tab-btn whitespace-nowrap px-3.5 py-3 text-xs font-bold border-b-2 border-blue-600 text-blue-700 transition cursor-pointer">
+          ⚡ 模式 A：一鍵直連 FinMind API
+        </button>
+        <button type="button" data-dctab="dc-upload"
+          class="dc-tab-btn whitespace-nowrap px-3.5 py-3 text-xs font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-800 transition cursor-pointer">
+          📂 模式 B：匯入 CSV / Excel
+        </button>
+        <button type="button" data-dctab="dc-python"
+          class="dc-tab-btn whitespace-nowrap px-3.5 py-3 text-xs font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-800 transition cursor-pointer">
+          🐍 模式 C：Python 真實抓取腳本
+        </button>
+      </div>
+
+      <!-- Modal Scrollable Body -->
+      <div class="p-5 overflow-y-auto space-y-4">
+
+        <!-- 模式 A：FinMind 直連 -->
+        <div id="dc-finmind" class="dc-panel space-y-4">
+          <div class="rounded-xl bg-blue-50 border border-blue-200 p-3.5 text-xs text-blue-900 leading-relaxed">
+            <strong>直接從瀏覽器連線 FinMind 公開資料 API：</strong>自動抓取加權指數（TAIEX）、外資現貨買賣超、台指期（TX）外資未平倉淨口數與大盤融資餘額，並自動以收盤價補算 20 日年化波動率。
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <div>
+              <label for="fm-start" class="block text-xs font-bold text-slate-700 mb-1">開始日期</label>
+              <input id="fm-start" type="date" value="2020-01-01"
+                class="w-full px-3 py-2 rounded-xl border border-slate-300 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label for="fm-end" class="block text-xs font-bold text-slate-700 mb-1">結束日期</label>
+              <input id="fm-end" type="date" value="2026-11-20"
+                class="w-full px-3 py-2 rounded-xl border border-slate-300 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+          </div>
+
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label for="fm-token" class="text-xs font-bold text-slate-700">FinMind API Token（選填，自動儲存在本機瀏覽器）</label>
+              <span class="text-[11px] text-slate-500">免 Token 限 300 次/時｜免費註冊 Token 600 次/時</span>
+            </div>
+            <input id="fm-token" type="password" placeholder="可留空直接抓取，或貼上你的 FinMind API Token"
+              class="w-full px-3 py-2 rounded-xl border border-slate-300 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+
+          <!-- 4 步驟即時抓取進度條 -->
+          <div id="fm-progress-panel" class="hidden rounded-xl border border-slate-200 bg-slate-50 p-3.5 space-y-2 text-xs">
+            <div class="font-bold text-slate-800 mb-1">FinMind 4 項真實數據抓取進度：</div>
+            <div id="fm-step-1" class="flex items-center justify-between font-mono text-slate-500">
+              <span>1. 加權股價指數 (TaiwanStockPrice / TAIEX)</span><span class="step-status">等待中</span>
+            </div>
+            <div id="fm-step-2" class="flex items-center justify-between font-mono text-slate-500">
+              <span>2. 外資現貨買賣超 (TaiwanStockTotalInstitutionalInvestors)</span><span class="step-status">等待中</span>
+            </div>
+            <div id="fm-step-3" class="flex items-center justify-between font-mono text-slate-500">
+              <span>3. 外資台指期未平倉 (TaiwanFuturesInstitutionalInvestors / TX)</span><span class="step-status">等待中</span>
+            </div>
+            <div id="fm-step-4" class="flex items-center justify-between font-mono text-slate-500">
+              <span>4. 大盤融資餘額 (TaiwanStockTotalMarginPurchaseShortSale)</span><span class="step-status">等待中</span>
+            </div>
+          </div>
+
+          <!-- 錯誤訊息 + 一鍵轉往 Python 腳本提示 -->
+          <div id="fm-error-box" class="hidden rounded-xl border border-rose-200 bg-rose-50 p-3.5 space-y-2.5 text-xs text-rose-900">
+            <div class="font-bold flex items-center gap-1.5">
+              <i data-lucide="alert-triangle" class="w-4 h-4 text-rose-600 shrink-0"></i>
+              <span id="fm-error-title">連線 FinMind API 失敗</span>
+            </div>
+            <p id="fm-error-detail" class="leading-relaxed text-rose-800">--</p>
+            <div class="flex flex-wrap gap-2 pt-1">
+              <button id="btn-goto-python" type="button"
+                class="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold transition cursor-pointer">
+                改用模式 C：下載 Python 抓取腳本 →
+              </button>
+              <button id="btn-goto-upload" type="button"
+                class="px-3 py-1.5 rounded-lg bg-white border border-rose-300 hover:bg-rose-100 text-rose-800 font-semibold transition cursor-pointer">
+                改用模式 B：匯入本機 CSV / Excel
+              </button>
+            </div>
+          </div>
+
+          <div class="flex justify-end">
+            <button id="btn-fetch-finmind" type="button"
+              class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs sm:text-sm font-bold shadow-md transition cursor-pointer">
+              <i data-lucide="cloud-download" class="w-4 h-4"></i>
+              <span>立即抓取真實台股數據</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 模式 B：拖曳匯入 CSV / Excel -->
+        <div id="dc-upload" class="dc-panel hidden space-y-4">
+          <input type="file" id="file-upload-input" accept=".csv,.xlsx,.xls" class="hidden" />
+
+          <div id="drop-zone"
+            class="rounded-2xl border-2 border-dashed border-slate-300 hover:border-blue-500 hover:bg-blue-50/40 bg-slate-50 p-8 text-center transition cursor-pointer">
+            <div class="w-12 h-12 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center mx-auto mb-3">
+              <i data-lucide="upload-cloud" class="w-6 h-6"></i>
+            </div>
+            <div class="text-sm font-bold text-slate-800">拖曳 .csv / .xlsx / .xls 檔案到此處，或點擊選擇檔案</div>
+            <p class="text-xs text-slate-500 mt-1">智慧自動辨識中英文欄位；即使僅有日期＋收盤價（如 Yahoo Finance ^TWII）也可自動啟用「純價量趨勢避險模式」</p>
+          </div>
+
+          <div class="rounded-xl border border-slate-200 bg-white p-3.5 text-xs space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-slate-800">支援自動辨識欄位對照表：</span>
+              <button id="btn-download-template" type="button"
+                class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold transition cursor-pointer">
+                <i data-lucide="file-spreadsheet" class="w-3.5 h-3.5"></i>
+                <span>下載標準範本 CSV</span>
+              </button>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[11px] font-mono text-slate-600">
+              <div><b class="text-slate-800">Date / 日期</b>：交易日期 (必要)</div>
+              <div><b class="text-slate-800">Close / 收盤價 / 加權指數</b>：收盤點數 (必要)</div>
+              <div><b class="text-slate-800">Volume / 成交金額 / 成交量</b>：大盤量能 (選填)</div>
+              <div><b class="text-slate-800">Foreign_Fut_OI / 外資期貨淨口數</b>：台指期 (選填)</div>
+              <div><b class="text-slate-800">Foreign_Spot_Net / 外資買賣超</b>：現貨億元 (選填)</div>
+              <div><b class="text-slate-800">Margin_Balance / 融資餘額</b>：大盤融資億元 (選填)</div>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between pt-1">
+            <button id="btn-restore-demo" type="button"
+              class="text-xs font-semibold text-slate-500 hover:text-slate-800 underline cursor-pointer">
+              切回內建示範模擬數據 (2018-2026)
+            </button>
+          </div>
+        </div>
+
+        <!-- 模式 C：Python 真實資料抓取腳本 -->
+        <div id="dc-python" class="dc-panel hidden space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <p class="text-xs text-slate-600">
+              若瀏覽器受限於網路/CORS，或想在電腦排程抓取，請執行此 Python 腳本產生 <code class="px-1.5 py-0.5 rounded bg-slate-100 font-mono text-slate-800">real_twse_data.csv</code> 再拖回「模式 B」匯入。
+            </p>
+            <div class="flex items-center gap-2">
+              <button id="btn-copy-python" type="button"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition cursor-pointer">
+                <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                <span>一鍵複製程式碼</span>
+              </button>
+              <button id="btn-download-python" type="button"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition cursor-pointer">
+                <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                <span>下載 fetch_real_twse.py</span>
+              </button>
+            </div>
+          </div>
+
+          <pre id="python-code-block" class="rounded-xl bg-[#0F172A] text-slate-100 p-4 text-[11.5px] font-mono overflow-x-auto max-h-[380px] leading-relaxed"></pre>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- MODAL 2：今晚盤後試算 (What-If)                                            -->
+  <!-- ========================================================================= -->
+  <div id="whatif-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/60 backdrop-blur-sm p-3 sm:p-4">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto">
+      <div class="bg-[#0F172A] text-white px-5 py-4 flex items-center justify-between sticky top-0 z-10">
+        <div>
+          <h3 class="text-base font-bold flex items-center gap-2">
+            <i data-lucide="calculator" class="w-4 h-4 text-amber-400"></i>
+            <span>今晚盤後試算 (What-If 明日 T+1 指令預演)</span>
+          </h3>
+          <p class="text-[11px] text-slate-400 mt-0.5">輸入今晚最新收盤與籌碼數字，立即對照過去 252 日動態門檻，預覽明日開盤該減碼還是續抱</p>
+        </div>
+        <button id="btn-close-whatif" type="button" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="p-5 space-y-4">
+        <div class="flex flex-wrap items-center gap-2 text-xs">
+          <span class="font-semibold text-slate-500">快速帶入測試：</span>
+          <button type="button" id="wi-btn-latest" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold cursor-pointer">帶入最新一日</button>
+          <button type="button" id="wi-btn-yellow" class="px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-900 font-semibold cursor-pointer">模擬黃燈減碼</button>
+          <button type="button" id="wi-btn-red" class="px-2.5 py-1 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-900 font-semibold cursor-pointer">模擬紅燈重砍</button>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+          <div>
+            <label for="wi-close" class="block text-xs font-bold text-slate-700 mb-1">今晚加權收盤價 (點)</label>
+            <input id="wi-close" type="number" step="1" class="w-full px-3 py-2 rounded-xl border border-slate-300 font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none tabular-nums" />
+            <div id="wi-hint-close" class="text-[10.5px] font-mono text-slate-400 mt-0.5">--</div>
+          </div>
+          <div>
+            <label for="wi-volume" class="block text-xs font-bold text-slate-700 mb-1">今晚成交金額 (億元)</label>
+            <input id="wi-volume" type="number" step="10" class="w-full px-3 py-2 rounded-xl border border-slate-300 font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none tabular-nums" />
+            <div id="wi-hint-volume" class="text-[10.5px] font-mono text-slate-400 mt-0.5">--</div>
+          </div>
+          <div>
+            <label for="wi-fut" class="block text-xs font-bold text-slate-700 mb-1">外資台指期未平倉淨口數 (口)</label>
+            <input id="wi-fut" type="number" step="500" class="w-full px-3 py-2 rounded-xl border border-slate-300 font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none tabular-nums" />
+            <div id="wi-hint-fut" class="text-[10.5px] font-mono text-slate-400 mt-0.5">--</div>
+          </div>
+          <div>
+            <label for="wi-spot" class="block text-xs font-bold text-slate-700 mb-1">今日外資現貨買賣超 (億元)</label>
+            <input id="wi-spot" type="number" step="5" class="w-full px-3 py-2 rounded-xl border border-slate-300 font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none tabular-nums" />
+            <div id="wi-hint-spot" class="text-[10.5px] font-mono text-slate-400 mt-0.5">--</div>
+          </div>
+          <div class="sm:col-span-2">
+            <label for="wi-margin" class="block text-xs font-bold text-slate-700 mb-1">今日大盤融資餘額 (億元)</label>
+            <input id="wi-margin" type="number" step="5" class="w-full px-3 py-2 rounded-xl border border-slate-300 font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none tabular-nums" />
+            <div id="wi-hint-margin" class="text-[10.5px] font-mono text-slate-400 mt-0.5">--</div>
+          </div>
+        </div>
+
+        <!-- 試算結論盒 -->
+        <div id="wi-verdict-box" class="rounded-2xl border-2 p-4 space-y-3 transition-colors">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h4 id="wi-verdict-title" class="text-base font-extrabold">--</h4>
+            <span id="wi-verdict-badge" class="px-3 py-1 rounded-full text-xs font-mono font-bold tabular-nums">--</span>
+          </div>
+          <p id="wi-verdict-desc" class="text-xs leading-relaxed">--</p>
+          <div id="wi-signal-cards" class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] font-mono"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- SLIDE-OVER DRAWER：快速調參抽屜                                            -->
+  <!-- ========================================================================= -->
+  <div id="param-drawer-wrap" class="fixed inset-0 z-50 hidden">
+    <div id="param-drawer-backdrop" class="drawer-backdrop fixed inset-0 bg-slate-950/45 opacity-0"></div>
+    <aside id="param-drawer-panel"
+      class="drawer-panel fixed top-0 right-0 h-full w-full max-w-[380px] bg-white shadow-2xl border-l border-slate-200 flex flex-col translate-x-full">
+      <!-- Drawer Header -->
+      <div class="bg-[#0F172A] text-white px-5 py-4 flex items-center justify-between shrink-0">
+        <div>
+          <h3 class="text-sm font-bold flex items-center gap-2">
+            <i data-lucide="sliders-horizontal" class="w-4 h-4 text-blue-400"></i>
+            <span>量化參數快速調校面板</span>
+          </h3>
+          <p class="text-[11px] text-slate-400">拖動滑桿即刻重算全站減碼日與績效</p>
+        </div>
+        <button id="btn-close-drawer" type="button" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Drawer Body -->
+      <div class="flex-1 overflow-y-auto p-4 space-y-4">
+
+        <!-- 區塊 1: 事後諸葛大跌標準 -->
+        <div class="rounded-xl border border-slate-200 p-3.5 space-y-2.5">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-extrabold text-slate-900">1. 事後大跌檢驗標準</span>
+            <button id="btn-drawer-reset" type="button" class="text-[11px] font-bold text-blue-600 hover:text-blue-800 cursor-pointer">恢復預設</button>
+          </div>
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-600">未來觀察天數 (N)</span>
+              <span id="val-fwdDays" class="font-mono font-bold tabular-nums">15 日</span>
+            </div>
+            <input id="inp-fwdDays" type="range" min="5" max="35" step="1" class="w-full" />
+          </div>
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-600">大跌判定門檻 (≤)</span>
+              <span id="val-crashPct" class="font-mono font-bold text-rose-600 tabular-nums">-7.0%</span>
+            </div>
+            <input id="inp-crashPct" type="range" min="-18" max="-3" step="0.5" class="w-full" />
+          </div>
+        </div>
+
+        <!-- 區塊 2: 三大核心訊號門檻 -->
+        <div class="rounded-xl border border-slate-200 p-3.5 space-y-3">
+          <span class="block text-xs font-extrabold text-slate-900">2. 三大訊號動態門檻 (252日滾動分位)</span>
+
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-600">訊號一：外資期貨空單分位 (&lt;)</span>
+              <span id="val-futQ" class="font-mono font-bold text-blue-700 tabular-nums">15%</span>
+            </div>
+            <input id="inp-futQ" type="range" min="5" max="40" step="1" class="w-full" />
+          </div>
+
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-600">訊號一：5日外資現貨分位 (&lt;)</span>
+              <span id="val-spotQ" class="font-mono font-bold text-blue-700 tabular-nums">15%</span>
+            </div>
+            <input id="inp-spotQ" type="range" min="5" max="40" step="1" class="w-full" />
+          </div>
+
+          <hr class="border-slate-100" />
+
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-600">訊號二：趨勢均線週期 (MA)</span>
+              <span id="val-maLen" class="font-mono font-bold text-amber-700 tabular-nums">20MA</span>
+            </div>
+            <input id="inp-maLen" type="range" min="10" max="60" step="2" class="w-full" />
+          </div>
+
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-600">訊號二：連破均線確認天數</span>
+              <span id="val-confirmDays" class="font-mono font-bold text-amber-700 tabular-nums">連 2 日</span>
+            </div>
+            <input id="inp-confirmDays" type="range" min="1" max="4" step="1" class="w-full" />
+          </div>
+
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-600">訊號二：3日內長黑跌幅門檻 (≤)</span>
+              <span id="val-dropPct" class="font-mono font-bold text-amber-700 tabular-nums">-1.5%</span>
+            </div>
+            <input id="inp-dropPct" type="range" min="-3.5" max="-0.5" step="0.1" class="w-full" />
+          </div>
+
+          <hr class="border-slate-100" />
+
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-600">訊號三：波動率恐慌分位 (&gt;)</span>
+              <span id="val-volQ" class="font-mono font-bold text-purple-700 tabular-nums">85%</span>
+            </div>
+            <input id="inp-volQ" type="range" min="60" max="95" step="1" class="w-full" />
+          </div>
+
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-600">訊號三：融資高檔水位分位 (&gt;)</span>
+              <span id="val-marginHighQ" class="font-mono font-bold text-purple-700 tabular-nums">75%</span>
+            </div>
+            <input id="inp-marginHighQ" type="range" min="55" max="95" step="1" class="w-full" />
+          </div>
+        </div>
+
+        <!-- 區塊 3: 階梯減碼倉位與回補規則 -->
+        <div class="rounded-xl border border-slate-200 p-3.5 space-y-2.5">
+          <span class="block text-xs font-extrabold text-slate-900">3. 階梯減碼倉位與防巴掌回補</span>
+
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-600">🟡 黃燈 (2分) 目標持股</span>
+              <span id="val-yellowPos" class="font-mono font-bold text-amber-600 tabular-nums">55%</span>
+            </div>
+            <input id="inp-yellowPos" type="range" min="0" max="90" step="5" class="w-full" />
+          </div>
+
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-600">🔴 紅燈 (3分) 目標持股 (負=反向)</span>
+              <span id="val-redPos" class="font-mono font-bold text-rose-600 tabular-nums">15%</span>
+            </div>
+            <input id="inp-redPos" type="range" min="-30" max="80" step="5" class="w-full" />
+          </div>
+
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-600">🔄 回補：連站 10SMA 天數</span>
+              <span id="val-reentryDays" class="font-mono font-bold text-emerald-700 tabular-nums">連 2 日</span>
+            </div>
+            <input id="inp-reentryDays" type="range" min="1" max="5" step="1" class="w-full" />
+          </div>
+
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-600">單邊交易摩擦成本 (手續費+稅)</span>
+              <span id="val-feePct" class="font-mono font-bold text-slate-800 tabular-nums">0.20%</span>
+            </div>
+            <input id="inp-feePct" type="range" min="0" max="0.60" step="0.05" class="w-full" />
+          </div>
+        </div>
+
+      </div>
+    </aside>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- 核心應用程式腳本                                                          -->
+  <!-- ========================================================================= -->
+  <script>
+    (function () {
+      'use strict';
+
+      // =========================================================================
+      // 1. 預設參數與狀態
+      // =========================================================================
+      const DEFAULT_PARAMS = {
+        fwdDays: 15,
+        crashPct: -7.0,
+        window: 252,
+        futQ: 15,            // 0.15
+        spotQ: 15,           // 0.15
+        maLen: 20,
+        confirmDays: 2,      // 連 2 日跌破均線
+        dropPct: -1.5,
+        volMult: 1.2,
+        volQ: 85,            // 0.85
+        retDays: 10,
+        marginHighQ: 75,     // 0.75
+        yellowPos: 55,       // 55%
+        redPos: 15,          // 15% (可調至 -30%)
+        reentryDays: 2,      // 連 2 日站上 10SMA 且 Score=0
+        feePct: 0.20         // 單邊 0.20%
+      };
+
+      const state = {
+        params: { ...DEFAULT_PARAMS },
+        rawData: [],
+        dataMeta: {
+          isReal: false,
+          sourceName: '內建示範模擬',
+          priceOnly: false,
+          hasVolume: true,
+          autoVolComputed: false
+        },
+        view: {
+          activeTab: 'tab-radar',
+          showAllSignals: false, // false = 僅顯示實際加減碼日 (預設最清晰)
+          showDefenseBand: true,
+          showCrashBand: true,
+          actionFilter: 'all',
+          selectedActionId: null,
+          selectedCalendarYear: null
+        },
+        result: null,
+        charts: {
+          price: null,
+          equity: null,
+          calendar: null,
+          drawdown: null
+        },
+        gridRunning: false,
+        finmindLoading: false
+      };
+
+      // =========================================================================
+      // 2. Python 真實抓取腳本內容 (模式 C)
+      // =========================================================================
+      const PYTHON_FETCH_SCRIPT = `"""
+fetch_real_twse.py
+一鍵從 FinMind API 抓取真實台股加權指數 (TAIEX) 與三大籌碼數據，
+自動整併並輸出成可直接拖曳匯入「TWSE 減碼行動雷達 v3.0」的 real_twse_data.csv。
+
+使用方式：
+  pip install requests pandas
+  python fetch_real_twse.py
+"""
+import requests
+import pandas as pd
+
+START_DATE = "2020-01-01"
+END_DATE = "2026-11-20"
+# 選填：免費註冊 FinMind 帳號可將額度從 300 次/時 提升至 600 次/時
+FINMIND_TOKEN = ""
+
+API_URL = "https://api.finmindtrade.com/api/v4/data"
+
+
+def fetch_dataset(dataset: str, data_id: str = None) -> pd.DataFrame:
+    params = {
+        "dataset": dataset,
+        "start_date": START_DATE,
+        "end_date": END_DATE,
+    }
+    if data_id:
+        params["data_id"] = data_id
+    if FINMIND_TOKEN:
+        params["token"] = FINMIND_TOKEN
+
+    print(f"正在抓取 {dataset} ({data_id or 'ALL'})...")
+    resp = requests.get(API_URL, params=params, timeout=30)
+    resp.raise_for_status()
+    payload = resp.json()
+    if payload.get("status") != 200:
+        raise RuntimeError(f"FinMind 回傳錯誤: {payload.get('msg')}")
+    return pd.DataFrame(payload.get("data", []))
+
+
+def main():
+    # 1. 台股加權股價指數 (TAIEX)
+    df_price = fetch_dataset("TaiwanStockPrice", "TAIEX")
+    df_price["Date"] = pd.to_datetime(df_price["date"]).dt.strftime("%Y-%m-%d")
+    df_price["Close"] = pd.to_numeric(df_price["close"], errors="coerce")
+    if "Trading_money" in df_price.columns and df_price["Trading_money"].notna().any():
+        df_price["Volume"] = pd.to_numeric(df_price["Trading_money"], errors="coerce") / 1e8
+    else:
+        df_price["Volume"] = pd.to_numeric(df_price["Trading_Volume"], errors="coerce") / 1e8
+    base = df_price[["Date", "Close", "Volume"]].dropna().drop_duplicates("Date").sort_values("Date")
+
+    # 2. 外資集中市場現貨買賣超 (億元)
+    df_inst = fetch_dataset("TaiwanStockTotalInstitutionalInvestors")
+    mask_f = df_inst["name"].astype(str).apply(lambda s: s == "Foreign_Investor" or "Foreign" in s)
+    df_f = df_inst[mask_f].copy()
+    df_f["Foreign_Spot_Net"] = (
+        pd.to_numeric(df_f["buy"], errors="coerce") - pd.to_numeric(df_f["sell"], errors="coerce")
+    ) / 1e8
+    spot = df_f.groupby("date", as_index=False)["Foreign_Spot_Net"].sum().rename(columns={"date": "Date"})
+
+    # 3. 外資台指期 (TX) 未平倉淨口數
+    df_fut = fetch_dataset("TaiwanFuturesInstitutionalInvestors", "TX")
+    mask_fut = df_fut["institutional_investors"].astype(str).apply(lambda s: ("外資" in s) or ("Foreign" in s))
+    df_ff = df_fut[mask_fut].copy()
+    df_ff["Foreign_Fut_OI"] = (
+        pd.to_numeric(df_ff["long_open_interest_balance_volume"], errors="coerce")
+        - pd.to_numeric(df_ff["short_open_interest_balance_volume"], errors="coerce")
+    )
+    fut = df_ff.groupby("date", as_index=False)["Foreign_Fut_OI"].sum().rename(columns={"date": "Date"})
+
+    # 4. 大盤融資餘額 (億元)
+    df_margin = fetch_dataset("TaiwanStockTotalMarginPurchaseShortSale")
+    df_m = df_margin[df_margin["name"] == "MarginPurchaseMoney"].copy()
+    df_m["Margin_Balance"] = pd.to_numeric(df_m["TodayBalance"], errors="coerce") / 1e8
+    margin = df_m.groupby("date", as_index=False)["Margin_Balance"].last().rename(columns={"date": "Date"})
+
+    # 依加權指數交易日整併，並對偶發 1 日缺值做前向填補
+    merged = (
+        base.merge(fut, on="Date", how="left")
+            .merge(spot, on="Date", how="left")
+            .merge(margin, on="Date", how="left")
+            .sort_values("Date")
+            .reset_index(drop=True)
+    )
+    for col in ["Foreign_Fut_OI", "Foreign_Spot_Net", "Margin_Balance"]:
+        merged[col] = merged[col].ffill(limit=2).bfill(limit=2)
+
+    # 補算 20 日年化歷史波動率 (%)
+    daily_ret = merged["Close"].pct_change()
+    merged["Volatility"] = (daily_ret.rolling(20).std() * (252 ** 0.5) * 100).bfill().round(2)
+
+    merged["Close"] = merged["Close"].round(2)
+    merged["Volume"] = merged["Volume"].round(1)
+    merged["Foreign_Spot_Net"] = merged["Foreign_Spot_Net"].round(1)
+    merged["Margin_Balance"] = merged["Margin_Balance"].round(1)
+
+    output_file = "real_twse_data.csv"
+    merged.to_csv(output_file, index=False, encoding="utf-8-sig")
+    print(f"完成！已輸出 {len(merged)} 筆真實台股資料至 {output_file}")
+
+
+if __name__ == "__main__":
+    main()
+`;
+
+      // =========================================================================
+      // 3. 工具函式：Toast、複製、日期與數字解析、統計計算
+      // =========================================================================
+      function showToast(msg, type = 'info') {
+        const box = document.getElementById('toast-container');
+        const palette = {
+          info: 'bg-slate-900 text-white border-slate-700',
+          success: 'bg-emerald-700 text-white border-emerald-600',
+          warning: 'bg-amber-600 text-white border-amber-500',
+          error: 'bg-rose-700 text-white border-rose-600'
+        };
+        const el = document.createElement('div');
+        el.className = `toast-anim pointer-events-auto px-4 py-2.5 rounded-xl border shadow-lg text-xs font-medium leading-relaxed ${palette[type] || palette.info}`;
+        el.textContent = msg;
+        box.appendChild(el);
+        setTimeout(() => {
+          el.style.transition = 'opacity 0.25s ease';
+          el.style.opacity = '0';
+          setTimeout(() => el.remove(), 260);
+        }, 4000);
+      }
+
+      // 安全複製文字 (使用 document.execCommand('copy') 確保 iFrame 環境相容)
+      function copyTextSafe(text) {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.top = '-9999px';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        let ok = false;
+        try {
+          ok = document.execCommand('copy');
+        } catch (e) {
+          ok = false;
+        }
+        document.body.removeChild(ta);
+        return ok;
+      }
+
+      function createRNG(seed) {
+        let a = seed >>> 0;
+        const rand = () => {
+          a |= 0;
+          a = (a + 0x6D2B79F5) | 0;
+          let t = Math.imul(a ^ (a >>> 15), 1 | a);
+          t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+          return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+        const randn = () => {
+          let u = 0, v = 0;
+          while (u === 0) u = rand();
+          while (v === 0) v = rand();
+          return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+        };
+        return { rand, randn };
+      }
+
+      function formatDate(d) {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+      }
+
+      function parseFlexibleDate(val) {
+        if (val instanceof Date && !isNaN(val.getTime())) return formatDate(val);
+        if (typeof val === 'number' && val > 20000 && val < 70000) {
+          const utcDays = Math.floor(val - 25569);
+          const dt = new Date(utcDays * 86400 * 1000);
+          return formatDate(new Date(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate()));
+        }
+        if (typeof val === 'string') {
+          const clean = val.trim().replace(/\//g, '-').slice(0, 10);
+          const d = new Date(clean);
+          if (!isNaN(d.getTime())) return formatDate(d);
+        }
+        return null;
+      }
+
+      function parseNum(v) {
+        if (v === null || v === undefined || v === '') return NaN;
+        if (typeof v === 'number') return isFinite(v) ? v : NaN;
+        const n = Number(String(v).replace(/,/g, '').trim());
+        return isFinite(n) ? n : NaN;
+      }
+
+      function quantileFromSorted(sortedArr, q) {
+        const len = sortedArr.length;
+        if (!len) return NaN;
+        if (len === 1) return sortedArr[0];
+        const pos = (len - 1) * q;
+        const base = Math.floor(pos);
+        const rest = pos - base;
+        if (base + 1 < len) return sortedArr[base] + rest * (sortedArr[base + 1] - sortedArr[base]);
+        return sortedArr[base];
+      }
+
+      function buildRollingSortedWindows(arr, windowSize, minPeriods = 60) {
+        const n = arr.length;
+        const effMin = Math.min(minPeriods, windowSize);
+        const windows = new Array(n);
+        for (let i = 0; i < n; i++) {
+          const start = Math.max(0, i - windowSize + 1);
+          const slice = [];
+          for (let j = start; j <= i; j++) {
+            const v = arr[j];
+            if (!isNaN(v)) slice.push(v);
+          }
+          if (slice.length < effMin) {
+            windows[i] = null;
+          } else {
+            slice.sort((a, b) => a - b);
+            windows[i] = slice;
+          }
+        }
+        return windows;
+      }
+
+      function calcSMA(arr, period) {
+        const n = arr.length;
+        const out = new Float64Array(n).fill(NaN);
+        let sum = 0, valid = 0;
+        for (let i = 0; i < n; i++) {
+          const v = arr[i];
+          if (!isNaN(v)) { sum += v; valid++; }
+          if (i >= period) {
+            const old = arr[i - period];
+            if (!isNaN(old)) { sum -= old; valid--; }
+          }
+          if (i >= period - 1 && valid === period) out[i] = sum / period;
+        }
+        return out;
+      }
+
+      function calcRollingSum(arr, period) {
+        const n = arr.length;
+        const out = new Float64Array(n).fill(NaN);
+        let sum = 0;
+        for (let i = 0; i < n; i++) {
+          sum += isNaN(arr[i]) ? 0 : arr[i];
+          if (i >= period) sum -= isNaN(arr[i - period]) ? 0 : arr[i - period];
+          if (i >= period - 1) out[i] = sum;
+        }
+        return out;
+      }
+
+      function computeRealizedVolatility(closeArr, period = 20) {
+        const n = closeArr.length;
+        const rets = new Float64Array(n).fill(0);
+        for (let i = 1; i < n; i++) rets[i] = (closeArr[i] - closeArr[i - 1]) / closeArr[i - 1];
+        const vol = new Float64Array(n).fill(15.0);
+        let firstVal = 15.0;
+        for (let i = period; i < n; i++) {
+          let sum = 0;
+          for (let j = i - period + 1; j <= i; j++) sum += rets[j];
+          const mean = sum / period;
+          let sq = 0;
+          for (let j = i - period + 1; j <= i; j++) {
+            const diff = rets[j] - mean;
+            sq += diff * diff;
+          }
+          vol[i] = Math.sqrt(sq / (period - 1)) * Math.sqrt(252) * 100;
+          if (i === period) firstVal = vol[i];
+        }
+        for (let i = 0; i < period && i < n; i++) vol[i] = firstVal;
+        return vol;
+      }
+
+      function downloadFile(filename, content, mimeType) {
+        const blob = new Blob([content], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+
+      // =========================================================================
+      // 4. 預設示範模擬資料生成器 (2018-01-02 ~ 2026-11-20)
+      //    清楚標示為示範數據，包含多次逼真股災讓使用者立即體驗雷達與日曆
+      // =========================================================================
+      function generateDemoData() {
+        const rng = createRNG(20261120);
+        const rawDates = [];
+        const cur = new Date(2018, 0, 2);
+        const end = new Date(2026, 10, 20);
+        while (cur <= end) {
+          const dow = cur.getDay();
+          if (dow !== 0 && dow !== 6) rawDates.push(formatDate(cur));
+          cur.setDate(cur.getDate() + 1);
+        }
+
+        const dates = [];
+        for (let i = 0; i < rawDates.length; i++) {
+          if (i === rawDates.length - 1 || rng.rand() > 0.055) dates.push(rawDates[i]);
+        }
+        const len = dates.length;
+
+        const crashes = [
+          { start: '2018-10-01', end: '2018-10-29', drift: -0.0085, vol: 0.0165, mode: 'diverge' },
+          { start: '2020-02-24', end: '2020-03-19', drift: -0.0155, vol: 0.0235, mode: 'margin_call' },
+          { start: '2022-03-28', end: '2022-10-25', drift: -0.0026, vol: 0.0148, mode: 'diverge' },
+          { start: '2024-07-12', end: '2024-08-06', drift: -0.0108, vol: 0.0215, mode: 'margin_call' },
+          { start: '2025-03-04', end: '2025-04-09', drift: -0.0082, vol: 0.0185, mode: 'diverge' },
+          { start: '2026-05-06', end: '2026-06-02', drift: -0.0076, vol: 0.0175, mode: 'margin_call' }
+        ];
+
+        const deadCat = [
+          { start: '2022-05-24', end: '2022-05-30' },
+          { start: '2022-07-22', end: '2022-08-03' }
+        ];
+
+        const activeCrash = new Array(len).fill(null);
+        const preWarn = new Uint8Array(len);
+        const isDC = new Uint8Array(len);
+
+        for (let i = 0; i < len; i++) {
+          const d = dates[i];
+          for (const c of crashes) {
+            if (d >= c.start && d <= c.end) {
+              activeCrash[i] = c;
+              for (let k = Math.max(0, i - 6); k < i; k++) if (!activeCrash[k]) preWarn[k] = 1;
+            }
+          }
+          for (const dc of deadCat) {
+            if (d >= dc.start && d <= dc.end) isDC[i] = 1;
+          }
+        }
+
+        const rows = [];
+        let close = 10700;
+        let futOI = 18000;
+        let spotNet = 15;
+        let margin = 1750;
+        let vol = 13.5;
+
+        for (let i = 0; i < len; i++) {
+          const d = dates[i];
+          const cr = activeCrash[i];
+          const pre = preWarn[i] === 1;
+          const dc = isDC[i] === 1;
+
+          let drift = 0.00062;
+          let sigma = 0.0080;
+          if (dc) {
+            drift = 0.009;
+            sigma = 0.0085;
+          } else if (cr) {
+            drift = cr.drift;
+            sigma = cr.vol;
+          } else if (d >= '2020-03-20' && d <= '2020-07-24') {
+            drift = 0.0038;
+            sigma = 0.011;
+          } else if (d >= '2026-11-12') {
+            // 尾端 2026-11 呈現輕度拉回但未達減碼，方便戰情室呈現清晰對比
+            drift = 0.0008;
+            sigma = 0.0075;
+          }
+
+          let ret = drift + sigma * rng.randn();
+          if (cr && !dc && rng.rand() < 0.28) ret = Math.min(ret, -0.0175 - rng.rand() * 0.016);
+          if (cr && i > 0 && !activeCrash[i - 1]) ret = -0.021;
+
+          close = Math.max(7800, close * Math.exp(ret));
+          const scale = close / 14000;
+
+          const baseVol = 1300 + (close - 10000) * 0.25;
+          const volume = Math.max(700, baseVol * (ret <= -0.015 ? 1.42 : 1.0) * (cr && !dc ? 1.2 : 1.0) * (0.84 + rng.rand() * 0.32));
+
+          let targetFut = 10000 - (i / len) * 28000;
+          if (cr && !dc) targetFut = -44000 - (i / len) * 10000;
+          else if (pre) targetFut = -35000 - (i / len) * 8000;
+          else if (dc) targetFut = -26000;
+          futOI = 0.80 * futOI + 0.20 * targetFut + rng.randn() * 5200;
+
+          let targetSpot = 16 * scale;
+          if (cr && !dc) targetSpot = -185 * scale;
+          else if (pre) targetSpot = -130 * scale;
+          else if (dc) targetSpot = -40 * scale;
+          spotNet = 0.30 * spotNet + 0.70 * targetSpot + rng.randn() * 95 * scale;
+
+          let mChg = (ret > 0 ? 5.5 : -1.5) * scale + rng.randn() * 6.0 * scale;
+          if (pre) mChg = 16.0 * scale;
+          else if (cr && !dc) mChg = cr.mode === 'margin_call' ? -14.0 * scale : (rng.rand() < 0.78 ? 11.5 : -6.0) * scale;
+          margin = Math.max(1050, margin + mChg);
+
+          let targetVol = 13.8 + Math.abs(ret) * 260;
+          if (cr && !dc) targetVol = 26.5 + Math.abs(ret) * 320;
+          else if (pre) targetVol = 21.0;
+          else if (dc) targetVol = 21.5;
+          vol = Math.max(9.5, 0.70 * vol + 0.30 * targetVol + rng.randn() * 1.3);
+
+          rows.push({
+            Date: d,
+            Close: Number(close.toFixed(2)),
+            Volume: Number(volume.toFixed(1)),
+            Foreign_Fut_OI: Math.round(futOI),
+            Foreign_Spot_Net: Number(spotNet.toFixed(1)),
+            Margin_Balance: Number(margin.toFixed(1)),
+            Volatility: Number(vol.toFixed(2))
+          });
+        }
+        return rows;
+      }
+
+      // =========================================================================
+      // 5. 核心量化引擎 (T+1 防未來函數 + 實際加減碼狀態切換萃取)
+      // =========================================================================
+      function buildPrecomputed(rawData, p) {
+        const n = rawData.length;
+        const close = rawData.map(r => r.Close);
+        const volume = rawData.map(r => isNaN(r.Volume) ? NaN : r.Volume);
+        const futOI = rawData.map(r => isNaN(r.Foreign_Fut_OI) ? NaN : r.Foreign_Fut_OI);
+        const spotNet = rawData.map(r => isNaN(r.Foreign_Spot_Net) ? NaN : r.Foreign_Spot_Net);
+        const margin = rawData.map(r => isNaN(r.Margin_Balance) ? NaN : r.Margin_Balance);
+        const vol = rawData.map(r => r.Volatility);
+
+        const dailyRet = new Float64Array(n).fill(0);
+        for (let i = 1; i < n; i++) dailyRet[i] = (close[i] - close[i - 1]) / close[i - 1];
+
+        const spot5d = calcRollingSum(spotNet, 5);
+        const ma10 = calcSMA(close, 10);
+        const ma = calcSMA(close, p.maLen);
+        const volMa = calcSMA(volume, p.maLen);
+
+        // 事後諸葛未來 N 日最大跌幅
+        const maxFutureDrop = new Float64Array(n).fill(NaN);
+        for (let i = 0; i < n - 1; i++) {
+          const endIdx = Math.min(n - 1, i + p.fwdDays);
+          let minP = Infinity;
+          for (let j = i + 1; j <= endIdx; j++) if (close[j] < minP) minP = close[j];
+          maxFutureDrop[i] = (minP - close[i]) / close[i];
+        }
+
+        // 連續站穩 10SMA 天數
+        const consecAbove10 = new Uint16Array(n);
+        for (let i = 0; i < n; i++) {
+          if (!isNaN(ma10[i]) && close[i] > ma10[i]) {
+            consecAbove10[i] = i > 0 ? consecAbove10[i - 1] + 1 : 1;
+          } else {
+            consecAbove10[i] = 0;
+          }
+        }
+
+        // 連續跌破 trendMA 天數
+        const consecBelowMA = new Uint16Array(n);
+        for (let i = 0; i < n; i++) {
+          if (!isNaN(ma[i]) && close[i] < ma[i]) {
+            consecBelowMA[i] = i > 0 ? consecBelowMA[i - 1] + 1 : 1;
+          } else {
+            consecBelowMA[i] = 0;
+          }
+        }
+
+        return {
+          n, close, volume, futOI, spotNet, spot5d, margin, vol,
+          dailyRet, ma10, ma, volMa, maxFutureDrop, consecAbove10, consecBelowMA,
+          futWin: buildRollingSortedWindows(futOI, p.window, 60),
+          spotWin: buildRollingSortedWindows(spot5d, p.window, 60),
+          volWin: buildRollingSortedWindows(vol, p.window, 60),
+          marginWin: buildRollingSortedWindows(margin, p.window, 60)
+        };
+      }
+
+      function runQuantEngine(rawData, p, preIn = null) {
+        const pre = preIn || buildPrecomputed(rawData, p);
+        const n = pre.n;
+        const {
+          close, volume, futOI, spot5d, margin, vol,
+          dailyRet, ma10, ma, volMa, maxFutureDrop, consecAbove10, consecBelowMA,
+          futWin, spotWin, volWin, marginWin
+        } = pre;
+
+        const priceOnly = state.dataMeta.priceOnly;
+        const hasVolume = state.dataMeta.hasVolume;
+
+        const futQ = p.futQ / 100.0;
+        const spotQ = p.spotQ / 100.0;
+        const volQ = p.volQ / 100.0;
+        const marginHighQ = p.marginHighQ / 100.0;
+        const dropTh = p.dropPct / 100.0;
+        const crashTh = p.crashPct / 100.0;
+
+        // 事後諸葛大跌標籤
+        const targetCrash = new Uint8Array(n);
+        for (let i = 0; i < n; i++) {
+          if (!isNaN(maxFutureDrop[i]) && maxFutureDrop[i] <= crashTh) targetCrash[i] = 1;
+        }
+
+        const sig1 = new Uint8Array(n); // 籌碼雙空
+        const sig2 = new Uint8Array(n); // 趨勢破線
+        const sig3 = new Uint8Array(n); // 恐慌槓桿
+        const scoreArr = new Uint8Array(n);
+
+        // 記錄動態門檻 (供 Hero 與 What-If 顯示)
+        const futThArr = new Float64Array(n).fill(NaN);
+        const spotThArr = new Float64Array(n).fill(NaN);
+        const volThArr = new Float64Array(n).fill(NaN);
+        const marginThArr = new Float64Array(n).fill(NaN);
+
+        // 單日帶量長黑標記
+        const heavyDrop = new Uint8Array(n);
+        for (let i = 1; i < n; i++) {
+          const volCond = hasVolume && !isNaN(volMa[i]) && !isNaN(volume[i])
+            ? (volume[i] > volMa[i] * p.volMult)
+            : true;
+          if (dailyRet[i] <= dropTh && volCond) heavyDrop[i] = 1;
+        }
+
+        for (let i = 0; i < n; i++) {
+          // 訊號 1：外資期現雙空 (純價量模式跳過)
+          if (!priceOnly && futWin[i] && spotWin[i] && !isNaN(futOI[i]) && !isNaN(spot5d[i])) {
+            const fTh = quantileFromSorted(futWin[i], futQ);
+            const sTh = quantileFromSorted(spotWin[i], spotQ);
+            futThArr[i] = fTh;
+            spotThArr[i] = sTh;
+            if (futOI[i] < fTh && spot5d[i] < sTh) sig1[i] = 1;
+          }
+
+          // 訊號 2：趨勢量價破線
+          if (i >= 2 && !isNaN(ma[i]) && !isNaN(ma[i - 1])) {
+            const hasHeavy3d = heavyDrop[i] || heavyDrop[i - 1] || heavyDrop[i - 2];
+            if (consecBelowMA[i] >= p.confirmDays && ma[i] < ma[i - 1] && hasHeavy3d) {
+              sig2[i] = 1;
+            }
+          }
+
+          // 訊號 3：恐慌波動 + 融資雙軌 (純價量模式改用高波動 + 10日跌幅 < -2%)
+          if (i >= p.retDays && volWin[i]) {
+            const vTh = quantileFromSorted(volWin[i], volQ);
+            volThArr[i] = vTh;
+            const retKd = (close[i] - close[i - p.retDays]) / close[i - p.retDays];
+
+            if (!priceOnly && marginWin[i] && !isNaN(margin[i])) {
+              const mTh = quantileFromSorted(marginWin[i], marginHighQ);
+              marginThArr[i] = mTh;
+              const mChg = margin[i] - margin[i - p.retDays];
+              const diverge = (retKd < 0 && mChg > 0);
+              const highLevel = (margin[i] > mTh);
+              if (vol[i] > vTh && (diverge || highLevel)) sig3[i] = 1;
+            } else {
+              if (vol[i] > vTh && retKd <= -0.02) sig3[i] = 1;
+            }
+          }
+
+          scoreArr[i] = sig1[i] + sig2[i] + sig3[i];
+        }
+
+        // T+1 階梯倉位與嚴格狀態切換萃取
+        const yellowPos = p.yellowPos / 100.0;
+        const redPos = p.redPos / 100.0;
+        const feeRate = p.feePct / 100.0;
+
+        // 純價量模式只有 2 顆有效訊號：1 分黃燈、2 分紅燈；完整模式：2 分黃燈、3 分紅燈
+        const yellowTrigger = priceOnly ? 1 : 2;
+        const redTrigger = priceOnly ? 2 : 3;
+
+        const position = new Float64Array(n);
+        const bhEquity = new Float64Array(n);
+        const stratEquity = new Float64Array(n);
+        const bhDD = new Float64Array(n);
+        const stratDD = new Float64Array(n);
+        const stratDailyRet = new Float64Array(n);
+
+        // 記錄每日的行動類型 (0=無動作, 1=黃燈減碼, 2=紅燈重砍, 3=警報解除回補)
+        const actionTypeArr = new Uint8Array(n);
+        const actions = [];
+
+        position[0] = 1.0;
+        bhEquity[0] = 1.0;
+        stratEquity[0] = 1.0;
+        let peakBH = 1.0, peakSt = 1.0;
+        let inDefense = false;
+        let totalCostPct = 0;
+
+        for (let i = 1; i < n; i++) {
+          const prevSc = scoreArr[i - 1];
+          const prevPos = position[i - 1];
+          let nextPos = prevPos;
+          let actType = 0;
+
+          if (prevSc >= redTrigger) {
+            inDefense = true;
+            // 若目前倉位高於紅燈目標才觸發重砍
+            if (prevPos > redPos + 1e-6) {
+              nextPos = redPos;
+              actType = 2; // 紅燈重砍
+            }
+          } else if (prevSc >= yellowTrigger) {
+            inDefense = true;
+            // 若目前滿倉（高於黃燈目標），觸發黃燈減碼；若已在紅燈更低倉位則維持防禦不隨便加碼
+            if (prevPos > yellowPos + 1e-6) {
+              nextPos = yellowPos;
+              actType = 1; // 黃燈減碼
+            }
+          } else if (prevSc === 0 && inDefense) {
+            if (consecAbove10[i - 1] >= p.reentryDays) {
+              inDefense = false;
+              nextPos = 1.0;
+              actType = 3; // 警報解除回補
+            }
+          } else if (!inDefense) {
+            nextPos = 1.0;
+          }
+
+          position[i] = nextPos;
+          actionTypeArr[i] = actType;
+
+          const turnover = Math.abs(nextPos - prevPos);
+          let fee = 0;
+          if (turnover > 1e-6) {
+            fee = turnover * feeRate;
+            totalCostPct += fee * 100;
+          }
+
+          bhEquity[i] = bhEquity[i - 1] * (1 + dailyRet[i]);
+          const rSt = dailyRet[i] * nextPos - fee;
+          stratDailyRet[i] = rSt;
+          stratEquity[i] = stratEquity[i - 1] * (1 + rSt);
+
+          if (bhEquity[i] > peakBH) peakBH = bhEquity[i];
+          if (stratEquity[i] > peakSt) peakSt = stratEquity[i];
+          bhDD[i] = ((bhEquity[i] - peakBH) / peakBH) * 100;
+          stratDD[i] = ((stratEquity[i] - peakSt) / peakSt) * 100;
+
+          if (actType > 0) {
+            // 事後驗證：從訊號確認日 (i-1) 往後看 N 日最大跌幅
+            const subDrop = isNaN(maxFutureDrop[i - 1]) ? null : maxFutureDrop[i - 1] * 100;
+            const isCut = (actType === 1 || actType === 2);
+            const hitCrash = isCut && subDrop !== null && subDrop <= p.crashPct;
+            const labelMap = { 1: '黃燈減碼', 2: '紅燈重砍', 3: '警報解除回補' };
+
+            actions.push({
+              id: `act-${i}`,
+              execIdx: i,
+              signalIdx: i - 1,
+              execDate: rawData[i].Date,
+              signalDate: rawData[i - 1].Date,
+              type: actType, // 1=yellow, 2=red, 3=buyback
+              typeName: labelMap[actType],
+              fromPos: Math.round(prevPos * 100),
+              toPos: Math.round(nextPos * 100),
+              execClose: close[i],
+              signalClose: close[i - 1],
+              score: prevSc,
+              signals: {
+                s1: sig1[i - 1] === 1,
+                s2: sig2[i - 1] === 1,
+                s3: sig3[i - 1] === 1
+              },
+              subsequentDrop: subDrop,
+              hitCrash
+            });
+          }
+        }
+
+        // 計算最新一日 (n-1) 盤後對「明日 T+1」的行動判決
+        const last = n - 1;
+        const lastSc = scoreArr[last];
+        const currPos = position[last];
+        let tomorrowAction = 'hold_full'; // hold_full | cut_yellow | cut_red | buyback | hold_defense
+        let tomorrowPos = currPos;
+
+        if (lastSc >= redTrigger) {
+          tomorrowPos = redPos;
+          tomorrowAction = currPos > redPos + 1e-6 ? 'cut_red' : 'hold_red';
+        } else if (lastSc >= yellowTrigger) {
+          tomorrowPos = Math.min(currPos, yellowPos);
+          tomorrowAction = currPos > yellowPos + 1e-6 ? 'cut_yellow' : 'hold_defense';
+        } else if (lastSc === 0 && inDefense) {
+          if (consecAbove10[last] >= p.reentryDays) {
+            tomorrowPos = 1.0;
+            tomorrowAction = 'buyback';
+          } else {
+            tomorrowAction = 'hold_defense';
+          }
+        } else if (inDefense) {
+          tomorrowAction = 'hold_defense';
+        } else {
+          tomorrowPos = 1.0;
+          tomorrowAction = 'hold_full';
+        }
+
+        // 統計計算
+        const warmup = Math.min(60, Math.floor(n * 0.1));
+        const validEnd = Math.max(warmup + 1, n - p.fwdDays);
+        const totalYears = Math.max(0.2, (n - 1) / 252);
+
+        const cutActionsValid = actions.filter(a => (a.type === 1 || a.type === 2) && a.signalIdx >= warmup && a.signalIdx < validEnd);
+        const hitCuts = cutActionsValid.filter(a => a.hitCrash).length;
+        const actionPrecision = cutActionsValid.length > 0 ? (hitCuts / cutActionsValid.length) * 100 : 0;
+
+        // 歸納歷史大跌波段 (間隔 <= 10 交易日視為同一波段)
+        const segments = [];
+        let segS = -1, segE = -1;
+        for (let i = warmup; i < validEnd; i++) {
+          if (targetCrash[i] === 1) {
+            if (segS === -1) { segS = i; segE = i; }
+            else if (i - segE <= 10) { segE = i; }
+            else { segments.push([segS, segE]); segS = i; segE = i; }
+          }
+        }
+        if (segS !== -1) segments.push([segS, segE]);
+
+        const crashWaves = segments.map(([sIdx, eIdx], idx) => {
+          const peakScanStart = Math.max(0, sIdx - 5);
+          const troughScanEnd = Math.min(n - 1, eIdx + p.fwdDays);
+          let troughIdx = sIdx;
+          for (let j = sIdx; j <= troughScanEnd; j++) if (close[j] < close[troughIdx]) troughIdx = j;
+          let peakIdx = peakScanStart;
+          for (let j = peakScanStart; j <= troughIdx; j++) if (close[j] > close[peakIdx]) peakIdx = j;
+
+          const peakP = close[peakIdx];
+          const troughP = close[troughIdx];
+          const maxDrop = ((troughP - peakP) / peakP) * 100;
+
+          // 在此波段期間內（含起跌前 3 日至見底日），是否已經處於防禦倉位或有執行減碼
+          const scanStart = Math.max(1, Math.min(peakIdx, sIdx) - 3);
+          let firstCutIdx = -1;
+          for (let j = scanStart; j <= troughIdx; j++) {
+            if (actionTypeArr[j] === 1 || actionTypeArr[j] === 2) {
+              firstCutIdx = j;
+              break;
+            }
+          }
+          // 若波段開始時早就已在減碼防禦狀態 (position < 1)，亦視為已防護，取波段起跌當日
+          let alreadyInDefense = false;
+          if (firstCutIdx === -1 && position[sIdx] < 0.99) {
+            firstCutIdx = sIdx;
+            alreadyInDefense = true;
+          }
+
+          const hit = firstCutIdx !== -1;
+          const dropBeforeCut = hit ? ((close[firstCutIdx] - peakP) / peakP) * 100 : null;
+          const avoidedDrop = hit ? ((troughP - close[firstCutIdx]) / close[firstCutIdx]) * 100 : null;
+
+          return {
+            id: idx + 1,
+            peakIdx, troughIdx,
+            peakDate: rawData[peakIdx].Date,
+            troughDate: rawData[troughIdx].Date,
+            maxDrop,
+            hit,
+            alreadyInDefense,
+            firstCutIdx,
+            firstCutDate: hit ? rawData[firstCutIdx].Date : null,
+            dropBeforeCut,
+            avoidedDrop
+          };
+        });
+
+        const hitWaves = crashWaves.filter(w => w.hit).length;
+        const eventRecall = crashWaves.length > 0 ? (hitWaves / crashWaves.length) * 100 : 0;
+
+        // 全區間淨值績效
+        const retBH = (bhEquity[n - 1] - 1) * 100;
+        const retSt = (stratEquity[n - 1] - 1) * 100;
+        const cagrBH = (Math.pow(Math.max(0.01, bhEquity[n - 1]), 1 / totalYears) - 1) * 100;
+        const cagrSt = (Math.pow(Math.max(0.01, stratEquity[n - 1]), 1 / totalYears) - 1) * 100;
+        let mddBH = 0, mddSt = 0;
+        for (let i = 0; i < n; i++) {
+          if (bhDD[i] < mddBH) mddBH = bhDD[i];
+          if (stratDD[i] < mddSt) mddSt = stratDD[i];
+        }
+        const mddSavedPts = Math.abs(mddBH) - Math.abs(mddSt);
+        const mddReductionPct = mddBH < -0.01 ? (mddSavedPts / Math.abs(mddBH)) * 100 : 0;
+        const calmarBH = mddBH < -0.01 ? cagrBH / Math.abs(mddBH) : 0;
+        const calmarSt = mddSt < -0.01 ? cagrSt / Math.abs(mddSt) : 0;
+
+        return {
+          pre, n, warmup, validEnd, totalYears,
+          targetCrash, sig1, sig2, sig3, scoreArr,
+          futThArr, spotThArr, volThArr, marginThArr,
+          yellowTrigger, redTrigger,
+          position, bhEquity, stratEquity, bhDD, stratDD,
+          actionTypeArr, actions, totalCostPct,
+          tomorrowAction, tomorrowPos, inDefenseAtEnd: inDefense,
+          cutActionsValidCount: cutActionsValid.length, hitCuts, actionPrecision,
+          crashWaves, hitWaves, eventRecall,
+          retBH, retSt, cagrBH, cagrSt, mddBH, mddSt, mddSavedPts, mddReductionPct, calmarBH, calmarSt
+        };
+      }
+
+      // =========================================================================
+      // 6. UI 渲染：誠實資料狀態徽章 + 頂部 30 秒行動指令列
+      // =========================================================================
+      function renderHeaderStatus() {
+        const rows = state.rawData;
+        const btn = document.getElementById('btn-status-badge');
+        const txt = document.getElementById('status-badge-text');
+        if (state.dataMeta.isReal) {
+          btn.className = 'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition cursor-pointer bg-emerald-500/15 text-emerald-300 border-emerald-400/40 hover:bg-emerald-500/25';
+          txt.textContent = `✅ 真實台股 TAIEX (${state.dataMeta.sourceName} | ${rows[0].Date} ~ ${rows[rows.length - 1].Date} | ${rows.length.toLocaleString()} 筆)`;
+        } else {
+          btn.className = 'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition cursor-pointer bg-amber-500/15 text-amber-300 border-amber-400/40 hover:bg-amber-500/25';
+          txt.textContent = '⚠️ 示範模擬數據 (點擊匯入真實台股)';
+        }
+
+        const res = state.result;
+        if (res) {
+          document.getElementById('header-meta-info').innerHTML =
+            `<span>區間：${rows[0].Date} ~ ${rows[rows.length - 1].Date}</span><span>•</span><span>實際加減碼：${res.actions.length} 次</span>`;
+        }
+      }
+
+      function renderHeroBanner(res) {
+        const { pre, scoreArr, sig1, sig2, sig3, futThArr, spotThArr, volThArr, marginThArr } = res;
+        const i = pre.n - 1;
+        const row = state.rawData[i];
+        const p = state.params;
+        const sc = scoreArr[i];
+        const maxSc = state.dataMeta.priceOnly ? 2 : 3;
+        const retPct = pre.dailyRet[i] * 100;
+        const tPosPct = Math.round(res.tomorrowPos * 100);
+
+        document.getElementById('hero-date-pill').textContent = `最新盤後：${row.Date}`;
+        document.getElementById('hero-close-pill').innerHTML =
+          `TAIEX ${row.Close.toLocaleString()} <span class="${retPct >= 0 ? 'text-rose-600' : 'text-emerald-600'}">(${retPct >= 0 ? '+' : ''}${retPct.toFixed(2)}%)</span>`;
+        document.getElementById('hero-priceonly-pill').classList.toggle('hidden', !state.dataMeta.priceOnly);
+        document.getElementById('hero-score-tag').textContent = `${sc}/${maxSc}分`;
+
+        const bar = document.getElementById('hero-action-bar');
+        const box = document.getElementById('hero-icon-box');
+        const emoji = document.getElementById('hero-emoji');
+        const verdict = document.getElementById('hero-verdict');
+        const posTag = document.getElementById('hero-pos-transition');
+        const rationale = document.getElementById('hero-rationale');
+
+        const posLabel = tPosPct < 0 ? `反向對沖 ${Math.abs(tPosPct)}%` : `${tPosPct}%`;
+
+        if (res.tomorrowAction === 'cut_red' || res.tomorrowAction === 'hold_red') {
+          bar.className = 'rounded-2xl border-2 border-rose-300 bg-rose-50/60 shadow-sm overflow-hidden transition-colors';
+          box.className = 'w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex flex-col items-center justify-center shrink-0 shadow-sm border-2 bg-rose-600 border-rose-400 text-white';
+          emoji.textContent = '🔴';
+          verdict.className = 'text-xl sm:text-2xl font-extrabold tracking-tight text-rose-700';
+          verdict.textContent = `🔴 紅燈重砍（明日開盤降至 ${posLabel}）`;
+          posTag.className = 'px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-rose-600 text-white tabular-nums';
+          posTag.textContent = `明日 T+1 目標倉位：${posLabel}`;
+          rationale.textContent = '全維度核心風險共振亮紅燈，系統性波段重挫機率極高，建議明日開盤立即將曝險壓至最低防禦水位。';
+        } else if (res.tomorrowAction === 'cut_yellow') {
+          bar.className = 'rounded-2xl border-2 border-amber-300 bg-amber-50/60 shadow-sm overflow-hidden transition-colors';
+          box.className = 'w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex flex-col items-center justify-center shrink-0 shadow-sm border-2 bg-amber-500 border-amber-300 text-slate-950';
+          emoji.textContent = '🟡';
+          verdict.className = 'text-xl sm:text-2xl font-extrabold tracking-tight text-amber-800';
+          verdict.textContent = `🟡 黃燈減碼（明日開盤降至 ${posLabel}）`;
+          posTag.className = 'px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-amber-500 text-slate-950 tabular-nums';
+          posTag.textContent = `明日 T+1 目標倉位：${posLabel}`;
+          rationale.textContent = '籌碼或技術恐慌已達雙重警戒門檻，建議明日開盤暫停新開多單並執行階梯減碼，先收回部分現金。';
+        } else if (res.tomorrowAction === 'buyback') {
+          bar.className = 'rounded-2xl border-2 border-sky-300 bg-sky-50/60 shadow-sm overflow-hidden transition-colors';
+          box.className = 'w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex flex-col items-center justify-center shrink-0 shadow-sm border-2 bg-sky-600 border-sky-400 text-white';
+          emoji.textContent = '🔵';
+          verdict.className = 'text-xl sm:text-2xl font-extrabold tracking-tight text-sky-800';
+          verdict.textContent = '🔵 警報解除（明日開盤回補至 100%）';
+          posTag.className = 'px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-sky-600 text-white tabular-nums';
+          posTag.textContent = '明日 T+1 目標倉位：100%';
+          rationale.textContent = `所有大跌警示燈號歸零，且收盤已連續站穩 10SMA (${pre.ma10[i]?.toFixed(0) || '--'}) 滿 ${p.reentryDays} 日，明日開盤可恢復滿倉。`;
+        } else if (res.tomorrowAction === 'hold_defense') {
+          bar.className = 'rounded-2xl border-2 border-amber-200 bg-amber-50/30 shadow-sm overflow-hidden transition-colors';
+          box.className = 'w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex flex-col items-center justify-center shrink-0 shadow-sm border-2 bg-amber-500 border-amber-300 text-slate-950';
+          emoji.textContent = '🟡';
+          verdict.className = 'text-xl sm:text-2xl font-extrabold tracking-tight text-amber-800';
+          verdict.textContent = `🟡 持續防禦減碼中（維持 ${posLabel}）`;
+          posTag.className = 'px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-amber-100 text-amber-900 tabular-nums';
+          posTag.textContent = `明日 T+1 目標倉位：${posLabel}`;
+          rationale.textContent = `目前處於減碼防禦狀態，需待警示分數歸零並連續站穩 10SMA (${pre.ma10[i]?.toFixed(0) || '--'}) 滿 ${p.reentryDays} 日（目前已連 ${pre.consecAbove10[i]} 日）才啟動回補。`;
+        } else {
+          bar.className = 'rounded-2xl border-2 border-emerald-200 bg-white shadow-sm overflow-hidden transition-colors';
+          box.className = 'w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex flex-col items-center justify-center shrink-0 shadow-sm border-2 bg-emerald-600 border-emerald-400 text-white';
+          emoji.textContent = '🟢';
+          verdict.className = 'text-xl sm:text-2xl font-extrabold tracking-tight text-emerald-700';
+          verdict.textContent = '🟢 安全持有（維持 100%）';
+          posTag.className = 'px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-emerald-100 text-emerald-800 tabular-nums';
+          posTag.textContent = '明日 T+1 目標倉位：100%';
+          rationale.textContent = '大盤未達波段減碼門檻，屬正常多頭震盪範圍，無需操作，維持既有滿倉配置即可。';
+        }
+
+        // 更新 3 顆即時訊號膠囊
+        function setSignalPill(num, active, disabled, metricHtml) {
+          const card = document.getElementById(`hero-pill-${num}`);
+          const badge = document.getElementById(`hero-s${num}-state`);
+          const metric = document.getElementById(`hero-s${num}-metric`);
+          metric.innerHTML = metricHtml;
+          if (disabled) {
+            card.className = 'rounded-xl border border-slate-200 bg-slate-100/70 px-3 py-2.5 opacity-60';
+            badge.className = 'px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-600';
+            badge.textContent = '無此欄';
+          } else if (active) {
+            card.className = 'rounded-xl border border-rose-300 bg-rose-50 px-3 py-2.5';
+            badge.className = 'px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-600 text-white';
+            badge.textContent = '● 亮燈';
+          } else {
+            card.className = 'rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5';
+            badge.className = 'px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700';
+            badge.textContent = '正常';
+          }
+        }
+
+        if (state.dataMeta.priceOnly) {
+          setSignalPill(1, false, true, '匯入外資籌碼後自動啟用');
+        } else {
+          const fTh = isNaN(futThArr[i]) ? '--' : Math.round(futThArr[i]).toLocaleString();
+          const sTh = isNaN(spotThArr[i]) ? '--' : spotThArr[i].toFixed(0);
+          setSignalPill(
+            1, sig1[i] === 1, false,
+            `期貨 <b>${Math.round(row.Foreign_Fut_OI).toLocaleString()}</b> (&lt;${fTh})<br/>5日現貨 <b>${pre.spot5d[i].toFixed(0)}億</b> (&lt;${sTh})`
+          );
+        }
+
+        const maVal = pre.ma[i];
+        const distPct = maVal ? ((row.Close - maVal) / maVal) * 100 : 0;
+        const maSlope = !isNaN(maVal) && !isNaN(pre.ma[i - 1]) && maVal < pre.ma[i - 1] ? '下彎' : '向上';
+        setSignalPill(
+          2, sig2[i] === 1, false,
+          `距 ${p.maLen}MA <b>${distPct >= 0 ? '+' : ''}${distPct.toFixed(1)}%</b> (${maSlope})<br/>連破 ${pre.consecBelowMA[i]} 日 (門檻 ≥${p.confirmDays})`
+        );
+
+        const vTh = isNaN(volThArr[i]) ? '--' : volThArr[i].toFixed(1);
+        if (state.dataMeta.priceOnly) {
+          const r10 = i >= p.retDays ? ((row.Close - pre.close[i - p.retDays]) / pre.close[i - p.retDays]) * 100 : 0;
+          setSignalPill(3, sig3[i] === 1, false, `波動 <b>${row.Volatility.toFixed(1)}%</b> (&gt;${vTh})<br/>10日漲跌 <b>${r10.toFixed(1)}%</b>`);
+        } else {
+          const mTh = isNaN(marginThArr[i]) ? '--' : marginThArr[i].toFixed(0);
+          setSignalPill(3, sig3[i] === 1, false, `波動 <b>${row.Volatility.toFixed(1)}%</b> (&gt;${vTh})<br/>融資 <b>${row.Margin_Balance.toFixed(0)}億</b> (&gt;${mTh})`);
+        }
+      }
+
+      // =========================================================================
+      // 7. 分頁 1 渲染：🎯 減碼雷達圖 (ECharts) + 聯動淨值圖 + 右側行動清單
+      // =========================================================================
+      function renderRadarCharts(res) {
+        const { pre, actions, position, bhEquity, stratEquity, targetCrash, scoreArr, yellowTrigger, redTrigger } = res;
+        const dates = state.rawData.map(r => r.Date);
+        const closeData = pre.close;
+        const maData = Array.from(pre.ma, v => isNaN(v) ? null : Number(v.toFixed(2)));
+        const bhEqData = Array.from(bhEquity, v => Number(v.toFixed(4)));
+        const stEqData = Array.from(stratEquity, v => Number(v.toFixed(4)));
+        const posData = Array.from(position, v => Math.round(v * 100));
+
+        if (!state.charts.price) {
+          state.charts.price = echarts.init(document.getElementById('chart-radar-price'));
+          state.charts.equity = echarts.init(document.getElementById('chart-radar-equity'));
+          state.charts.price.group = 'radarGroup';
+          state.charts.equity.group = 'radarGroup';
+          echarts.connect('radarGroup');
+        }
+
+        // 保留既有縮放範圍
+        let zoomRange = { start: 0, end: 100 };
+        const prevOpt = state.charts.equity.getOption();
+        if (prevOpt && prevOpt.dataZoom && prevOpt.dataZoom[0] && prevOpt.dataZoom[0].start !== undefined) {
+          zoomRange = { start: prevOpt.dataZoom[0].start, end: prevOpt.dataZoom[0].end };
+        }
+
+        // 建立 markArea：減碼防禦陰影帶 & 事後大跌紅區
+        const markAreas = [];
+        if (state.view.showCrashBand) {
+          let s = -1;
+          for (let i = 0; i < pre.n; i++) {
+            if (targetCrash[i] === 1 && s === -1) s = i;
+            else if (targetCrash[i] === 0 && s !== -1) {
+              markAreas.push([
+                { xAxis: dates[s], itemStyle: { color: 'rgba(244, 63, 94, 0.14)' } },
+                { xAxis: dates[i - 1] }
+              ]);
+              s = -1;
+            }
+          }
+          if (s !== -1) {
+            markAreas.push([
+              { xAxis: dates[s], itemStyle: { color: 'rgba(244, 63, 94, 0.14)' } },
+              { xAxis: dates[pre.n - 1] }
+            ]);
+          }
+        }
+
+        if (state.view.showDefenseBand) {
+          let s = -1;
+          for (let i = 0; i < pre.n; i++) {
+            const inDef = position[i] < 0.99;
+            if (inDef && s === -1) s = i;
+            else if (!inDef && s !== -1) {
+              markAreas.push([
+                { xAxis: dates[s], itemStyle: { color: 'rgba(245, 158, 11, 0.15)', borderColor: 'rgba(245, 158, 11, 0.35)', borderWidth: 0.5 } },
+                { xAxis: dates[i - 1] }
+              ]);
+              s = -1;
+            }
+          }
+          if (s !== -1) {
+            markAreas.push([
+              { xAxis: dates[s], itemStyle: { color: 'rgba(245, 158, 11, 0.15)' } },
+              { xAxis: dates[pre.n - 1] }
+            ]);
+          }
+        }
+
+        // 建立實際加減碼行動日 markPoint 清晰標籤 (不擁擠、一眼看懂)
+        const actionMarkPoints = actions.map(a => {
+          if (a.type === 1) {
+            return {
+              name: a.typeName,
+              coord: [a.execDate, a.execClose],
+              value: '✂️ 減碼',
+              symbol: 'pin',
+              symbolSize: 44,
+              itemStyle: { color: '#F59E0B', borderColor: '#FFF', borderWidth: 1.5 },
+              label: { show: true, formatter: '✂️', fontSize: 13, color: '#FFF', offset: [0, -2] }
+            };
+          } else if (a.type === 2) {
+            return {
+              name: a.typeName,
+              coord: [a.execDate, a.execClose],
+              value: '🚨 重砍',
+              symbol: 'pin',
+              symbolSize: 48,
+              itemStyle: { color: '#E11D48', borderColor: '#FFF', borderWidth: 1.5 },
+              label: { show: true, formatter: '🚨', fontSize: 13, color: '#FFF', offset: [0, -2] }
+            };
+          } else {
+            return {
+              name: a.typeName,
+              coord: [a.execDate, a.execClose],
+              value: '🔄 回補',
+              symbol: 'pin',
+              symbolRotate: 180,
+              symbolSize: 40,
+              itemStyle: { color: '#10B981', borderColor: '#FFF', borderWidth: 1.5 },
+              label: { show: true, formatter: '🔄', fontSize: 12, color: '#FFF', offset: [0, 2] }
+            };
+          }
+        });
+
+        // 選用模式：若切換為「顯示所有亮燈日」，疊加散點
+        const allYellowPts = [];
+        const allRedPts = [];
+        if (state.view.showAllSignals) {
+          for (let i = 0; i < pre.n; i++) {
+            if (scoreArr[i] >= redTrigger) allRedPts.push([dates[i], closeData[i]]);
+            else if (scoreArr[i] >= yellowTrigger) allYellowPts.push([dates[i], closeData[i]]);
+          }
+        }
+
+        // 建立行動快速查找表 (給 Tooltip 使用)
+        const actionByIdx = {};
+        actions.forEach(a => { actionByIdx[a.execIdx] = a; });
+
+        const seriesPrice = [
+          {
+            name: '加權指數 TAIEX',
+            type: 'line',
+            data: closeData,
+            showSymbol: false,
+            lineStyle: { color: '#0F172A', width: 1.7 },
+            markArea: { silent: true, data: markAreas },
+            markPoint: {
+              animation: false,
+              data: state.view.showAllSignals ? [] : actionMarkPoints
+            }
+          },
+          {
+            name: `${state.params.maLen}MA`,
+            type: 'line',
+            data: maData,
+            showSymbol: false,
+            lineStyle: { color: '#3B82F6', width: 1.2, opacity: 0.8 }
+          }
+        ];
+
+        if (state.view.showAllSignals) {
+          seriesPrice.push(
+            { name: '黃燈亮燈日', type: 'scatter', data: allYellowPts, symbol: 'triangle', symbolRotate: 180, symbolSize: 8, itemStyle: { color: '#F59E0B' }, z: 6 },
+            { name: '紅燈亮燈日', type: 'scatter', data: allRedPts, symbol: 'triangle', symbolRotate: 180, symbolSize: 10, itemStyle: { color: '#E11D48' }, z: 7 }
+          );
+        }
+
+        state.charts.price.setOption({
+          animation: false,
+          title: {
+            text: state.view.showAllSignals ? '大盤走勢 × 所有亮燈警戒日' : '大盤走勢 × 實際加減碼執行點位 (✂️ 減碼 / 🚨 重砍 / 🔄 回補)',
+            left: 10, top: 6,
+            textStyle: { fontSize: 12.5, fontWeight: 700, color: '#1E293B' }
+          },
+          legend: { right: 20, top: 6, itemWidth: 14, itemHeight: 8, textStyle: { fontSize: 11, color: '#64748B' } },
+          tooltip: {
+            trigger: 'axis',
+            backgroundColor: 'rgba(15, 23, 42, 0.96)',
+            borderColor: '#334155',
+            padding: [10, 14],
+            textStyle: { color: '#F8FAFC', fontSize: 11.5 },
+            formatter: (list) => {
+              if (!list || !list.length) return '';
+              const idx = list[0].dataIndex;
+              const r = state.rawData[idx];
+              if (!r) return '';
+              const act = actionByIdx[idx];
+              const actBanner = act
+                ? `<div style="margin:6px 0;padding:5px 8px;border-radius:6px;font-weight:700;background:${act.type === 2 ? '#E11D48' : act.type === 1 ? '#D97706' : '#059669'};color:#fff;">
+                     ${act.type === 2 ? '🚨' : act.type === 1 ? '✂️' : '🔄'} 當日執行：${act.typeName} (${act.fromPos}% → ${act.toPos}%)
+                   </div>`
+                : '';
+              const posPct = Math.round(position[idx] * 100);
+              const fDrop = isNaN(pre.maxFutureDrop[idx]) ? '尾端' : `${(pre.maxFutureDrop[idx] * 100).toFixed(1)}%`;
+              const s1 = res.sig1[idx] ? '<b style="color:#60A5FA">●外資雙空</b>' : '<span style="color:#64748B">○外資</span>';
+              const s2 = res.sig2[idx] ? '<b style="color:#FBBF24">●破線帶量</b>' : '<span style="color:#64748B">○破線</span>';
+              const s3 = res.sig3[idx] ? '<b style="color:#C084FC">●恐慌槓桿</b>' : '<span style="color:#64748B">○恐慌</span>';
+              return `
+                <div style="min-width:235px;font-variant-numeric:tabular-nums;">
+                  <div style="display:flex;justify-content:space-between;border-bottom:1px solid #334155;padding-bottom:4px;">
+                    <b>${r.Date}</b>
+                    <span>持股水位：<b style="color:${posPct < 100 ? '#FBBF24' : '#34D399'}">${posPct}%</b></span>
+                  </div>
+                  ${actBanner}
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px 12px;margin-top:5px;">
+                    <div>收盤：<b>${r.Close.toLocaleString()}</b></div>
+                    <div>日漲跌：<b>${(pre.dailyRet[idx] * 100).toFixed(2)}%</b></div>
+                    <div>未來${state.params.fwdDays}日最大跌：<b>${fDrop}</b></div>
+                    <div>波動率：<b>${r.Volatility.toFixed(1)}%</b></div>
+                  </div>
+                  <div style="display:flex;gap:10px;background:#1E293B;padding:4px 8px;border-radius:6px;margin-top:6px;">
+                    ${s1} ${s2} ${s3}
+                  </div>
+                </div>`;
+            }
+          },
+          grid: { left: 62, right: 24, top: 44, bottom: 26 },
+          xAxis: { type: 'category', data: dates, boundaryGap: false, axisLine: { lineStyle: { color: '#CBD5E1' } }, axisLabel: { color: '#64748B', fontSize: 10.5 } },
+          yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: '#E2E8F0', type: 'dashed' } }, axisLabel: { color: '#64748B', fontSize: 10.5 } },
+          dataZoom: [{ type: 'inside', start: zoomRange.start, end: zoomRange.end }],
+          series: seriesPrice
+        }, true);
+
+        // 聯動副圖：策略淨值 vs Buy & Hold + 右軸持股階梯
+        const minPos = Math.min(0, state.params.redPos);
+        state.charts.equity.setOption({
+          animation: false,
+          title: {
+            text: '策略累積淨值 vs 大盤 Buy & Hold（含 0.20% 成本）＆ 右軸持股水位 %',
+            left: 10, top: 4,
+            textStyle: { fontSize: 12, fontWeight: 700, color: '#334155' }
+          },
+          legend: { right: 54, top: 4, itemWidth: 14, itemHeight: 8, textStyle: { fontSize: 11, color: '#64748B' } },
+          tooltip: {
+            trigger: 'axis',
+            backgroundColor: 'rgba(15, 23, 42, 0.95)',
+            borderColor: '#334155',
+            textStyle: { color: '#F8FAFC', fontSize: 11.5 }
+          },
+          grid: { left: 62, right: 50, top: 34, bottom: 48 },
+          xAxis: { type: 'category', data: dates, boundaryGap: false, axisLine: { lineStyle: { color: '#CBD5E1' } }, axisLabel: { color: '#64748B', fontSize: 10.5 } },
+          yAxis: [
+            { type: 'value', scale: true, splitLine: { lineStyle: { color: '#E2E8F0', type: 'dashed' } }, axisLabel: { color: '#64748B', fontSize: 10.5, formatter: '{value}x' } },
+            { type: 'value', min: minPos, max: 110, splitLine: { show: false }, axisLabel: { color: '#94A3B8', fontSize: 10, formatter: '{value}%' } }
+          ],
+          dataZoom: [
+            { type: 'inside', start: zoomRange.start, end: zoomRange.end },
+            {
+              type: 'slider', bottom: 4, height: 22,
+              start: zoomRange.start, end: zoomRange.end,
+              borderColor: '#CBD5E1', fillerColor: 'rgba(37, 99, 235, 0.14)', handleStyle: { color: '#0F172A' }
+            }
+          ],
+          series: [
+            {
+              name: '持股水位(%)',
+              type: 'line',
+              step: 'end',
+              yAxisIndex: 1,
+              data: posData,
+              showSymbol: false,
+              lineStyle: { color: 'rgba(245, 158, 11, 0.5)', width: 1.2 },
+              areaStyle: { color: 'rgba(245, 158, 11, 0.14)' },
+              z: 1
+            },
+            {
+              name: 'Buy & Hold',
+              type: 'line',
+              yAxisIndex: 0,
+              data: bhEqData,
+              showSymbol: false,
+              lineStyle: { color: '#94A3B8', width: 1.5, type: 'dashed' },
+              z: 3
+            },
+            {
+              name: '減碼避險策略',
+              type: 'line',
+              yAxisIndex: 0,
+              data: stEqData,
+              showSymbol: false,
+              lineStyle: { color: '#059669', width: 2.2 },
+              z: 4
+            }
+          ]
+        }, true);
+      }
+
+      function zoomRadarTo(payload) {
+        if (state.charts.price) state.charts.price.dispatchAction({ type: 'dataZoom', ...payload });
+        if (state.charts.equity) state.charts.equity.dispatchAction({ type: 'dataZoom', ...payload });
+      }
+
+      // 渲染右側「哪天該減碼？」歷史行動卡片清單
+      function renderActionList(res) {
+        const allDesc = [...res.actions].reverse(); // 最新排最上面
+        const cuts = allDesc.filter(a => a.type === 1 || a.type === 2);
+        const buybacks = allDesc.filter(a => a.type === 3);
+        const hits = allDesc.filter(a => a.hitCrash);
+
+        document.getElementById('cnt-all').textContent = allDesc.length;
+        document.getElementById('cnt-cut').textContent = cuts.length;
+        document.getElementById('cnt-buyback').textContent = buybacks.length;
+        document.getElementById('cnt-hit').textContent = hits.length;
+
+        let filtered = allDesc;
+        if (state.view.actionFilter === 'cut') filtered = cuts;
+        else if (state.view.actionFilter === 'buyback') filtered = buybacks;
+        else if (state.view.actionFilter === 'hit') filtered = hits;
+
+        const container = document.getElementById('action-list-container');
+        if (!filtered.length) {
+          container.innerHTML = `
+            <div class="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-xs text-slate-400">
+              此篩選條件下尚無行動紀錄。可嘗試切換篩選條件或透過「快速調參」放寬門檻。
+            </div>`;
+          return;
+        }
+
+        container.innerHTML = filtered.map(a => {
+          const isSelected = state.view.selectedActionId === a.id;
+          let badgeClass = 'bg-amber-100 text-amber-900 border-amber-300';
+          let badgeText = `✂️ 黃燈減碼 ${a.fromPos}%→${a.toPos}%`;
+          let leftBorder = 'border-l-amber-500';
+
+          if (a.type === 2) {
+            badgeClass = 'bg-rose-100 text-rose-800 border-rose-300';
+            badgeText = `🚨 紅燈重砍 ${a.fromPos}%→${a.toPos}%`;
+            leftBorder = 'border-l-rose-600';
+          } else if (a.type === 3) {
+            badgeClass = 'bg-emerald-100 text-emerald-800 border-emerald-300';
+            badgeText = `🔄 回補 ${a.fromPos}%→100%`;
+            leftBorder = 'border-l-emerald-500';
+          }
+
+          const sigTags = [];
+          if (a.signals.s1) sigTags.push('<span class="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-semibold">外資雙空</span>');
+          if (a.signals.s2) sigTags.push('<span class="px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-semibold">破線長黑</span>');
+          if (a.signals.s3) sigTags.push('<span class="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200 text-[10px] font-semibold">恐慌槓桿</span>');
+          if (a.type === 3) sigTags.push(`<span class="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-semibold">連站 10SMA</span>`);
+
+          let hindsightBadge = '';
+          if (a.type === 1 || a.type === 2) {
+            if (a.subsequentDrop === null) {
+              hindsightBadge = '<span class="text-[11px] font-mono text-slate-400">近期驗證中</span>';
+            } else if (a.hitCrash) {
+              hindsightBadge = `<span class="px-2 py-0.5 rounded-full text-[10.5px] font-mono font-bold bg-emerald-100 text-emerald-800">✅ 躲過後續 ${a.subsequentDrop.toFixed(1)}%</span>`;
+            } else {
+              hindsightBadge = `<span class="px-2 py-0.5 rounded-full text-[10.5px] font-mono font-semibold bg-slate-100 text-slate-600">後續最大回檔 ${a.subsequentDrop.toFixed(1)}%</span>`;
+            }
+          }
+
+          return `
+            <div data-id="${a.id}" data-exec="${a.execIdx}"
+              class="action-card rounded-xl border border-slate-200 border-l-4 ${leftBorder} bg-white p-3 shadow-sm hover:shadow hover:border-blue-300 transition cursor-pointer ${isSelected ? 'action-card-selected' : ''}">
+              <div class="flex items-center justify-between gap-2 mb-1.5">
+                <span class="px-2 py-0.5 rounded-md border text-[11px] font-bold ${badgeClass} tabular-nums">${badgeText}</span>
+                <span class="font-mono text-xs font-extrabold text-slate-900 tabular-nums">${a.execDate}</span>
+              </div>
+              <div class="flex items-center justify-between text-[11px] text-slate-500 font-mono mb-2 tabular-nums">
+                <span>執行收盤：${a.execClose.toLocaleString()}</span>
+                <span>訊號日：${a.signalDate}</span>
+              </div>
+              <div class="flex flex-wrap items-center justify-between gap-1.5">
+                <div class="flex flex-wrap gap-1">${sigTags.join('')}</div>
+                ${hindsightBadge}
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        container.querySelectorAll('.action-card').forEach(card => {
+          card.addEventListener('click', () => {
+            const id = card.dataset.id;
+            const execIdx = Number(card.dataset.exec);
+            state.view.selectedActionId = id;
+            container.querySelectorAll('.action-card').forEach(c => c.classList.remove('action-card-selected'));
+            card.classList.add('action-card-selected');
+            focusRadarOnIndex(execIdx);
+          });
+        });
+      }
+
+      function focusRadarOnIndex(idx) {
+        const n = state.rawData.length;
+        const startIdx = Math.max(0, idx - 40);
+        const endIdx = Math.min(n - 1, idx + 40);
+        if (state.view.activeTab !== 'tab-radar') {
+          switchTab('tab-radar');
+        }
+        requestAnimationFrame(() => {
+          resizeActiveCharts();
+          zoomRadarTo({ startValue: startIdx, endValue: endIdx });
+          if (state.charts.price) {
+            state.charts.price.dispatchAction({ type: 'showTip', seriesIndex: 0, dataIndex: idx });
+          }
+        });
+      }
+
+      // =========================================================================
+      // 8. 分頁 2 渲染：📅 年度減碼日曆 (一秒掃全年)
+      // =========================================================================
+      function renderCalendarTab(res) {
+        const rows = state.rawData;
+        const yearsSet = new Set(rows.map(r => r.Date.slice(0, 4)));
+        const years = Array.from(yearsSet).sort().reverse();
+
+        if (!state.view.selectedCalendarYear || !yearsSet.has(state.view.selectedCalendarYear)) {
+          state.view.selectedCalendarYear = years[0];
+        }
+        const yr = state.view.selectedCalendarYear;
+
+        // 渲染年份選擇膠囊
+        const pillBox = document.getElementById('calendar-year-pills');
+        pillBox.innerHTML = years.map(y => `
+          <button type="button" data-year="${y}"
+            class="cal-year-btn px-3 py-1 rounded-full text-xs font-mono font-bold transition cursor-pointer ${y === yr ? 'bg-slate-900 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">
+            ${y} 年
+          </button>
+        `).join('');
+
+        pillBox.querySelectorAll('.cal-year-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            state.view.selectedCalendarYear = btn.dataset.year;
+            renderCalendarTab(state.result);
+          });
+        });
+
+        // 準備該年度日曆資料與統計
+        // 類別碼: 1=正常持有(100%), 2=減碼防禦持有中(<100%), 3=首次黃燈減碼, 4=首次紅燈重砍, 5=回補
+        const calData = [];
+        const dayLookup = {};
+        let yrTradingDays = 0, yrDefDays = 0, yrCuts = 0, yrBuybacks = 0;
+        let firstIdx = -1, lastIdx = -1;
+
+        for (let i = 0; i < res.n; i++) {
+          const d = rows[i].Date;
+          if (!d.startsWith(yr + '-')) continue;
+          if (firstIdx === -1) firstIdx = i;
+          lastIdx = i;
+          yrTradingDays++;
+
+          const act = res.actionTypeArr[i];
+          const pos = res.position[i];
+          let code = 1;
+          let statusLabel = '正常持有 (100%)';
+
+          if (act === 2) {
+            code = 4; statusLabel = '🚨 紅燈重砍執行日'; yrCuts++;
+          } else if (act === 1) {
+            code = 3; statusLabel = '✂️ 黃燈減碼執行日'; yrCuts++;
+          } else if (act === 3) {
+            code = 5; statusLabel = '🔄 警報解除回補執行日'; yrBuybacks++;
+          } else if (pos < 0.99) {
+            code = 2; statusLabel = `減碼防禦持有中 (${Math.round(pos * 100)}%)`;
+          }
+
+          if (pos < 0.99) yrDefDays++;
+          calData.push([d, code]);
+          dayLookup[d] = { idx: i, statusLabel, pos: Math.round(pos * 100) };
+        }
+
+        // 計算該年度報酬與 MDD
+        let yrRetBH = 0, yrRetSt = 0, yrMddBH = 0, yrMddSt = 0;
+        if (firstIdx !== -1 && lastIdx > firstIdx) {
+          const baseBH = firstIdx > 0 ? res.bhEquity[firstIdx - 1] : 1.0;
+          const baseSt = firstIdx > 0 ? res.stratEquity[firstIdx - 1] : 1.0;
+          yrRetBH = ((res.bhEquity[lastIdx] / baseBH) - 1) * 100;
+          yrRetSt = ((res.stratEquity[lastIdx] / baseSt) - 1) * 100;
+
+          let pkBH = baseBH, pkSt = baseSt;
+          for (let i = firstIdx; i <= lastIdx; i++) {
+            if (res.bhEquity[i] > pkBH) pkBH = res.bhEquity[i];
+            if (res.stratEquity[i] > pkSt) pkSt = res.stratEquity[i];
+            const dBH = ((res.bhEquity[i] - pkBH) / pkBH) * 100;
+            const dSt = ((res.stratEquity[i] - pkSt) / pkSt) * 100;
+            if (dBH < yrMddBH) yrMddBH = dBH;
+            if (dSt < yrMddSt) yrMddSt = dSt;
+          }
+        }
+
+        document.getElementById('cal-stat-cuts').textContent = `${yrCuts} 次`;
+        document.getElementById('cal-stat-buybacks').textContent = `回補操作：${yrBuybacks} 次`;
+        document.getElementById('cal-stat-defdays').textContent = `${yrDefDays} 日`;
+        document.getElementById('cal-stat-defratio').textContent = `佔全年交易日 ${yrTradingDays ? ((yrDefDays / yrTradingDays) * 100).toFixed(1) : 0}%`;
+        document.getElementById('cal-stat-ret').textContent = `${yrRetBH >= 0 ? '+' : ''}${yrRetBH.toFixed(1)}% vs ${yrRetSt >= 0 ? '+' : ''}${yrRetSt.toFixed(1)}%`;
+        document.getElementById('cal-stat-mdd').textContent = `${yrMddBH.toFixed(1)}% → ${yrMddSt.toFixed(1)}%`;
+        const saved = Math.abs(yrMddBH) - Math.abs(yrMddSt);
+        document.getElementById('cal-stat-mdd-diff').textContent = saved >= 0 ? `成功少跌 ${saved.toFixed(1)} 個百分點` : `回撤差距 ${saved.toFixed(1)} pt`;
+
+        // 初始化與繪製 ECharts 日曆熱力圖
+        const el = document.getElementById('chart-calendar');
+        if (!state.charts.calendar) {
+          state.charts.calendar = echarts.init(el);
+          state.charts.calendar.on('click', (params) => {
+            if (!params || !params.value) return;
+            const dt = params.value[0];
+            const idx = state.rawData.findIndex(r => r.Date === dt);
+            if (idx >= 0) {
+              focusRadarOnIndex(idx);
+              showToast(`已從日曆跳轉至 ${dt} 減碼雷達特寫`, 'info');
+            }
+          });
+        }
+
+        state.charts.calendar.setOption({
+          tooltip: {
+            backgroundColor: 'rgba(15, 23, 42, 0.96)',
+            borderColor: '#334155',
+            textStyle: { color: '#F8FAFC', fontSize: 11.5 },
+            formatter: (p) => {
+              const dt = p.value[0];
+              const info = dayLookup[dt];
+              if (!info) return dt;
+              const idx = info.idx;
+              const r = rows[idx];
+              const s1 = res.sig1[idx] ? '<b style="color:#60A5FA">●外資</b>' : '<span style="color:#64748B">○外資</span>';
+              const s2 = res.sig2[idx] ? '<b style="color:#FBBF24">●破線</b>' : '<span style="color:#64748B">○破線</span>';
+              const s3 = res.sig3[idx] ? '<b style="color:#C084FC">●恐慌</b>' : '<span style="color:#64748B">○恐慌</span>';
+              return `
+                <div style="min-width:210px;font-variant-numeric:tabular-nums;">
+                  <div style="font-weight:700;margin-bottom:4px;border-bottom:1px solid #334155;padding-bottom:4px;">${dt}｜${info.statusLabel}</div>
+                  <div>收盤指數：<b>${r.Close.toLocaleString()}</b>｜倉位：<b>${info.pos}%</b></div>
+                  <div style="margin-top:4px;">當日分數：<b>${res.scoreArr[idx]} 分</b> (${s1} ${s2} ${s3})</div>
+                  <div style="margin-top:4px;font-size:10px;color:#94A3B8;">點擊此日可立即跳回雷達圖放大檢視</div>
+                </div>`;
+            }
+          },
+          visualMap: {
+            type: 'piecewise',
+            show: false,
+            pieces: [
+              { value: 1, color: '#E2E8F0' },
+              { value: 2, color: '#FECDD3' },
+              { value: 3, color: '#F59E0B' },
+              { value: 4, color: '#E11D48' },
+              { value: 5, color: '#10B981' }
+            ]
+          },
+          calendar: {
+            top: 42,
+            left: 44,
+            right: 24,
+            bottom: 16,
+            range: yr,
+            cellSize: ['auto', 26],
+            splitLine: { show: true, lineStyle: { color: '#94A3B8', width: 1.2 } },
+            itemStyle: { borderColor: '#FFFFFF', borderWidth: 2.5, color: '#F8FAFC' },
+            yearLabel: { show: true, position: 'left', color: '#0F172A', fontWeight: 700, fontSize: 15, margin: 22 },
+            monthLabel: { nameMap: 'ZH', color: '#475569', fontSize: 11.5, fontWeight: 600 },
+            dayLabel: { firstDay: 1, nameMap: ['日', '一', '二', '三', '四', '五', '六'], color: '#64748B', fontSize: 10.5 }
+          },
+          series: [{
+            type: 'heatmap',
+            coordinateSystem: 'calendar',
+            data: calData
+          }]
+        }, true);
+      }
+
+      // =========================================================================
+      // 9. 分頁 3 渲染：📊 避險績效 & 歷次大跌複盤
+      // =========================================================================
+      function renderAuditTab(res) {
+        // 5 張 KPI 卡片
+        document.getElementById('kpi-action-prec').textContent = `${res.actionPrecision.toFixed(1)}%`;
+        document.getElementById('kpi-action-prec-sub').textContent = `成功躲過後續大跌：${res.hitCuts} / ${res.cutActionsValidCount} 次`;
+
+        document.getElementById('kpi-event-recall').textContent = `${res.eventRecall.toFixed(0)}%`;
+        document.getElementById('kpi-event-recall-sub').textContent = `抓到歷史股災波段：${res.hitWaves} / ${res.crashWaves.length} 次`;
+
+        const annTrades = res.actions.length / res.totalYears;
+        document.getElementById('kpi-trades').textContent = `${res.actions.length} 次`;
+        document.getElementById('kpi-trades-sub').textContent = `年均 ${annTrades.toFixed(1)} 次｜累計成本 ${res.totalCostPct.toFixed(2)}%`;
+
+        document.getElementById('kpi-mdd').textContent = `${res.mddBH.toFixed(1)}% → ${res.mddSt.toFixed(1)}%`;
+        const mBadge = document.getElementById('kpi-mdd-badge');
+        mBadge.textContent = res.mddSavedPts >= 0 ? `少跌 ${res.mddSavedPts.toFixed(1)} pt` : `多跌 ${Math.abs(res.mddSavedPts).toFixed(1)} pt`;
+        mBadge.className = res.mddSavedPts >= 0
+          ? 'px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700 tabular-nums'
+          : 'px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-700 tabular-nums';
+
+        const rBH = `${res.retBH >= 0 ? '+' : ''}${res.retBH.toFixed(0)}%`;
+        const rSt = `${res.retSt >= 0 ? '+' : ''}${res.retSt.toFixed(0)}%`;
+        document.getElementById('kpi-net-ret').textContent = `${rBH} vs ${rSt}`;
+        document.getElementById('kpi-calmar-sub').textContent = `Calmar：${res.calmarBH.toFixed(2)} → ${res.calmarSt.toFixed(2)}`;
+
+        // 水下回撤 ECharts
+        const ddEl = document.getElementById('chart-drawdown');
+        if (!state.charts.drawdown) {
+          state.charts.drawdown = echarts.init(ddEl);
+        }
+        const dates = state.rawData.map(r => r.Date);
+        state.charts.drawdown.setOption({
+          animation: false,
+          tooltip: {
+            trigger: 'axis',
+            backgroundColor: 'rgba(15, 23, 42, 0.95)',
+            borderColor: '#334155',
+            textStyle: { color: '#F8FAFC', fontSize: 11.5 }
+          },
+          legend: { right: 16, top: 0, textStyle: { fontSize: 11.5, color: '#475569' } },
+          grid: { left: 56, right: 20, top: 32, bottom: 28 },
+          xAxis: { type: 'category', data: dates, boundaryGap: false, axisLine: { lineStyle: { color: '#CBD5E1' } }, axisLabel: { color: '#64748B', fontSize: 10.5 } },
+          yAxis: { type: 'value', max: 0, splitLine: { lineStyle: { color: '#E2E8F0', type: 'dashed' } }, axisLabel: { color: '#64748B', fontSize: 10.5, formatter: '{value}%' } },
+          series: [
+            {
+              name: '買進持有 (Buy & Hold)',
+              type: 'line',
+              data: Array.from(res.bhDD, v => Number(v.toFixed(2))),
+              showSymbol: false,
+              lineStyle: { color: '#F43F5E', width: 1.4 },
+              areaStyle: { color: 'rgba(244, 63, 94, 0.16)' }
+            },
+            {
+              name: '減碼避險策略',
+              type: 'line',
+              data: Array.from(res.stratDD, v => Number(v.toFixed(2))),
+              showSymbol: false,
+              lineStyle: { color: '#0284C7', width: 1.8 },
+              areaStyle: { color: 'rgba(2, 132, 199, 0.18)' }
+            }
+          ]
+        }, true);
+
+        // 歷次大跌波段事件複盤表
+        document.getElementById('audit-wave-pill').textContent =
+          `共 ${res.crashWaves.length} 次歷史大跌波段｜成功避險 ${res.hitWaves} 次 (${res.eventRecall.toFixed(0)}%)`;
+
+        const tbody = document.getElementById('tbody-crash-waves');
+        if (!res.crashWaves.length) {
+          tbody.innerHTML = `<tr><td colspan="8" class="px-4 py-10 text-center text-slate-400">目前大跌定義門檻下無符合波段事件。</td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = res.crashWaves.map(w => {
+          const badge = w.hit
+            ? `<span class="inline-flex px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700">${w.alreadyInDefense ? '提前防禦中' : '✅ 成功減碼'}</span>`
+            : '<span class="inline-flex px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-700">漏報</span>';
+
+          return `
+            <tr class="hover:bg-slate-50 transition">
+              <td class="px-3 py-3 font-mono font-bold text-slate-700">#${w.id}</td>
+              <td class="px-3 py-3 font-mono text-slate-800 whitespace-nowrap">${w.peakDate} <span class="text-slate-400">→</span> ${w.troughDate}</td>
+              <td class="px-3 py-3 text-right font-mono font-bold text-rose-600">${w.maxDrop.toFixed(1)}%</td>
+              <td class="px-3 py-3 text-center">${badge}</td>
+              <td class="px-3 py-3 font-mono font-semibold text-slate-800">${w.firstCutDate || '<span class="text-slate-300">--</span>'}</td>
+              <td class="px-3 py-3 text-right font-mono text-amber-700">${w.dropBeforeCut !== null ? w.dropBeforeCut.toFixed(1) + '%' : '--'}</td>
+              <td class="px-3 py-3 text-right font-mono font-bold ${w.avoidedDrop !== null && w.avoidedDrop < 0 ? 'text-emerald-600' : 'text-slate-400'}">
+                ${w.avoidedDrop !== null ? w.avoidedDrop.toFixed(1) + '%' : '--'}
+              </td>
+              <td class="px-3 py-3 text-center">
+                <button type="button" data-idx="${w.firstCutIdx !== -1 ? w.firstCutIdx : w.peakIdx}" data-date="${w.peakDate}"
+                  class="btn-wave-locate px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-blue-600 text-white text-[11px] font-bold transition cursor-pointer">
+                  定位圖表
+                </button>
+              </td>
+            </tr>
+          `;
+        }).join('');
+
+        tbody.querySelectorAll('.btn-wave-locate').forEach(btn => {
+          btn.addEventListener('click', () => {
+            focusRadarOnIndex(Number(btn.dataset.idx));
+            showToast(`已定位至 ${btn.dataset.date} 大跌波段特寫`, 'info');
+          });
+        });
+      }
+
+      // =========================================================================
+      // 10. 分頁 4 渲染與一鍵網格最佳化掃描 (Grid Search)
+      // =========================================================================
+      function renderOptimizeSummary() {
+        const p = state.params;
+        const chips = [
+          `事後大跌：${p.fwdDays}日內 ≤ ${p.crashPct}%`,
+          `外資期貨 < ${p.futQ}%分位`,
+          `5日外資現貨 < ${p.spotQ}%分位`,
+          `趨勢破線：連 ${p.confirmDays} 日破 ${p.maLen}MA`,
+          `波動恐慌 > ${p.volQ}%分位`,
+          `黃燈 ${p.yellowPos}% / 紅燈 ${p.redPos}%`,
+          `回補：連 ${p.reentryDays} 日站上 10SMA`
+        ];
+        document.getElementById('opt-current-params-summary').innerHTML = chips.map(c =>
+          `<span class="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-700 font-semibold">${c}</span>`
+        ).join('');
+      }
+
+      function runGridSearch() {
+        if (state.gridRunning || !state.rawData.length) return;
+        state.gridRunning = true;
+
+        const btn = document.getElementById('btn-run-grid');
+        btn.disabled = true;
+        btn.classList.add('opacity-60');
+
+        const pWrap = document.getElementById('grid-progress-wrap');
+        const pBar = document.getElementById('grid-progress-bar');
+        const pPct = document.getElementById('grid-progress-pct');
+        const pTxt = document.getElementById('grid-progress-text');
+        pWrap.classList.remove('hidden');
+
+        const raw = state.rawData;
+        const baseP = state.params;
+        const pre = buildPrecomputed(raw, baseP);
+
+        const chipList = [10, 15, 22];      // futQ & spotQ 同步掃描
+        const volList = [75, 82, 88];       // volQ
+        const confList = [1, 2, 3];         // confirmDays
+        const reentryList = [2, 3];         // reentryDays
+
+        const combos = [];
+        for (const cq of chipList) {
+          for (const vq of volList) {
+            for (const cd of confList) {
+              for (const rd of reentryList) {
+                combos.push({ futQ: cq, spotQ: cq, volQ: vq, confirmDays: cd, reentryDays: rd });
+              }
+            }
+          }
+        }
+
+        const results = [];
+        let idx = 0;
+        const batchSize = 6;
+
+        function stepBatch() {
+          const limit = Math.min(combos.length, idx + batchSize);
+          for (; idx < limit; idx++) {
+            const c = combos[idx];
+            const tp = { ...baseP, ...c };
+            const r = runQuantEngine(raw, tp, pre);
+
+            // 綜合評分：減碼命中率 50% + MDD 壓縮改善率 50%，對零操作給予懲罰
+            const actPenalty = r.cutActionsValidCount < 2 ? 0.45 : (r.actions.length / r.totalYears > 10 ? 0.8 : 1.0);
+            const score = (r.actionPrecision * 0.50 + Math.max(0, r.mddReductionPct) * 0.50) * actPenalty;
+
+            results.push({
+              combo: c,
+              precision: r.actionPrecision,
+              recall: r.eventRecall,
+              mddSt: r.mddSt,
+              mddRed: r.mddReductionPct,
+              mddPts: r.mddSavedPts,
+              trades: r.actions.length,
+              score
+            });
+          }
+
+          const pct = Math.round((idx / combos.length) * 100);
+          pBar.style.width = `${pct}%`;
+          pPct.textContent = `${pct}%`;
+          pTxt.textContent = `正在測試第 ${idx} / ${combos.length} 組參數...`;
+
+          if (idx < combos.length) {
+            setTimeout(stepBatch, 16);
+          } else {
+            results.sort((a, b) => b.score - a.score);
+            renderGridTop8(results.slice(0, 8));
+            state.gridRunning = false;
+            btn.disabled = false;
+            btn.classList.remove('opacity-60');
+            pTxt.textContent = `完成！共測試 ${combos.length} 組參數，已列出前 8 名推薦組合。`;
+            showToast('參數最佳化掃描完成！點擊「一鍵套用」即可立即套用至減碼雷達。', 'success');
+          }
+        }
+        setTimeout(stepBatch, 20);
+      }
+
+      function renderGridTop8(list) {
+        const tbody = document.getElementById('tbody-grid');
+        tbody.innerHTML = list.map((item, i) => {
+          const c = item.combo;
+          return `
+            <tr class="${i === 0 ? 'bg-amber-50/50' : ''} hover:bg-slate-50 transition">
+              <td class="px-3 py-3 text-center font-mono font-bold">
+                ${i === 0 ? '<span class="px-2 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[11px]">#1</span>' : `#${i + 1}`}
+              </td>
+              <td class="px-3 py-3 font-mono text-slate-800 whitespace-nowrap">
+                籌碼 &lt;<b>${c.futQ}%</b> / 波動 &gt;<b>${c.volQ}%</b> / 破線連 <b>${c.confirmDays}日</b> / 回補連 <b>${c.reentryDays}日</b>
+              </td>
+              <td class="px-3 py-3 text-right font-mono font-bold text-blue-600">${item.precision.toFixed(1)}%</td>
+              <td class="px-3 py-3 text-right font-mono font-bold text-emerald-600">${item.recall.toFixed(0)}%</td>
+              <td class="px-3 py-3 text-right font-mono text-rose-600">${item.mddSt.toFixed(1)}%</td>
+              <td class="px-3 py-3 text-right font-mono font-bold ${item.mddRed >= 0 ? 'text-emerald-700' : 'text-rose-600'}">
+                ${item.mddRed >= 0 ? '+' : ''}${item.mddRed.toFixed(1)}% (${item.mddPts >= 0 ? '-' : '+'}${Math.abs(item.mddPts).toFixed(1)}pt)
+              </td>
+              <td class="px-3 py-3 text-right font-mono text-slate-700">${item.trades} 次</td>
+              <td class="px-3 py-3 text-right font-mono font-extrabold text-slate-900">${item.score.toFixed(1)}</td>
+              <td class="px-3 py-3 text-center">
+                <button type="button" data-idx="${i}"
+                  class="btn-apply-grid px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold transition cursor-pointer whitespace-nowrap">
+                  一鍵套用
+                </button>
+              </td>
+            </tr>
+          `;
+        }).join('');
+
+        tbody.querySelectorAll('.btn-apply-grid').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const chosen = list[Number(btn.dataset.idx)].combo;
+            Object.assign(state.params, chosen);
+            syncDrawerControls();
+            refreshAll();
+            showToast(`已套用推薦參數（籌碼<${chosen.futQ}%、波動>${chosen.volQ}%、破線連${chosen.confirmDays}日）！`, 'success');
+          });
+        });
+      }
+
+      // =========================================================================
+      // 11. 模式 A：一鍵直連 FinMind API 抓取 4 項真實台股數據
+      // =========================================================================
+      function setFmStepStatus(stepNum, statusText, colorClass) {
+        const row = document.getElementById(`fm-step-${stepNum}`);
+        if (!row) return;
+        const badge = row.querySelector('.step-status');
+        badge.textContent = statusText;
+        badge.className = `step-status font-bold ${colorClass}`;
+      }
+
+      async function fetchFinMindEndpoint(dataset, startDate, endDate, token, dataId = null) {
+        const params = new URLSearchParams({
+          dataset,
+          start_date: startDate,
+          end_date: endDate
+        });
+        if (dataId) params.set('data_id', dataId);
+        if (token) params.set('token', token);
+
+        const url = `https://api.finmindtrade.com/api/v4/data?${params.toString()}`;
+        const resp = await fetch(url, { method: 'GET', mode: 'cors' });
+        if (!resp.ok) {
+          throw new Error(`HTTP ${resp.status} (${resp.statusText || '請求遭拒或額度超限'})`);
+        }
+        const json = await resp.json();
+        if (json.status !== 200) {
+          throw new Error(json.msg || `FinMind API 狀態異常 (${json.status})`);
+        }
+        return Array.isArray(json.data) ? json.data : [];
+      }
+
+      async function handleFinMindFetch() {
+        if (state.finmindLoading) return;
+        const startDate = document.getElementById('fm-start').value;
+        const endDate = document.getElementById('fm-end').value;
+        const token = document.getElementById('fm-token').value.trim();
+
+        if (!startDate || !endDate || startDate >= endDate) {
+          showToast('請輸入有效的開始與結束日期。', 'warning');
+          return;
+        }
+
+        // 安全儲存 Token 至 localStorage
+        try {
+          if (token) localStorage.setItem('twse_radar_finmind_token', token);
+          else localStorage.removeItem('twse_radar_finmind_token');
+        } catch (e) {}
+
+        state.finmindLoading = true;
+        const btn = document.getElementById('btn-fetch-finmind');
+        btn.disabled = true;
+        btn.classList.add('opacity-60');
+
+        const progPanel = document.getElementById('fm-progress-panel');
+        const errBox = document.getElementById('fm-error-box');
+        progPanel.classList.remove('hidden');
+        errBox.classList.add('hidden');
+        for (let s = 1; s <= 4; s++) setFmStepStatus(s, '等待中', 'text-slate-400');
+
+        try {
+          // Step 1: 加權指數 TAIEX
+          setFmStepStatus(1, '抓取中...', 'text-blue-600');
+          const priceRows = await fetchFinMindEndpoint('TaiwanStockPrice', startDate, endDate, token, 'TAIEX');
+          if (!priceRows.length) throw new Error('TAIEX 加權指數回傳資料為空，請確認日期區間。');
+          setFmStepStatus(1, `✅ 完成 (${priceRows.length} 筆)`, 'text-emerald-600');
+
+          // Step 2: 外資現貨買賣超
+          setFmStepStatus(2, '抓取中...', 'text-blue-600');
+          const instRows = await fetchFinMindEndpoint('TaiwanStockTotalInstitutionalInvestors', startDate, endDate, token);
+          setFmStepStatus(2, `✅ 完成 (${instRows.length} 筆)`, 'text-emerald-600');
+
+          // Step 3: 外資台指期 TX 未平倉淨口數
+          setFmStepStatus(3, '抓取中...', 'text-blue-600');
+          const futRows = await fetchFinMindEndpoint('TaiwanFuturesInstitutionalInvestors', startDate, endDate, token, 'TX');
+          setFmStepStatus(3, `✅ 完成 (${futRows.length} 筆)`, 'text-emerald-600');
+
+          // Step 4: 大盤融資餘額
+          setFmStepStatus(4, '抓取中...', 'text-blue-600');
+          const marginRows = await fetchFinMindEndpoint('TaiwanStockTotalMarginPurchaseShortSale', startDate, endDate, token);
+          setFmStepStatus(4, `✅ 完成 (${marginRows.length} 筆)`, 'text-emerald-600');
+
+          // 彙整資料 Map (以 date 為鍵)
+          const spotMap = {};
+          for (const r of instRows) {
+            const name = String(r.name || '');
+            if (name === 'Foreign_Investor' || name.includes('Foreign')) {
+              const dt = r.date;
+              const net = (parseNum(r.buy) - parseNum(r.sell)) / 1e8;
+              if (!isNaN(net)) spotMap[dt] = (spotMap[dt] || 0) + net;
+            }
+          }
+
+          const futMap = {};
+          for (const r of futRows) {
+            const inv = String(r.institutional_investors || '');
+            if (inv.includes('外資') || inv.includes('Foreign')) {
+              const dt = r.date;
+              const oi = parseNum(r.long_open_interest_balance_volume) - parseNum(r.short_open_interest_balance_volume);
+              if (!isNaN(oi)) futMap[dt] = (futMap[dt] || 0) + oi;
+            }
+          }
+
+          const marginMap = {};
+          for (const r of marginRows) {
+            if (r.name === 'MarginPurchaseMoney') {
+              const val = parseNum(r.TodayBalance) / 1e8;
+              if (!isNaN(val)) marginMap[r.date] = val;
+            }
+          }
+
+          // 以 TAIEX 交易日為主軸對齊合併
+          const merged = [];
+          const seen = new Set();
+          priceRows.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+
+          let lastFut = NaN, lastSpot = 0, lastMargin = NaN;
+          let futMissingStreak = 0, marginMissingStreak = 0;
+
+          for (const pRow of priceRows) {
+            const dt = parseFlexibleDate(pRow.date);
+            const c = parseNum(pRow.close);
+            if (!dt || isNaN(c) || seen.has(dt)) continue;
+            seen.add(dt);
+
+            const tMoney = parseNum(pRow.Trading_money);
+            const tVol = parseNum(pRow.Trading_Volume);
+            const volAmt = !isNaN(tMoney) && tMoney > 0 ? (tMoney / 1e8) : (!isNaN(tVol) ? tVol / 1e8 : NaN);
+
+            let fOI = futMap[dt] !== undefined ? futMap[dt] : NaN;
+            if (!isNaN(fOI)) { lastFut = fOI; futMissingStreak = 0; }
+            else if (!isNaN(lastFut) && futMissingStreak < 2) { fOI = lastFut; futMissingStreak++; }
+
+            let sNet = spotMap[dt] !== undefined ? spotMap[dt] : NaN;
+            if (!isNaN(sNet)) lastSpot = sNet;
+            else sNet = lastSpot;
+
+            let mBal = marginMap[dt] !== undefined ? marginMap[dt] : NaN;
+            if (!isNaN(mBal)) { lastMargin = mBal; marginMissingStreak = 0; }
+            else if (!isNaN(lastMargin) && marginMissingStreak < 2) { mBal = lastMargin; marginMissingStreak++; }
+
+            merged.push({
+              Date: dt,
+              Close: Number(c.toFixed(2)),
+              Volume: isNaN(volAmt) ? NaN : Number(volAmt.toFixed(1)),
+              Foreign_Fut_OI: isNaN(fOI) ? NaN : Math.round(fOI),
+              Foreign_Spot_Net: Number(sNet.toFixed(1)),
+              Margin_Balance: isNaN(mBal) ? NaN : Number(mBal.toFixed(1)),
+              Volatility: NaN
+            });
+          }
+
+          if (merged.length < 80) {
+            throw new Error(`有效交易日不足（僅 ${merged.length} 筆），請拉長日期區間至少半年以上。`);
+          }
+
+          // 後向補齊起始幾日的籌碼缺值
+          const firstValidFut = merged.find(r => !isNaN(r.Foreign_Fut_OI))?.Foreign_Fut_OI;
+          const firstValidMargin = merged.find(r => !isNaN(r.Margin_Balance))?.Margin_Balance;
+          const hasChip = firstValidFut !== undefined && firstValidMargin !== undefined;
+
+          if (hasChip) {
+            let cf = firstValidFut, cm = firstValidMargin;
+            for (const r of merged) {
+              if (isNaN(r.Foreign_Fut_OI)) r.Foreign_Fut_OI = cf; else cf = r.Foreign_Fut_OI;
+              if (isNaN(r.Margin_Balance)) r.Margin_Balance = cm; else cm = r.Margin_Balance;
+            }
+          }
+
+          // 自動計算 20 日年化歷史波動率
+          const realized = computeRealizedVolatility(merged.map(r => r.Close), 20);
+          for (let i = 0; i < merged.length; i++) merged[i].Volatility = Number(realized[i].toFixed(2));
+
+          state.rawData = merged;
+          state.dataMeta = {
+            isReal: true,
+            sourceName: 'FinMind API',
+            priceOnly: !hasChip,
+            hasVolume: merged.some(r => !isNaN(r.Volume) && r.Volume > 0),
+            autoVolComputed: true
+          };
+          state.view.selectedActionId = null;
+          state.view.selectedCalendarYear = null;
+
+          closeDataCenterModal();
+          refreshAll();
+          zoomRadarTo({ start: 0, end: 100 });
+          showToast(`✅ 已成功從 FinMind 載入 ${merged.length.toLocaleString()} 個真實台股交易日！`, 'success');
+        } catch (err) {
+          errBox.classList.remove('hidden');
+          const msg = err.message || String(err);
+          document.getElementById('fm-error-title').textContent = '直連 FinMind API 遭遇限制或網路異常';
+          document.getElementById('fm-error-detail').textContent =
+            `錯誤原因：${msg}。這通常是瀏覽器跨網域 (CORS) 阻擋、單小時免費額度達上限，或網路連線限制所致。建議一鍵切換至「模式 C」使用本機 Python 腳本抓取，10 秒即可產出完整真實 CSV！`;
+        } finally {
+          state.finmindLoading = false;
+          btn.disabled = false;
+          btn.classList.remove('opacity-60');
+        }
+      }
+
+      // =========================================================================
+      // 12. 模式 B：匯入 CSV / Excel (智慧中英欄位對應 + 純價量優雅降級)
+      // =========================================================================
+      function matchColumn(keys, candidates) {
+        const lowerMap = {};
+        keys.forEach(k => { lowerMap[k.trim().toLowerCase()] = k; });
+        for (const cand of candidates) {
+          const cLow = cand.toLowerCase();
+          if (lowerMap[cLow]) return lowerMap[cLow];
+        }
+        // 模糊包含比對
+        for (const k of keys) {
+          const kLow = k.trim().toLowerCase();
+          for (const cand of candidates) {
+            if (kLow.includes(cand.toLowerCase())) return k;
+          }
+        }
+        return null;
+      }
+
+      function handleFileUpload(file) {
+        const reader = new FileReader();
+        reader.onload = function (e) {
+          try {
+            const data = new Uint8Array(e.target.result);
+            const wb = XLSX.read(data, { type: 'array' });
+            const jsonRows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+
+            if (!jsonRows.length) {
+              showToast('匯入失敗：檔案內容為空。', 'error');
+              return;
+            }
+
+            const keys = Object.keys(jsonRows[0]);
+            const colDate = matchColumn(keys, ['date', '日期', '交易日']);
+            const colClose = matchColumn(keys, ['close', 'adj close', '收盤價', '加權指數', '收盤', '指數']);
+            const colVol = matchColumn(keys, ['volume', '成交金額', '成交值', '成交量', 'trading_money']);
+            const colFut = matchColumn(keys, ['foreign_fut_oi', '外資期貨淨口數', '外資台指期', '期貨淨口數', '台指期未平倉']);
+            const colSpot = matchColumn(keys, ['foreign_spot_net', '外資買賣超', '外資現貨', '外資買賣']);
+            const colMargin = matchColumn(keys, ['margin_balance', '融資餘額', '融資金額', '大盤融資']);
+            const colVix = matchColumn(keys, ['volatility', 'taivix', '波動率', '恐慌指數']);
+
+            if (!colDate || !colClose) {
+              showToast('匯入失敗：找不到「日期 (Date)」或「收盤價 (Close)」欄位。', 'error');
+              return;
+            }
+
+            const parsed = [];
+            let cntVol = 0, cntFut = 0, cntSpot = 0, cntMargin = 0, cntVix = 0;
+
+            for (const row of jsonRows) {
+              const dt = parseFlexibleDate(row[colDate]);
+              const c = parseNum(row[colClose]);
+              if (!dt || isNaN(c)) continue;
+
+              const v = colVol ? parseNum(row[colVol]) : NaN;
+              const fOI = colFut ? parseNum(row[colFut]) : NaN;
+              const sNet = colSpot ? parseNum(row[colSpot]) : NaN;
+              const mBal = colMargin ? parseNum(row[colMargin]) : NaN;
+              const vix = colVix ? parseNum(row[colVix]) : NaN;
+
+              if (!isNaN(v) && v > 0) cntVol++;
+              if (!isNaN(fOI)) cntFut++;
+              if (!isNaN(sNet)) cntSpot++;
+              if (!isNaN(mBal)) cntMargin++;
+              if (!isNaN(vix)) cntVix++;
+
+              parsed.push({
+                Date: dt,
+                Close: Number(c.toFixed(2)),
+                Volume: isNaN(v) ? NaN : v,
+                Foreign_Fut_OI: fOI,
+                Foreign_Spot_Net: sNet,
+                Margin_Balance: mBal,
+                Volatility: vix
+              });
+            }
+
+            if (parsed.length < 80) {
+              showToast(`有效交易日僅 ${parsed.length} 筆，至少需 80 個交易日才能啟動動態分位雷達。`, 'error');
+              return;
+            }
+
+            parsed.sort((a, b) => a.Date.localeCompare(b.Date));
+            const deduped = [];
+            for (const r of parsed) {
+              if (!deduped.length || deduped[deduped.length - 1].Date !== r.Date) deduped.push(r);
+            }
+
+            const n = deduped.length;
+            const hasFullChips = (cntFut >= n * 0.5 && cntSpot >= n * 0.5 && cntMargin >= n * 0.5);
+            const hasVolume = cntVol >= n * 0.5;
+
+            if (hasFullChips) {
+              // 前向填補偶發缺值
+              let lf = deduped.find(r => !isNaN(r.Foreign_Fut_OI)).Foreign_Fut_OI;
+              let ls = deduped.find(r => !isNaN(r.Foreign_Spot_Net)).Foreign_Spot_Net;
+              let lm = deduped.find(r => !isNaN(r.Margin_Balance)).Margin_Balance;
+              for (const r of deduped) {
+                if (isNaN(r.Foreign_Fut_OI)) r.Foreign_Fut_OI = lf; else lf = r.Foreign_Fut_OI;
+                if (isNaN(r.Foreign_Spot_Net)) r.Foreign_Spot_Net = ls; else ls = r.Foreign_Spot_Net;
+                if (isNaN(r.Margin_Balance)) r.Margin_Balance = lm; else lm = r.Margin_Balance;
+              }
+            }
+
+            // 補算 20 日年化波動率
+            let autoVol = false;
+            if (cntVix < n * 0.5) {
+              const realized = computeRealizedVolatility(deduped.map(r => r.Close), 20);
+              for (let i = 0; i < n; i++) deduped[i].Volatility = Number(realized[i].toFixed(2));
+              autoVol = true;
+            } else {
+              let lv = deduped.find(r => !isNaN(r.Volatility)).Volatility;
+              for (const r of deduped) {
+                if (isNaN(r.Volatility)) r.Volatility = lv; else lv = r.Volatility;
+              }
+            }
+
+            state.rawData = deduped;
+            state.dataMeta = {
+              isReal: true,
+              sourceName: file.name,
+              priceOnly: !hasFullChips,
+              hasVolume,
+              autoVolComputed: autoVol
+            };
+            state.view.selectedActionId = null;
+            state.view.selectedCalendarYear = null;
+
+            closeDataCenterModal();
+            refreshAll();
+            zoomRadarTo({ start: 0, end: 100 });
+
+            if (!hasFullChips) {
+              showToast(`已載入 ${file.name} (${n} 筆)。偵測為純價量檔案，已自動切換為「趨勢破線 + 恐慌波動」雙訊號模式！`, 'warning');
+            } else {
+              showToast(`✅ 已成功匯入真實台股檔案 ${file.name}（共 ${n.toLocaleString()} 個交易日）！`, 'success');
+            }
+          } catch (err) {
+            showToast(`檔案解析失敗：${err.message}`, 'error');
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      }
+
+      function exportActionsCSV() {
+        const res = state.result;
+        if (!res || !res.actions.length) {
+          showToast('目前無加減碼行動紀錄可匯出。', 'warning');
+          return;
+        }
+        const header = '執行日期(T+1),訊號確認日(T),行動指令,原持股(%),新持股(%),執行日收盤,訊號分數,外資雙空,破線帶量,恐慌槓桿,後續N日最大跌幅(%),事後避險驗證';
+        const lines = [...res.actions].reverse().map(a => [
+          a.execDate,
+          a.signalDate,
+          a.typeName,
+          a.fromPos,
+          a.toPos,
+          a.execClose,
+          a.score,
+          a.signals.s1 ? '是' : '否',
+          a.signals.s2 ? '是' : '否',
+          a.signals.s3 ? '是' : '否',
+          a.subsequentDrop !== null ? a.subsequentDrop.toFixed(2) : '',
+          a.type === 3 ? '回補' : (a.hitCrash ? '成功避險' : '小幅回檔')
+        ].join(','));
+
+        downloadFile(`TWSE_減碼行動清單_${formatDate(new Date())}.csv`, '\uFEFF' + [header, ...lines].join('\n'), 'text/csv;charset=utf-8;');
+        showToast('已匯出「減碼行動清單 CSV」(支援 Excel 直接開啟不亂碼)', 'success');
+      }
+
+      // =========================================================================
+      // 13. 今晚盤後試算 (What-If)
+      // =========================================================================
+      function openWhatIfModal() {
+        const m = document.getElementById('whatif-modal');
+        m.classList.remove('hidden');
+        m.classList.add('flex');
+        fillWhatIf('latest');
+      }
+
+      function closeWhatIfModal() {
+        const m = document.getElementById('whatif-modal');
+        m.classList.add('hidden');
+        m.classList.remove('flex');
+      }
+
+      function fillWhatIf(preset) {
+        const res = state.result;
+        if (!res) return;
+        const { pre, futThArr, spotThArr, marginThArr } = res;
+        const i = pre.n - 1;
+        const row = state.rawData[i];
+        const maVal = pre.ma[i] || row.Close;
+        const vMa = pre.volMa[i] || row.Volume || 3500;
+        const fTh = isNaN(futThArr[i]) ? -35000 : futThArr[i];
+        const sTh = isNaN(spotThArr[i]) ? -350 : spotThArr[i];
+        const mTh = isNaN(marginThArr[i]) ? (row.Margin_Balance || 2800) : marginThArr[i];
+
+        if (preset === 'latest') {
+          document.getElementById('wi-close').value = row.Close.toFixed(1);
+          document.getElementById('wi-volume').value = isNaN(row.Volume) ? 3500 : row.Volume.toFixed(0);
+          document.getElementById('wi-fut').value = isNaN(row.Foreign_Fut_OI) ? -20000 : Math.round(row.Foreign_Fut_OI);
+          document.getElementById('wi-spot').value = isNaN(row.Foreign_Spot_Net) ? 0 : row.Foreign_Spot_Net.toFixed(0);
+          document.getElementById('wi-margin').value = isNaN(row.Margin_Balance) ? 2800 : row.Margin_Balance.toFixed(0);
+        } else if (preset === 'yellow') {
+          document.getElementById('wi-close').value = (maVal * 0.975).toFixed(1);
+          document.getElementById('wi-volume').value = Math.round(vMa * 1.4);
+          document.getElementById('wi-fut').value = Math.round(fTh - 6000);
+          document.getElementById('wi-spot').value = Math.round((sTh - 250) / 2);
+          document.getElementById('wi-margin').value = Math.round((row.Margin_Balance || 2800) - 50);
+        } else if (preset === 'red') {
+          document.getElementById('wi-close').value = (maVal * 0.955).toFixed(1);
+          document.getElementById('wi-volume').value = Math.round(vMa * 1.65);
+          document.getElementById('wi-fut').value = Math.round(fTh - 12000);
+          document.getElementById('wi-spot').value = Math.round(sTh - 350);
+          document.getElementById('wi-margin').value = Math.round(Math.max(mTh + 80, (row.Margin_Balance || 2800) + 40));
+        }
+        evaluateWhatIf();
+      }
+
+      function evaluateWhatIf() {
+        const res = state.result;
+        if (!res) return;
+        const { pre, futThArr, spotThArr, volThArr, marginThArr } = res;
+        const p = state.params;
+        const i = pre.n - 1;
+        const prevRow = state.rawData[i];
+
+        const inClose = parseNum(document.getElementById('wi-close').value) || prevRow.Close;
+        const inVol = parseNum(document.getElementById('wi-volume').value) || prevRow.Volume || 3500;
+        const inFut = parseNum(document.getElementById('wi-fut').value);
+        const inSpotToday = parseNum(document.getElementById('wi-spot').value) || 0;
+        const inMargin = parseNum(document.getElementById('wi-margin').value) || prevRow.Margin_Balance;
+
+        // 估算近 5 日現貨累積 (前 4 日 + 今晚)
+        let prev4Spot = 0;
+        for (let k = Math.max(0, i - 3); k <= i; k++) prev4Spot += isNaN(pre.spotNet[k]) ? 0 : pre.spotNet[k];
+        const estSpot5d = prev4Spot + inSpotToday;
+
+        // 估算今日收盤後新 MA 與 20 日年化波動率
+        const oldPriceOut = i >= p.maLen - 1 ? pre.close[i - p.maLen + 1] : prevRow.Close;
+        const maPrev = pre.ma[i] || prevRow.Close;
+        const newMA = maPrev + (inClose - oldPriceOut) / p.maLen;
+        const estRet = (inClose - prevRow.Close) / prevRow.Close;
+
+        // 估算包含今晚收盤的 20 日年化波動率
+        const last20Rets = [];
+        for (let k = Math.max(1, i - 18); k <= i; k++) last20Rets.push(pre.dailyRet[k]);
+        last20Rets.push(estRet);
+        const mR = last20Rets.reduce((a, b) => a + b, 0) / last20Rets.length;
+        const sqR = last20Rets.reduce((a, b) => a + (b - mR) * (b - mR), 0);
+        const estVol = Math.sqrt(sqR / Math.max(1, last20Rets.length - 1)) * Math.sqrt(252) * 100;
+
+        const fTh = futThArr[i];
+        const sTh = spotThArr[i];
+        const vTh = volThArr[i];
+        const mTh = marginThArr[i];
+        const vMa = pre.volMa[i] || inVol;
+
+        document.getElementById('wi-hint-close').textContent = `估計 ${p.maLen}MA：${newMA.toFixed(1)}｜較昨收 ${(estRet * 100).toFixed(2)}%`;
+        document.getElementById('wi-hint-volume').textContent = `長黑放量門檻 (>1.2x均量)：${(vMa * p.volMult).toFixed(0)} 億`;
+        document.getElementById('wi-hint-fut').textContent = isNaN(fTh) ? '純價量模式無門檻' : `動態門檻 (<${p.futQ}%分位)：${Math.round(fTh).toLocaleString()} 口`;
+        document.getElementById('wi-hint-spot').textContent = isNaN(sTh) ? '純價量模式無門檻' : `含今晚 5 日累積：${estSpot5d.toFixed(0)} 億 (門檻 <${sTh.toFixed(0)})`;
+        document.getElementById('wi-hint-margin').textContent = isNaN(mTh) ? `估計20日波動：${estVol.toFixed(1)}% (門檻 >${vTh?.toFixed(1) || '--'}%)` : `高檔門檻 (>${p.marginHighQ}%分位)：${mTh.toFixed(0)} 億｜估計20日波動：${estVol.toFixed(1)}% (>${vTh?.toFixed(1) || '--'}%)`;
+
+        // 判定三大訊號
+        const s1Hit = !state.dataMeta.priceOnly && !isNaN(fTh) && !isNaN(sTh) && inFut < fTh && estSpot5d < sTh;
+
+        const todayHeavy = (estRet <= p.dropPct / 100.0) && (inVol > vMa * p.volMult);
+        const prevHeavy = (pre.dailyRet[i] <= p.dropPct / 100.0) || (pre.dailyRet[i - 1] <= p.dropPct / 100.0);
+        const consecBelowNew = inClose < newMA ? (pre.consecBelowMA[i] + 1) : 0;
+        const s2Hit = (consecBelowNew >= p.confirmDays) && (newMA < maPrev) && (todayHeavy || prevHeavy);
+
+        const kIdx = Math.max(0, i - p.retDays + 1);
+        const retKd = (inClose - pre.close[kIdx]) / pre.close[kIdx];
+        const mChg = inMargin - (pre.margin[kIdx] || inMargin);
+        const s3Hit = !isNaN(vTh) && estVol > vTh && (
+          state.dataMeta.priceOnly
+            ? (retKd <= -0.02)
+            : ((retKd < 0 && mChg > 0) || (!isNaN(mTh) && inMargin > mTh))
+        );
+
+        const score = (s1Hit ? 1 : 0) + (s2Hit ? 1 : 0) + (s3Hit ? 1 : 0);
+
+        const box = document.getElementById('wi-verdict-box');
+        const title = document.getElementById('wi-verdict-title');
+        const badge = document.getElementById('wi-verdict-badge');
+        const desc = document.getElementById('wi-verdict-desc');
+
+        if (score >= res.redTrigger) {
+          box.className = 'rounded-2xl border-2 border-rose-300 bg-rose-50 p-4 space-y-3';
+          title.className = 'text-base font-extrabold text-rose-800';
+          title.textContent = `🔴 明日 T+1 指令：紅燈重砍 (${score} 分)`;
+          badge.className = 'px-3 py-1 rounded-full text-xs font-mono font-bold bg-rose-600 text-white tabular-nums';
+          badge.textContent = p.redPos < 0 ? `反向對沖 ${Math.abs(p.redPos)}%` : `降至 ${p.redPos}% 倉位`;
+          desc.className = 'text-xs text-rose-900 leading-relaxed';
+          desc.textContent = '今晚收盤數據觸發最高等級系統性風險共振！明日開盤請果斷執行深度減碼避險。';
+        } else if (score >= res.yellowTrigger) {
+          box.className = 'rounded-2xl border-2 border-amber-300 bg-amber-50 p-4 space-y-3';
+          title.className = 'text-base font-extrabold text-amber-900';
+          title.textContent = `🟡 明日 T+1 指令：黃燈減碼 (${score} 分)`;
+          badge.className = 'px-3 py-1 rounded-full text-xs font-mono font-bold bg-amber-500 text-slate-950 tabular-nums';
+          badge.textContent = `降至 ${p.yellowPos}% 倉位`;
+          desc.className = 'text-xs text-amber-900 leading-relaxed';
+          desc.textContent = '已有雙重核心指標轉空，建議明日開盤暫停新開多單並先行減碼至防禦水位。';
+        } else {
+          box.className = 'rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-4 space-y-3';
+          title.className = 'text-base font-extrabold text-emerald-900';
+          title.textContent = `🟢 明日 T+1 指令：安全持有 (${score} 分)`;
+          badge.className = 'px-3 py-1 rounded-full text-xs font-mono font-bold bg-emerald-600 text-white tabular-nums';
+          badge.textContent = '維持 100% 滿倉';
+          desc.className = 'text-xs text-emerald-900 leading-relaxed';
+          desc.textContent = '今晚盤後數據未達減碼標準，維持原有持股即可，不必過度反應。';
+        }
+
+        document.getElementById('wi-signal-cards').innerHTML = [
+          { n: '1. 外資期現雙空', hit: s1Hit, sub: state.dataMeta.priceOnly ? '純價量停用' : (s1Hit ? '期現貨同步超標' : '未達雙空') },
+          { n: '2. 趨勢量價破線', hit: s2Hit, sub: s2Hit ? `連破 ${consecBelowNew} 日+長黑` : '趨勢結構未破' },
+          { n: '3. 恐慌波動/融資', hit: s3Hit, sub: s3Hit ? `波動 ${estVol.toFixed(1)}% 超標` : `波動 ${estVol.toFixed(1)}% 正常` }
+        ].map(x => `
+          <div class="rounded-lg px-2.5 py-2 border ${x.hit ? 'bg-rose-100 border-rose-300 text-rose-900' : 'bg-white border-slate-200 text-slate-600'}">
+            <div class="font-bold">${x.hit ? '● ' : '○ '}${x.n}</div>
+            <div class="text-[10px] mt-0.5">${x.sub}</div>
+          </div>
+        `).join('');
+      }
+
+      // =========================================================================
+      // 14. Modal / Drawer / Tab 控制與全局刷新
+      // =========================================================================
+      function openDataCenterModal(tabId = 'dc-finmind') {
+        const m = document.getElementById('datacenter-modal');
+        m.classList.remove('hidden');
+        m.classList.add('flex');
+        switchDataCenterTab(tabId);
+      }
+
+      function closeDataCenterModal() {
+        const m = document.getElementById('datacenter-modal');
+        m.classList.add('hidden');
+        m.classList.remove('flex');
+      }
+
+      function switchDataCenterTab(tabId) {
+        document.querySelectorAll('.dc-tab-btn').forEach(b => {
+          const act = b.dataset.dctab === tabId;
+          b.classList.toggle('border-blue-600', act);
+          b.classList.toggle('text-blue-700', act);
+          b.classList.toggle('font-bold', act);
+          b.classList.toggle('border-transparent', !act);
+          b.classList.toggle('text-slate-500', !act);
+          b.classList.toggle('font-medium', !act);
+        });
+        document.querySelectorAll('.dc-panel').forEach(p => p.classList.toggle('hidden', p.id !== tabId));
+      }
+
+      function openDrawer() {
+        const wrap = document.getElementById('param-drawer-wrap');
+        const bd = document.getElementById('param-drawer-backdrop');
+        const panel = document.getElementById('param-drawer-panel');
+        wrap.classList.remove('hidden');
+        requestAnimationFrame(() => {
+          bd.classList.remove('opacity-0');
+          panel.classList.remove('translate-x-full');
+        });
+      }
+
+      function closeDrawer() {
+        const wrap = document.getElementById('param-drawer-wrap');
+        const bd = document.getElementById('param-drawer-backdrop');
+        const panel = document.getElementById('param-drawer-panel');
+        bd.classList.add('opacity-0');
+        panel.classList.add('translate-x-full');
+        setTimeout(() => wrap.classList.add('hidden'), 240);
+      }
+
+      function switchTab(tabId) {
+        state.view.activeTab = tabId;
+        document.querySelectorAll('.tab-btn').forEach(b => {
+          const act = b.dataset.tab === tabId;
+          b.classList.toggle('border-slate-900', act);
+          b.classList.toggle('text-slate-900', act);
+          b.classList.toggle('font-bold', act);
+          b.classList.toggle('border-transparent', !act);
+          b.classList.toggle('text-slate-500', !act);
+          b.classList.toggle('font-medium', !act);
+        });
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('hidden', p.id !== tabId));
+        requestAnimationFrame(resizeActiveCharts);
+      }
+
+      function resizeActiveCharts() {
+        if (state.view.activeTab === 'tab-radar') {
+          if (state.charts.price) state.charts.price.resize();
+          if (state.charts.equity) state.charts.equity.resize();
+        } else if (state.view.activeTab === 'tab-calendar') {
+          if (state.charts.calendar) state.charts.calendar.resize();
+        } else if (state.view.activeTab === 'tab-audit') {
+          if (state.charts.drawdown) state.charts.drawdown.resize();
+        }
+      }
+
+      function syncDrawerControls() {
+        const p = state.params;
+        const map = [
+          ['fwdDays', `${p.fwdDays} 日`],
+          ['crashPct', `${p.crashPct.toFixed(1)}%`],
+          ['futQ', `${p.futQ}%`],
+          ['spotQ', `${p.spotQ}%`],
+          ['maLen', `${p.maLen}MA`],
+          ['confirmDays', `連 ${p.confirmDays} 日`],
+          ['dropPct', `${p.dropPct.toFixed(1)}%`],
+          ['volQ', `${p.volQ}%`],
+          ['marginHighQ', `${p.marginHighQ}%`],
+          ['yellowPos', `${p.yellowPos}%`],
+          ['redPos', p.redPos < 0 ? `反向 ${Math.abs(p.redPos)}%` : `${p.redPos}%`],
+          ['reentryDays', `連 ${p.reentryDays} 日`],
+          ['feePct', `${p.feePct.toFixed(2)}%`]
+        ];
+        map.forEach(([key, label]) => {
+          document.getElementById(`inp-${key}`).value = p[key];
+          document.getElementById(`val-${key}`).textContent = label;
+        });
+      }
+
+      function persistRadarCache(res) {
+        try {
+          const last = res.n - 1;
+          const row = state.rawData[last];
+          const score = res.scoreArr[last];
+          const maxScore = state.dataMeta.priceOnly ? 2 : 3;
+          const act = res.tomorrowAction;
+          const targetPosPct = Math.round(res.tomorrowPos * 100);
+          let emoji = '🟢', level = 'safe', verdict = `安全持有（維持 ${targetPosPct}%）`;
+          if (act === 'cut_red' || act === 'hold_red') {
+            emoji = '🔴'; level = 'red';
+            verdict = act === 'cut_red' ? `明日開盤重砍至 ${targetPosPct}%` : `維持紅燈防禦（${targetPosPct}%）`;
+          } else if (act === 'cut_yellow') {
+            emoji = '🟡'; level = 'yellow';
+            verdict = `明日開盤減碼至 ${targetPosPct}%`;
+          } else if (act === 'buyback') {
+            emoji = '🟢'; level = 'buyback';
+            verdict = '警報解除・明日回補至 100%';
+          } else if (act === 'hold_defense') {
+            emoji = '🟠'; level = 'defense';
+            verdict = `維持減碼防禦（${targetPosPct}%）`;
+          }
+
+          const latestSummary = {
+            date: row.Date,
+            close: row.Close,
+            score,
+            maxScore,
+            emoji,
+            level,
+            verdict,
+            tomorrowAction: act,
+            tomorrowPosPct: targetPosPct,
+            signals: {
+              s1_foreignDualShort: res.sig1[last] === 1,
+              s2_trendBreakdown: res.sig2[last] === 1,
+              s3_panicVolatilityMargin: res.sig3[last] === 1
+            },
+            isReal: Boolean(state.dataMeta.isReal),
+            sourceName: state.dataMeta.sourceName || '內建示範模擬',
+            priceOnly: Boolean(state.dataMeta.priceOnly),
+            rowCount: state.rawData.length,
+            updatedAt: state.dataMeta.updatedAt || new Date().toISOString()
+          };
+
+          const token = (document.getElementById('fm-token')?.value || localStorage.getItem('twse_radar_finmind_token') || '').trim();
+          const payload = {
+            params: { ...state.params },
+            finmindToken: token,
+            rawData: state.dataMeta.isReal ? state.rawData : null,
+            dataMeta: { ...state.dataMeta, updatedAt: latestSummary.updatedAt },
+            latestSummary
+          };
+          try {
+            localStorage.setItem('nic_twse_radar_v1', JSON.stringify(payload));
+          } catch (_) {
+            localStorage.setItem('nic_twse_radar_v1', JSON.stringify({ ...payload, rawData: null }));
+          }
+          if (window.parent && window.parent !== window) {
+            window.parent.postMessage({ type: 'nic-twse-radar-updated', summary: latestSummary }, window.location.origin);
+          }
+        } catch (e) {}
+      }
+
+      function refreshAll() {
+        const res = runQuantEngine(state.rawData, state.params);
+        state.result = res;
+
+        renderHeaderStatus();
+        renderHeroBanner(res);
+        renderRadarCharts(res);
+        renderActionList(res);
+        renderCalendarTab(res);
+        renderAuditTab(res);
+        renderOptimizeSummary();
+        persistRadarCache(res);
+      }
+
+      // =========================================================================
+      // 15. 事件綁定與初始化
+      // =========================================================================
+      function bindEvents() {
+        // 頂部按鈕
+        document.getElementById('btn-status-badge').addEventListener('click', () => openDataCenterModal('dc-finmind'));
+        document.getElementById('btn-open-datacenter').addEventListener('click', () => openDataCenterModal('dc-finmind'));
+        document.getElementById('btn-close-datacenter').addEventListener('click', closeDataCenterModal);
+        document.getElementById('datacenter-modal').addEventListener('click', e => {
+          if (e.target.id === 'datacenter-modal') closeDataCenterModal();
+        });
+
+        document.querySelectorAll('.dc-tab-btn').forEach(b => {
+          b.addEventListener('click', () => switchDataCenterTab(b.dataset.dctab));
+        });
+        document.getElementById('btn-goto-python').addEventListener('click', () => switchDataCenterTab('dc-python'));
+        document.getElementById('btn-goto-upload').addEventListener('click', () => switchDataCenterTab('dc-upload'));
+
+        // FinMind 抓取
+        document.getElementById('btn-fetch-finmind').addEventListener('click', handleFinMindFetch);
+
+        // 檔案拖曳與上傳 (模式 B)
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-upload-input');
+        dropZone.addEventListener('click', () => { fileInput.value = ''; fileInput.click(); });
+        fileInput.addEventListener('change', e => { if (e.target.files && e.target.files[0]) handleFileUpload(e.target.files[0]); });
+
+        dropZone.addEventListener('dragover', e => {
+          e.preventDefault();
+          dropZone.classList.add('border-blue-500', 'bg-blue-50');
+        });
+        dropZone.addEventListener('dragleave', () => {
+          dropZone.classList.remove('border-blue-500', 'bg-blue-50');
+        });
+        dropZone.addEventListener('drop', e => {
+          e.preventDefault();
+          dropZone.classList.remove('border-blue-500', 'bg-blue-50');
+          if (e.dataTransfer.files && e.dataTransfer.files[0]) handleFileUpload(e.dataTransfer.files[0]);
+        });
+
+        document.getElementById('btn-download-template').addEventListener('click', () => {
+          const header = 'Date,Close,Volume,Foreign_Fut_OI,Foreign_Spot_Net,Margin_Balance,Volatility';
+          const sample = state.rawData.slice(-15).map(r =>
+            `${r.Date},${r.Close},${isNaN(r.Volume) ? '' : r.Volume},${isNaN(r.Foreign_Fut_OI) ? '' : r.Foreign_Fut_OI},${isNaN(r.Foreign_Spot_Net) ? '' : r.Foreign_Spot_Net},${isNaN(r.Margin_Balance) ? '' : r.Margin_Balance},${r.Volatility}`
+          );
+          downloadFile('TWSE_真實台股範本.csv', '\uFEFF' + [header, ...sample].join('\n'), 'text/csv;charset=utf-8;');
+          showToast('已下載標準欄位 CSV 範本', 'info');
+        });
+
+        document.getElementById('btn-restore-demo').addEventListener('click', () => {
+          state.rawData = generateDemoData();
+          state.dataMeta = { isReal: false, sourceName: '內建示範模擬', priceOnly: false, hasVolume: true, autoVolComputed: false };
+          state.view.selectedActionId = null;
+          state.view.selectedCalendarYear = null;
+          closeDataCenterModal();
+          refreshAll();
+          zoomRadarTo({ start: 0, end: 100 });
+          showToast('已切回內建 2018-2026 示範模擬數據', 'info');
+        });
+
+        // 模式 C：複製 / 下載 Python 腳本
+        document.getElementById('btn-copy-python').addEventListener('click', () => {
+          const ok = copyTextSafe(PYTHON_FETCH_SCRIPT);
+          showToast(ok ? '已複製 fetch_real_twse.py 程式碼至剪貼簿！' : '複製失敗，請手動選取複製。', ok ? 'success' : 'warning');
+        });
+        document.getElementById('btn-download-python').addEventListener('click', () => {
+          downloadFile('fetch_real_twse.py', PYTHON_FETCH_SCRIPT, 'text/x-python;charset=utf-8;');
+          showToast('已下載 fetch_real_twse.py 腳本檔案', 'success');
+        });
+
+        // What-If 彈窗
+        document.getElementById('btn-open-whatif').addEventListener('click', openWhatIfModal);
+        document.getElementById('btn-close-whatif').addEventListener('click', closeWhatIfModal);
+        document.getElementById('whatif-modal').addEventListener('click', e => {
+          if (e.target.id === 'whatif-modal') closeWhatIfModal();
+        });
+        document.getElementById('wi-btn-latest').addEventListener('click', () => fillWhatIf('latest'));
+        document.getElementById('wi-btn-yellow').addEventListener('click', () => fillWhatIf('yellow'));
+        document.getElementById('wi-btn-red').addEventListener('click', () => fillWhatIf('red'));
+        ['wi-close', 'wi-volume', 'wi-fut', 'wi-spot', 'wi-margin'].forEach(id => {
+          document.getElementById(id).addEventListener('input', evaluateWhatIf);
+        });
+
+        // 抽屜控制
+        document.getElementById('btn-open-drawer').addEventListener('click', openDrawer);
+        document.getElementById('btn-opt-open-drawer').addEventListener('click', openDrawer);
+        document.getElementById('btn-close-drawer').addEventListener('click', closeDrawer);
+        document.getElementById('param-drawer-backdrop').addEventListener('click', closeDrawer);
+
+        const resetParamsFn = () => {
+          state.params = { ...DEFAULT_PARAMS };
+          syncDrawerControls();
+          refreshAll();
+          showToast('已恢復預設量化參數', 'info');
+        };
+        document.getElementById('btn-drawer-reset').addEventListener('click', resetParamsFn);
+        document.getElementById('btn-opt-reset').addEventListener('click', resetParamsFn);
+
+        // 抽屜即時滑桿 (40ms 防抖)
+        let sliderTimer = null;
+        const paramKeys = ['fwdDays', 'crashPct', 'futQ', 'spotQ', 'maLen', 'confirmDays', 'dropPct', 'volQ', 'marginHighQ', 'yellowPos', 'redPos', 'reentryDays', 'feePct'];
+        paramKeys.forEach(k => {
+          document.getElementById(`inp-${k}`).addEventListener('input', e => {
+            state.params[k] = Number(e.target.value);
+            syncDrawerControls();
+            clearTimeout(sliderTimer);
+            sliderTimer = setTimeout(refreshAll, 40);
+          });
+        });
+
+        // 主分頁切換
+        document.querySelectorAll('.tab-btn').forEach(b => {
+          b.addEventListener('click', () => switchTab(b.dataset.tab));
+        });
+
+        // 分頁 1：清晰模式 & 陰影帶開關
+        const btnActOnly = document.getElementById('btn-mode-actions');
+        const btnAllSig = document.getElementById('btn-mode-allsignals');
+        const updateModeToggleUI = () => {
+          const all = state.view.showAllSignals;
+          btnActOnly.className = !all
+            ? 'px-2.5 py-1 rounded-md font-bold bg-slate-900 text-white transition cursor-pointer'
+            : 'px-2.5 py-1 rounded-md font-medium text-slate-600 hover:text-slate-900 transition cursor-pointer';
+          btnAllSig.className = all
+            ? 'px-2.5 py-1 rounded-md font-bold bg-slate-900 text-white transition cursor-pointer'
+            : 'px-2.5 py-1 rounded-md font-medium text-slate-600 hover:text-slate-900 transition cursor-pointer';
+        };
+        btnActOnly.addEventListener('click', () => {
+          state.view.showAllSignals = false;
+          updateModeToggleUI();
+          renderRadarCharts(state.result);
+        });
+        btnAllSig.addEventListener('click', () => {
+          state.view.showAllSignals = true;
+          updateModeToggleUI();
+          renderRadarCharts(state.result);
+        });
+
+        document.getElementById('chk-defense-band').addEventListener('change', e => {
+          state.view.showDefenseBand = e.target.checked;
+          renderRadarCharts(state.result);
+        });
+        document.getElementById('chk-crash-band').addEventListener('change', e => {
+          state.view.showCrashBand = e.target.checked;
+          renderRadarCharts(state.result);
+        });
+
+        // 快速縮放按鈕
+        document.querySelectorAll('.zoom-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            document.querySelectorAll('.zoom-btn').forEach(b => {
+              b.className = 'zoom-btn px-2.5 py-1 rounded-lg text-xs font-semibold bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 transition cursor-pointer';
+            });
+            btn.className = 'zoom-btn px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-900 border border-slate-900 text-white transition cursor-pointer';
+
+            const n = state.rawData.length;
+            const z = btn.dataset.zoom;
+            if (z === 'all') zoomRadarTo({ start: 0, end: 100 });
+            else if (z === '3y') zoomRadarTo({ startValue: Math.max(0, n - 756), endValue: n - 1 });
+            else if (z === '1y') zoomRadarTo({ startValue: Math.max(0, n - 252), endValue: n - 1 });
+            else if (z === '3m') zoomRadarTo({ startValue: Math.max(0, n - 65), endValue: n - 1 });
+          });
+        });
+
+        // 右側行動清單篩選膠囊
+        document.querySelectorAll('.action-filter-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            state.view.actionFilter = btn.dataset.filter;
+            document.querySelectorAll('.action-filter-btn').forEach(b => {
+              const act = b.dataset.filter === state.view.actionFilter;
+              b.className = act
+                ? 'action-filter-btn px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-900 text-white transition cursor-pointer'
+                : 'action-filter-btn px-2.5 py-1 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 transition cursor-pointer';
+            });
+            renderActionList(state.result);
+          });
+        });
+
+        document.getElementById('btn-export-actions-csv').addEventListener('click', exportActionsCSV);
+
+        // 分頁 4：網格掃描
+        document.getElementById('btn-run-grid').addEventListener('click', runGridSearch);
+
+        // 視窗縮放自適應
+        window.addEventListener('resize', resizeActiveCharts);
+      }
+
+      // =========================================================================
+      // 16. 應用程式啟動入口
+      // =========================================================================
+      window.addEventListener('DOMContentLoaded', () => {
+        // 渲染 Python 腳本區塊 & 預設結束日期為今日
+        document.getElementById('python-code-block').textContent = PYTHON_FETCH_SCRIPT;
+        const fmEndEl = document.getElementById('fm-end');
+        if (fmEndEl) fmEndEl.value = formatDate(new Date());
+
+        // 優先從 NIC_Toolkit Local-First 快取恢復參數、Token 與上次載入的真實台股資料
+        let restoredReal = false;
+        try {
+          const cachedRaw = localStorage.getItem('nic_twse_radar_v1');
+          const cached = cachedRaw ? JSON.parse(cachedRaw) : null;
+          if (cached && cached.params) {
+            state.params = { ...DEFAULT_PARAMS, ...cached.params };
+          }
+          const savedToken = (cached && cached.finmindToken) || localStorage.getItem('twse_radar_finmind_token') || '';
+          if (savedToken) document.getElementById('fm-token').value = savedToken;
+
+          if (cached && Array.isArray(cached.rawData) && cached.rawData.length >= 80) {
+            state.rawData = cached.rawData;
+            state.dataMeta = { ...state.dataMeta, ...(cached.dataMeta || {}), isReal: true };
+            restoredReal = true;
+          }
+        } catch (e) {}
+
+        if (!restoredReal) {
+          state.rawData = generateDemoData();
+        }
+        bindEvents();
+        syncDrawerControls();
+        refreshAll();
+
+        // 渲染 Lucide 圖示
+        if (window.lucide && typeof window.lucide.createIcons === 'function') {
+          window.lucide.createIcons();
+        }
+      });
+
+    })();
+  </script>
+</body>
+</html>

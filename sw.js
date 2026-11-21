@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nic-toolkit-shell-v17';
+const CACHE_NAME = 'nic-toolkit-shell-v18';
 const CORE_ASSETS = [
   './',
   './index.html',
@@ -16,6 +16,9 @@ const CORE_ASSETS = [
   './tools/goodstock/data.js',
   './tools/goodstock/core.js',
   './tools/goodstock/ui.js',
+  './tools/twse-radar/core.js',
+  './tools/twse-radar/ui.js',
+  './tools/twse-radar/radar.html',
   './tools/asset-tracker/data.js',
   './tools/asset-tracker/core.js',
   './tools/asset-tracker/ui.js',

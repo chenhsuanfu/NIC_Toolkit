@@ -24,7 +24,18 @@ export class GasApiClient {
    */
   static generatePairingUrl() {
     const { gasUrl, apiToken, mode } = this.getCredentials();
-    const payload = btoa(JSON.stringify({ gasUrl, apiToken, mode }));
+    const obj = { gasUrl, apiToken, mode };
+    try {
+      const raw = localStorage.getItem('nic_twse_radar_v1');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const radarFrag = {};
+        if (parsed?.finmindToken) radarFrag.t = parsed.finmindToken;
+        if (parsed?.params) radarFrag.p = parsed.params;
+        if (Object.keys(radarFrag).length) obj.radar = radarFrag;
+      }
+    } catch (_) {}
+    const payload = btoa(JSON.stringify(obj));
     const base = window.location.origin + window.location.pathname;
     return `${base}?pair=${encodeURIComponent(payload)}`;
   }

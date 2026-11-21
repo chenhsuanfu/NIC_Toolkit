@@ -1,5 +1,6 @@
 import { StockCore } from '../stock-tracker/core.js';
 import { AssetCore, FS_SHEET_URL } from '../asset-tracker/core.js';
+import { TwseRadarCore } from '../twse-radar/core.js';
 
 const toNum = (v, fallback = 0) => {
   if (v === null || v === undefined || v === '') return fallback;
@@ -29,6 +30,7 @@ export class HubUI {
     const stockSum = StockCore.getSummary(state);
     const assetSum = AssetCore.getSummary(state);
     const salData = AssetCore.getSalaryData(state);
+    const radarSum = TwseRadarCore.getCachedSummaryFast();
     const config = store.getConfig();
     const queue = store.getSyncQueue();
 
@@ -157,6 +159,22 @@ export class HubUI {
             </div>
             <div style="display:flex; justify-content:space-between; align-items:center; padding-top:8px; border-top:1px solid var(--border-color); font-size:12px; color:var(--accent-blue);">
               <span>進入好股價選股</span>
+              <span>→</span>
+            </div>
+          </div>
+
+          <div class="tool-card" data-goto="twse-radar">
+            <div>
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; gap:6px;">
+                <span style="font-weight:700; font-size:15px;">${radarSum.emoji} TWSE 減碼行動雷達</span>
+                <span class="pill ${radarSum.level === 'red' ? 'pill-rose' : radarSum.level === 'yellow' || radarSum.level === 'defense' ? 'pill-amber' : 'pill-emerald'}">${radarSum.score}/${radarSum.maxScore}分 · ${radarSum.tomorrowPosPct}%</span>
+              </div>
+              <div class="text-muted" style="font-size:12.5px;">
+                <strong>${radarSum.verdict}</strong>（${radarSum.date} · TAIEX ${Number(radarSum.close || 0).toLocaleString('zh-TW')} · ${radarSum.isReal ? radarSum.sourceName : '示範模擬'}）
+              </div>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; padding-top:8px; border-top:1px solid var(--border-color); font-size:12px; color:var(--accent-blue);">
+              <span>進入台股避險戰情室</span>
               <span>→</span>
             </div>
           </div>

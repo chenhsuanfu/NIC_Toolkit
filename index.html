@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="NIC工具集" />
   <title>NIC Toolkit | 個人財務與量化工具集</title>
   <link rel="manifest" href="./manifest.webmanifest" />
-  <link rel="stylesheet" href="./assets/css/main.css?v=17" />
+  <link rel="stylesheet" href="./assets/css/main.css?v=18" />
 </head>
 <body>
   <div class="app-shell">
@@ -26,7 +26,7 @@
       <nav class="nav-list" id="sidebar-nav"></nav>
 
       <div class="sidebar-footer">
-        <div>Local-First 快取引擎 · <span id="app-version-label">v17</span></div>
+        <div>Local-First 快取引擎 · <span id="app-version-label">v18</span></div>
         <div style="margin-top:2px;">US 綠漲紅跌 · 雙軌架構</div>
       </div>
     </aside>
@@ -67,7 +67,7 @@
   <div class="toast-container" id="toast-container"></div>
 
   <script type="module">
-    const APP_VERSION = 'v17';
+    const APP_VERSION = 'v18';
     window.NIC_APP_VERSION = APP_VERSION;
     const APP_VERSION_KEY = 'nic_toolkit_app_ver';
     const CORE_ASSETS = [
@@ -84,6 +84,9 @@
       './tools/goodstock/data.js',
       './tools/goodstock/core.js',
       './tools/goodstock/ui.js',
+      './tools/twse-radar/core.js',
+      './tools/twse-radar/ui.js',
+      './tools/twse-radar/radar.html',
       './tools/asset-tracker/data.js',
       './tools/asset-tracker/core.js',
       './tools/asset-tracker/ui.js',
@@ -103,6 +106,7 @@
       { HubUI },
       { StockTrackerUI },
       { GoodStockUI },
+      { TwseRadarUI },
       { AssetTrackerUI },
       { SettingsUI }
     ] = await Promise.all([
@@ -112,6 +116,7 @@
       import('./tools/hub/ui.js'),
       import('./tools/stock-tracker/ui.js'),
       import('./tools/goodstock/ui.js'),
+      import('./tools/twse-radar/ui.js'),
       import('./tools/asset-tracker/ui.js'),
       import('./tools/settings/ui.js')
     ]);
@@ -151,6 +156,7 @@
     const hubInstance = new HubUI(navigateTo);
     const stockInstance = new StockTrackerUI();
     const goodstockInstance = new GoodStockUI();
+    const twseRadarInstance = new TwseRadarUI();
     const assetInstance = new AssetTrackerUI();
     const settingsInstance = new SettingsUI();
 
@@ -187,11 +193,20 @@
     });
 
     registry.register({
+      id: 'twse-radar',
+      name: 'TWSE 減碼行動雷達',
+      shortName: '雷達',
+      icon: '◉',
+      order: 4,
+      ui: twseRadarInstance
+    });
+
+    registry.register({
       id: 'asset-tracker',
       name: '家庭資產 (F&S)',
       shortName: '家庭資產',
       icon: '◫',
-      order: 4,
+      order: 5,
       ui: assetInstance
     });
 
@@ -200,7 +215,7 @@
       name: '設定與同步中心',
       shortName: '設定',
       icon: '⚙',
-      order: 5,
+      order: 6,
       ui: settingsInstance
     });
 
