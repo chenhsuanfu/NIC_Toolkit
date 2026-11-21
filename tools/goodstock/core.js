@@ -16,12 +16,13 @@ export const GoodStockCore = {
   _universeIndex: null,
   _universePromise: null,
 
-  async loadUniverseIndex() {
-    if (this._universeIndex) return this._universeIndex;
-    if (this._universePromise) return this._universePromise;
+  async loadUniverseIndex(force = false) {
+    if (!force && this._universeIndex) return this._universeIndex;
+    if (!force && this._universePromise) return this._universePromise;
     this._universePromise = (async () => {
       try {
-        const resp = await fetch('./tools/goodstock/tw-universe-index.json', { cache: 'no-cache' });
+        const url = './tools/goodstock/tw-universe-index.json' + (force ? `?t=${Date.now()}` : '');
+        const resp = await fetch(url, { cache: 'no-cache' });
         if (!resp.ok) return null;
         const json = await resp.json();
         if (json && Array.isArray(json.stocks) && json.stocks.length > 0) {

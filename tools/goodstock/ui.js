@@ -208,6 +208,12 @@ export class GoodStockUI {
           <button class="btn btn-ghost btn-sm" id="btn-gs-sync-all-prices" ${this.isSyncingAllPrices ? 'disabled' : ''}>
             ${this.isSyncingAllPrices ? '同步中...' : `同步最新股價 (${universe.length}檔)`}
           </button>
+          <a class="btn btn-ghost btn-sm" href="https://github.com/chenhsuanfu/NIC_Toolkit/actions/workflows/update-goodstock-universe.yml" target="_blank" rel="noopener" title="前往 GitHub Actions 立即觸發上市＋上櫃全市場抓取">
+            ⚡ 觸發全市場更新
+          </a>
+          <button class="btn btn-ghost btn-sm" id="btn-gs-reload-universe" title="重新讀取最新 tw-universe-index.json">
+            🔄 重載全市場索引
+          </button>
         </div>
       </div>
 
@@ -1884,6 +1890,21 @@ export class GoodStockUI {
     if (selB) {
       selB.addEventListener('change', () => {
         this.pkCodeB = selB.value;
+        rerender();
+      });
+    }
+
+    const reloadUniBtn = container.querySelector('#btn-gs-reload-universe');
+    if (reloadUniBtn) {
+      reloadUniBtn.addEventListener('click', async () => {
+        reloadUniBtn.disabled = true;
+        reloadUniBtn.textContent = '⏳ 載入中...';
+        const idx = await GoodStockCore.loadUniverseIndex(true);
+        if (idx && idx.stocks?.length) {
+          showToast(`✅ 已載入全市場索引：${idx.stocks.length} 檔（更新時間：${idx.updatedAt || '最新'}）`);
+        } else {
+          showToast('⚠️ 尚未產生全市場索引檔，請先點擊「⚡ 觸發全市場更新」跑一次 GitHub Actions');
+        }
         rerender();
       });
     }
