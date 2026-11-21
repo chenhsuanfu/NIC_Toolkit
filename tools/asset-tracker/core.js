@@ -762,6 +762,69 @@ export const AssetCore = {
       }
     }
 
+    // Backfill missing monthly income/expense (e.g. 2024~2025) from 『收支歷史』 sheet
+    const rawCashflow = (Array.isArray(state?.asset?.cashflowHistory) && state.asset.cashflowHistory.length > 0)
+      ? state.asset.cashflowHistory
+      : (ASSET_EXTRA_DATA.cashflowHistory || []);
+    for (const r of rawCashflow) {
+      const yNum = Math.round(toNum(r['年'], 0));
+      const mNum = Math.round(toNum(r['月'], 0));
+      if (yNum < 2000 || mNum < 1 || mNum > 12) continue;
+      const y = String(yNum);
+      const ym = `${y}-${String(mNum).padStart(2, '0')}`;
+      yearSet.add(y);
+      if (year && year !== 'ALL' && y !== String(year)) continue;
+
+      const histIncome = Math.abs(toNum(r['收入'], 0));
+      const histExpense = Math.abs(toNum(r['支出'], 0));
+      if (histIncome === 0 && histExpense === 0) continue;
+
+      if (!monthMap.has(ym)) {
+        monthMap.set(ym, {
+          month: ym,
+          year: y,
+          income: 0,
+          expense: 0,
+          net: 0,
+          savingRatePct: 0,
+          incomeCount: 0,
+          expenseCount: 0,
+          incomeItems: [],
+          expenseItems: []
+        });
+      }
+      const bucket = monthMap.get(ym);
+      const note = String(r['備註'] || '收支歷史彙總');
+      if (bucket.income === 0 && histIncome > 0) {
+        bucket.income = histIncome;
+        bucket.incomeCount = 1;
+        bucket.incomeItems.push({
+          date: `${ym}-01`,
+          nature: '收入',
+          category: '收支歷史',
+          account: '收支歷史',
+          currency: 'TWD',
+          amount: histIncome,
+          twdAmount: Math.round(histIncome),
+          note
+        });
+      }
+      if (bucket.expense === 0 && histExpense > 0) {
+        bucket.expense = histExpense;
+        bucket.expenseCount = 1;
+        bucket.expenseItems.push({
+          date: `${ym}-01`,
+          nature: '支出',
+          category: '收支歷史',
+          account: '收支歷史',
+          currency: 'TWD',
+          amount: histExpense,
+          twdAmount: Math.round(histExpense),
+          note
+        });
+      }
+    }
+
     const months = Array.from(monthMap.values())
       .sort((a, b) => b.month.localeCompare(a.month))
       .map((m) => {
