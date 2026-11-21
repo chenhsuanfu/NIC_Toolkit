@@ -765,7 +765,17 @@ export class StockTrackerUI {
                   <tr>
                     <td class="font-mono" style="font-weight:700;">${w['代號']}</td>
                     <td><span class="pill">${w['市場'] || 'US'}</span></td>
-                    <td class="font-mono" style="text-align:right; font-weight:700;">${fmtDec(fair)}</td>
+                    <td class="font-mono" style="text-align:right;">
+                      <div style="display:inline-flex; align-items:center; justify-content:flex-end; gap:4px;">
+                        <input type="number" step="any" min="0.01" class="form-control font-mono"
+                          data-wl-fair-input="${w['代號']}" data-wl-market="${w['市場'] || 'US'}"
+                          value="${fair > 0 ? fair : ''}"
+                          style="width:92px; text-align:right; padding:3px 6px; font-size:12.5px; font-weight:700;" />
+                        <button type="button" class="btn btn-ghost btn-sm"
+                          data-wl-fair-save="${w['代號']}" data-wl-market="${w['市場'] || 'US'}"
+                          style="padding:3px 7px; font-size:11px;">儲存</button>
+                      </div>
+                    </td>
                     <td class="font-mono" style="text-align:right;">${cur > 0 ? fmtDec(cur) : '-'}</td>
                     <td style="text-align:right;">
                       ${diffPct !== null
@@ -1059,6 +1069,32 @@ export class StockTrackerUI {
         }
       });
     }
+
+    const saveInlineWatchlist = (symbol, market, rawVal) => {
+      try {
+        const rec = StockCore.upsertWatchlist(store.getState(), { symbol, market, fairPrice: Number(rawVal) }, store);
+        showToast(`✅ 已更新 ${rec['代號']} 公允價格為 ${rec['公允價格']}（已排入雲端同步）`);
+        this.render(container, store.getState(), store, showToast);
+      } catch (err) {
+        showToast(`⚠️ 更新失敗：${err.message}`);
+      }
+    };
+    container.querySelectorAll('[data-wl-fair-save]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const sym = btn.getAttribute('data-wl-fair-save');
+        const mkt = btn.getAttribute('data-wl-market') || 'US';
+        const inp = container.querySelector(`[data-wl-fair-input="${sym}"]`);
+        if (inp) saveInlineWatchlist(sym, mkt, inp.value);
+      });
+    });
+    container.querySelectorAll('[data-wl-fair-input]').forEach((inp) => {
+      inp.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          saveInlineWatchlist(inp.getAttribute('data-wl-fair-input'), inp.getAttribute('data-wl-market') || 'US', inp.value);
+        }
+      });
+    });
 
     container.querySelectorAll('[data-select-pool]').forEach((el) => {
       el.addEventListener('click', () => {
