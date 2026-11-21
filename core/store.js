@@ -1,5 +1,4 @@
 import { SEED_DATA } from './seed-data.js';
-import { VAULT_B64 } from './vault-data.js';
 
 const STORAGE_KEY = 'nic_toolkit_state_v1';
 const CONFIG_KEY = 'nic_toolkit_config_v1';
@@ -10,7 +9,6 @@ class LocalFirstStore {
   constructor() {
     this.listeners = new Set();
     this.state = null;
-    this.baselineLots = null;
     this.config = this._loadConfig();
     this.syncQueue = this._coalesceQueue(this._loadQueue());
     this.syncStatus = {
@@ -24,44 +22,6 @@ class LocalFirstStore {
     this._pullPromise = null;
     this._lastCloudPullAt = 0;
     this.initialized = false;
-  }
-
-  _decryptVault(pin = '2026') {
-    try {
-      const cipherStr = atob(VAULT_B64);
-      const keyBytes = new TextEncoder().encode(String(pin).trim());
-      const plainBytes = new Uint8Array(cipherStr.length);
-      for (let i = 0; i < cipherStr.length; i++) {
-        plainBytes[i] = cipherStr.charCodeAt(i) ^ keyBytes[i % keyBytes.length];
-      }
-      const plainText = new TextDecoder().decode(plainBytes);
-      if (plainText.startsWith('{"gasUrl":"https://')) {
-        return JSON.parse(plainText);
-      }
-    } catch (_) {}
-    return null;
-  }
-
-  _getBaselineLots() {
-    if (this.baselineLots) return this.baselineLots;
-    if (!this.config?.apiToken && !this.config?.gasUrl) return [];
-    const vault = this._decryptVault('2026');
-    if (vault && Array.isArray(vault.openLots)) {
-      this.baselineLots = vault.openLots.map((r) => ({
-        id: r[0] || '',
-        '建立時間': r[1] || '',
-        '類型': r[2] || '進攻型',
-        '市場': r[3] || 'US',
-        '券商': r[4] || 'F',
-        '代號': r[5] || '',
-        '進場日': r[6] || '',
-        '進場價': r[7] || '0',
-        '進場股數': r[8] || '0',
-        '備註': r[9] || ''
-      }));
-      return this.baselineLots;
-    }
-    return [];
   }
 
   _loadConfig() {
@@ -215,11 +175,15 @@ class LocalFirstStore {
 
     this._pullPromise = (async () => {
       try {
-        const url = new URL(this.config.gasUrl);
-        url.searchParams.set('action', 'snapshot');
-        url.searchParams.set('token', this.config.apiToken);
-        if (forceRefresh) url.searchParams.set('refresh', '1');
-        const res = await fetch(url.toString(), { method: 'GET', headers: { 'Accept': 'application/json' } });
+        const res = await fetch(this.config.gasUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'snapshot',
+            token: this.config.apiToken,
+            refresh: Boolean(forceRefresh)
+          })
+        });
         if (!res.ok) return false;
         const json = await res.json();
         if (json && json.ok && json.data) {
@@ -426,18 +390,6 @@ class LocalFirstStore {
       });
     };
     const rawTrades = ensureArr(raw.stock?.recentTrades);
-    const baseline = this._getBaselineLots();
-    let mergedTrades = rawTrades;
-    if (baseline.length > 0) {
-      const map = new Map();
-      for (const b of baseline) {
-        if (b.id) map.set(String(b.id), b);
-      }
-      for (const t of rawTrades) {
-        if (t.id) map.set(String(t.id), t);
-      }
-      mergedTrades = Array.from(map.values());
-    }
     const rawSettings = ensureArr(raw.stock?.settings);
     const prevWeightRow = (this.state?.stock?.settings || []).find((r) => r['項目'] === '目標權重JSON');
     if (prevWeightRow && !rawSettings.some((r) => r['項目'] === '目標權重JSON')) {
@@ -453,7 +405,7 @@ class LocalFirstStore {
         risk: ensureArr(raw.stock?.risk),
         watchlist: ensureArr(raw.stock?.watchlist),
         dailySnapshots: ensureArr(raw.stock?.dailySnapshots),
-        recentTrades: mergedTrades,
+        recentTrades: rawTrades,
         recentExits: ensureArr(raw.stock?.recentExits)
       },
       asset: {
@@ -518,24 +470,8 @@ class LocalFirstStore {
   applyPairingInput(inputStr) {
     const trimmed = String(inputStr || '').trim();
     if (!trimmed) return false;
-    // 1. Try unlocking built-in encrypted personal vault via short PIN (e.g. "2026")
-    const vaultObj = this._decryptVault(trimmed);
-    if (vaultObj && vaultObj.gasUrl) {
-      this.saveConfig({
-        gasUrl: vaultObj.gasUrl,
-        apiToken: vaultObj.apiToken,
-        mode: 'cloud'
-      });
-      if (this.state) {
-        this.state = this._normalizeSnapshot(this.state);
-        this._persistState();
-        this._notify();
-      }
-      this.pullFromCloudSilently(true);
-      return true;
-    }
 
-    // 2. Fallback: full ?pair= URL or base64 string
+    // Parse full ?pair= URL or base64 payload
     if (trimmed.includes('pair=')) {
       const ok = this._checkUrlPairing(trimmed);
       if (ok) this.pullFromCloudSilently(true);

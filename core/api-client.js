@@ -53,14 +53,14 @@ export class GasApiClient {
       await store.pushPendingQueue({ silent: false });
     }
 
-    const url = new URL(gasUrl);
-    url.searchParams.set('action', 'snapshot');
-    url.searchParams.set('token', apiToken);
-    if (forceRefresh) url.searchParams.set('refresh', '1');
-
-    const res = await fetch(url.toString(), {
-      method: 'GET',
-      headers: { 'Accept': 'application/json' }
+    const res = await fetch(gasUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'snapshot',
+        token: apiToken,
+        refresh: Boolean(forceRefresh)
+      })
     });
 
     if (!res.ok) {

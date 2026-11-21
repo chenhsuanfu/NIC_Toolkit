@@ -9,7 +9,8 @@
   <meta name="apple-mobile-web-app-title" content="NIC工具集" />
   <title>NIC Toolkit | 個人財務與量化工具集</title>
   <link rel="manifest" href="./manifest.webmanifest" />
-  <link rel="stylesheet" href="./assets/css/main.css?v=27" />
+  <link rel="stylesheet" href="./assets/css/main.css?v=29" />
+  <script src="./core/app-meta.js"></script>
 </head>
 <body>
   <div class="app-shell">
@@ -26,7 +27,7 @@
       <nav class="nav-list" id="sidebar-nav"></nav>
 
       <div class="sidebar-footer">
-        <div>Local-First 快取引擎 · <span id="app-version-label">v27</span></div>
+        <div>Local-First 快取引擎 · <span id="app-version-label">v28</span></div>
         <div style="margin-top:2px;">US 綠漲紅跌 · 雙軌架構</div>
       </div>
     </aside>
@@ -67,32 +68,12 @@
   <div class="toast-container" id="toast-container"></div>
 
   <script type="module">
-    const APP_VERSION = 'v27';
+    const APP_VERSION = window.NIC_APP_META?.version || 'v29';
     window.NIC_APP_VERSION = APP_VERSION;
+    const versionLabelEl = document.getElementById('app-version-label');
+    if (versionLabelEl) versionLabelEl.textContent = APP_VERSION;
     const APP_VERSION_KEY = 'nic_toolkit_app_ver';
-    const CORE_ASSETS = [
-      './assets/css/main.css',
-      './core/seed-data.js',
-      './core/vault-data.js',
-      './core/store.js',
-      './core/api-client.js',
-      './core/registry.js',
-      './core/agent-bridge.js',
-      './tools/hub/ui.js',
-      './tools/stock-tracker/core.js',
-      './tools/stock-tracker/ui.js',
-      './tools/goodstock/data.js',
-      './tools/goodstock/core.js',
-      './tools/goodstock/ui.js',
-      './tools/twse-radar/core.js',
-      './tools/twse-radar/ui.js',
-      './tools/twse-radar/radar.html',
-      './tools/twse-radar/real_twse_v4.csv',
-      './tools/asset-tracker/data.js',
-      './tools/asset-tracker/core.js',
-      './tools/asset-tracker/ui.js',
-      './tools/settings/ui.js'
-    ];
+    const CORE_ASSETS = window.NIC_APP_META?.coreAssets || [];
 
     // Bypass GitHub Pages 10-min HTTP disk cache when upgrading app version
     if (localStorage.getItem(APP_VERSION_KEY) !== APP_VERSION) {

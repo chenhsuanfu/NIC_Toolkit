@@ -20,8 +20,10 @@
  * 4. 複製部署後的網頁應用程式網址，貼入 NIC Toolkit「設定與 AI 雙軌中心」即可。
  */
 
-const CACHE_KEY = 'NIC_TOOLKIT_SNAPSHOT_V1';
+const CACHE_KEY = 'NIC_TOOLKIT_SNAPSHOT_V2';
 const CACHE_TTL_SECONDS = 300; // 5 minutes fast memory cache
+const CACHE_CHUNK_SIZE = 90000; // Safe margin under GAS CacheService 100KB per-key limit
+const CACHE_MAX_CHUNKS = 30;    // Up to ~2.7MB compressed (~15MB+ raw JSON)
 
 function getConfig_() {
   const props = PropertiesService.getScriptProperties();
@@ -46,7 +48,74 @@ function verifyToken_(reqToken) {
 }
 
 /**
- * GET Endpoint: Fast Snapshot Retrieval (with CacheService acceleration)
+ * Gzip + Chunked CacheService Helpers (breaks GAS 100KB per-key limit)
+ */
+function writeChunkedCache_(cache, baseKey, obj, ttlSeconds) {
+  try {
+    const jsonStr = JSON.stringify(obj);
+    const gzBlob = Utilities.gzip(Utilities.newBlob(jsonStr, 'application/json'));
+    const b64 = Utilities.base64Encode(gzBlob.getBytes());
+    const totalChunks = Math.ceil(b64.length / CACHE_CHUNK_SIZE);
+    if (totalChunks < 1 || totalChunks > CACHE_MAX_CHUNKS) return false;
+
+    const entries = {};
+    entries[baseKey + '_META'] = JSON.stringify({
+      chunks: totalChunks,
+      rawBytes: jsonStr.length,
+      compressedChars: b64.length
+    });
+    for (var i = 0; i < totalChunks; i++) {
+      entries[baseKey + '_C_' + i] = b64.slice(i * CACHE_CHUNK_SIZE, (i + 1) * CACHE_CHUNK_SIZE);
+    }
+    cache.putAll(entries, ttlSeconds);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function readChunkedCache_(cache, baseKey) {
+  try {
+    const metaRaw = cache.get(baseKey + '_META');
+    if (!metaRaw) return null;
+    const meta = JSON.parse(metaRaw);
+    const totalChunks = Number(meta && meta.chunks) || 0;
+    if (totalChunks < 1 || totalChunks > CACHE_MAX_CHUNKS) return null;
+
+    const keys = [];
+    for (var i = 0; i < totalChunks; i++) {
+      keys.push(baseKey + '_C_' + i);
+    }
+    const map = cache.getAll(keys);
+    let b64 = '';
+    for (var j = 0; j < totalChunks; j++) {
+      const part = map[keys[j]];
+      if (typeof part !== 'string') return null; // Partial eviction -> treat as cache miss
+      b64 += part;
+    }
+    const gzBytes = Utilities.base64Decode(b64);
+    const jsonStr = Utilities.ungzip(Utilities.newBlob(gzBytes, 'application/x-gzip')).getDataAsString('UTF-8');
+    return JSON.parse(jsonStr);
+  } catch (_) {
+    return null;
+  }
+}
+
+function removeChunkedCache_(cache, baseKey) {
+  try {
+    const keys = [baseKey, baseKey + '_META'];
+    const metaRaw = cache.get(baseKey + '_META');
+    const totalChunks = metaRaw ? (Number((JSON.parse(metaRaw) || {}).chunks) || CACHE_MAX_CHUNKS) : CACHE_MAX_CHUNKS;
+    const limit = Math.min(Math.max(totalChunks, 1), CACHE_MAX_CHUNKS);
+    for (var i = 0; i < limit; i++) {
+      keys.push(baseKey + '_C_' + i);
+    }
+    cache.removeAll(keys);
+  } catch (_) {}
+}
+
+/**
+ * GET Endpoint: Fast Snapshot Retrieval (with Gzip + Chunked CacheService acceleration)
  */
 function doGet(e) {
   try {
@@ -57,30 +126,42 @@ function doGet(e) {
     const cache = CacheService.getScriptCache();
 
     if (!forceRefresh) {
-      const cached = cache.get(CACHE_KEY);
-      if (cached) {
-        return jsonResponse_({ ok: true, fromCache: true, data: JSON.parse(cached) });
+      const cachedSnapshot = readChunkedCache_(cache, CACHE_KEY);
+      if (cachedSnapshot) {
+        return jsonResponse_({ ok: true, fromCache: true, data: cachedSnapshot });
       }
     }
 
     const snapshot = buildFullSnapshot_();
-    try {
-      cache.put(CACHE_KEY, JSON.stringify(snapshot), CACHE_TTL_SECONDS);
-    } catch (_) {}
+    const cachedOk = writeChunkedCache_(cache, CACHE_KEY, snapshot, CACHE_TTL_SECONDS);
 
-    return jsonResponse_({ ok: true, fromCache: false, data: snapshot });
+    return jsonResponse_({ ok: true, fromCache: false, cached: cachedOk, data: snapshot });
   } catch (err) {
     return jsonResponse_({ ok: false, error: err.message || String(err) });
   }
 }
 
 /**
- * POST Endpoint: Formula-Safe Append-Only Batch Mutations
+ * POST Endpoint: Snapshot Retrieval (Token in Body) & Formula-Safe Append-Only Batch Mutations
  */
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents || '{}');
     verifyToken_(body.token);
+
+    if (body.action === 'snapshot') {
+      const forceRefresh = body.refresh === true || body.refresh === '1' || body.refresh === 1;
+      const cache = CacheService.getScriptCache();
+      if (!forceRefresh) {
+        const cachedSnapshot = readChunkedCache_(cache, CACHE_KEY);
+        if (cachedSnapshot) {
+          return jsonResponse_({ ok: true, fromCache: true, data: cachedSnapshot });
+        }
+      }
+      const snapshot = buildFullSnapshot_();
+      const cachedOk = writeChunkedCache_(cache, CACHE_KEY, snapshot, CACHE_TTL_SECONDS);
+      return jsonResponse_({ ok: true, fromCache: false, cached: cachedOk, data: snapshot });
+    }
 
     if (body.action !== 'batchMutate' || !Array.isArray(body.mutations)) {
       throw new Error('Invalid action or mutations array');
@@ -212,9 +293,9 @@ function doPost(e) {
       }
     }
 
-    // Invalidate cache if any mutation succeeded
+    // Invalidate chunked cache if any mutation succeeded
     if (syncedIds.length > 0) {
-      CacheService.getScriptCache().remove(CACHE_KEY);
+      removeChunkedCache_(CacheService.getScriptCache(), CACHE_KEY);
     }
 
     if (unsupportedTypes.length > 0) {
@@ -318,32 +399,50 @@ function updateStockPrices_(stockSS, payload) {
     }
   }
 
-  // 1. Update 『行情』 (A:代號, B:市場, C:自動價, D:手動價, E:採用價, F:更新時間)
+  // 1. Batch-update 『行情』 (C:自動價, F:更新時間) without touching D(手動價) or E(採用價公式)
   var quoteSheet = stockSS.getSheetByName('行情');
   if (quoteSheet && quoteSheet.getLastRow() >= 2) {
-    var qRange = quoteSheet.getRange(2, 1, quoteSheet.getLastRow() - 1, 6);
-    var qVals = qRange.getValues();
+    var qNumRows = quoteSheet.getLastRow() - 1;
+    var qVals = quoteSheet.getRange(2, 1, qNumRows, 6).getValues();
+    var qColC = [];
+    var qColF = [];
+    var qChanged = false;
     for (var r = 0; r < qVals.length; r++) {
       var sym = normSym(qVals[r][0]);
       var clean = sym.replace(/\.TW$/i, '').replace(/\.TWO$/i, '');
       var newPrice = priceLookup[sym] || priceLookup[clean];
       if (newPrice) {
-        quoteSheet.getRange(r + 2, 3).setValue(newPrice); // C: 自動價
-        quoteSheet.getRange(r + 2, 6).setValue(now);      // F: 更新時間
+        qColC.push([newPrice]);
+        qColF.push([now]);
+        qChanged = true;
+      } else {
+        qColC.push([qVals[r][2]]);
+        qColF.push([qVals[r][5]]);
       }
+    }
+    if (qChanged) {
+      quoteSheet.getRange(2, 3, qNumRows, 1).setValues(qColC); // C: 自動價
+      quoteSheet.getRange(2, 6, qNumRows, 1).setValues(qColF); // F: 更新時間
     }
   }
 
-  // 2. Update 『總攬』 (B:代號, C:市場, E:剩餘股數, G:現價, H:成本USD, I:成本TWD, J:市值USD, K:市值TWD, L:未實現USD, M:未實現TWD, N:報酬率)
+  // 2. Batch-update 『總攬』 (G:現價, J..N:市值/未實現/報酬率) in 2 range writes
   var ovSheet = stockSS.getSheetByName('總攬');
   if (ovSheet && ovSheet.getLastRow() >= 2) {
-    var oVals = ovSheet.getRange(2, 1, ovSheet.getLastRow() - 1, 14).getValues();
+    var oNumRows = ovSheet.getLastRow() - 1;
+    var oVals = ovSheet.getRange(2, 1, oNumRows, 14).getValues();
+    var oColG = [];
+    var oColJN = [];
+    var oChanged = false;
     for (var rowIdx = 0; rowIdx < oVals.length; rowIdx++) {
       var oSym = normSym(oVals[rowIdx][1]); // B: 代號
-      if (!oSym) continue;
-      var oClean = oSym.replace(/\.TW$/i, '').replace(/\.TWO$/i, '');
-      var pVal = priceLookup[oSym] || priceLookup[oClean];
-      if (!pVal) continue;
+      var oClean = oSym ? oSym.replace(/\.TW$/i, '').replace(/\.TWO$/i, '') : '';
+      var pVal = oSym ? (priceLookup[oSym] || priceLookup[oClean]) : 0;
+      if (!pVal) {
+        oColG.push([oVals[rowIdx][6]]);
+        oColJN.push([oVals[rowIdx][9], oVals[rowIdx][10], oVals[rowIdx][11], oVals[rowIdx][12], oVals[rowIdx][13]]);
+        continue;
+      }
 
       var market = normSym(oVals[rowIdx][2]); // C: 市場
       var shares = Number(oVals[rowIdx][4] || 0); // E: 剩餘股數
@@ -357,9 +456,13 @@ function updateStockPrices_(stockSS, payload) {
       var unrealUsd = Number((mktUsd - costUsd).toFixed(2));
       var roi = costTwd > 0 ? unrealTwd / costTwd : 0;
 
-      var sheetRow = rowIdx + 2;
-      ovSheet.getRange(sheetRow, 7).setValue(pVal);          // G: 現價(原幣)
-      ovSheet.getRange(sheetRow, 10, 1, 5).setValues([[mktUsd, mktTwd, unrealUsd, unrealTwd, roi]]); // J..N
+      oColG.push([pVal]);
+      oColJN.push([mktUsd, mktTwd, unrealUsd, unrealTwd, roi]);
+      oChanged = true;
+    }
+    if (oChanged) {
+      ovSheet.getRange(2, 7, oNumRows, 1).setValues(oColG);   // G: 現價(原幣)
+      ovSheet.getRange(2, 10, oNumRows, 5).setValues(oColJN); // J..N
     }
   }
 }

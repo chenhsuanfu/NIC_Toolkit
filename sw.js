@@ -1,29 +1,11 @@
-const CACHE_NAME = 'nic-toolkit-shell-v27';
+importScripts('./core/app-meta.js');
+
+const CACHE_NAME = 'nic-toolkit-shell-' + self.NIC_APP_META.version;
 const CORE_ASSETS = [
   './',
   './index.html',
   './manifest.webmanifest',
-  './assets/css/main.css',
-  './core/seed-data.js',
-  './core/vault-data.js',
-  './core/store.js',
-  './core/api-client.js',
-  './core/registry.js',
-  './core/agent-bridge.js',
-  './tools/hub/ui.js',
-  './tools/stock-tracker/core.js',
-  './tools/stock-tracker/ui.js',
-  './tools/goodstock/data.js',
-  './tools/goodstock/core.js',
-  './tools/goodstock/ui.js',
-  './tools/twse-radar/core.js',
-  './tools/twse-radar/ui.js',
-  './tools/twse-radar/radar.html',
-  './tools/twse-radar/real_twse_v4.csv',
-  './tools/asset-tracker/data.js',
-  './tools/asset-tracker/core.js',
-  './tools/asset-tracker/ui.js',
-  './tools/settings/ui.js'
+  ...self.NIC_APP_META.coreAssets
 ];
 
 self.addEventListener('install', (event) => {
