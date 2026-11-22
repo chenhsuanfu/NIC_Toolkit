@@ -139,8 +139,16 @@ export const GoodStockCore = {
             finSyncedAt: u.finSyncedAt || '',
             dataSource: u.finSyncedAt ? 'finmind-batch' : 'universe-index'
           });
-        } else if (u.marketCap != null && existing.marketCap == null) {
-          existing.marketCap = u.marketCap;
+        } else {
+          if (u.marketCap != null && existing.marketCap == null) {
+            existing.marketCap = u.marketCap;
+          }
+          if (u.finSyncedAt && existing.dataSource !== 'finmind-live') {
+            if (Array.isArray(u.quarters) && u.quarters.length >= 4) existing.quarters = u.quarters;
+            if (Array.isArray(u.monthlyRevenues) && u.monthlyRevenues.length > 0) existing.monthlyRevenues = u.monthlyRevenues;
+            existing.finSyncedAt = u.finSyncedAt;
+            existing.dataSource = 'finmind-batch';
+          }
         }
       }
     }
@@ -420,12 +428,13 @@ export const GoodStockCore = {
       fcfReason = `近6季累積 (${sum6.toLocaleString()}) 與近4季累積 (${sum4.toLocaleString()}) 皆為負數`;
     }
 
-    if (qWin4.length === 0) {
-      opScore = null; opReason = '尚無季報資料';
-      profitScore = null; profitReason = '尚無季報資料';
-      epsScore = null; epsReason = '尚無季報資料';
-      invScore = null; invReason = '尚無季報資料';
-      fcfScore = null; fcfReason = '尚無季報資料';
+    const hasRealFinancials = (stock.dataSource === 'finmind-live' || stock.dataSource === 'finmind-batch') && allQ.length >= 4;
+    if (!hasRealFinancials) {
+      opScore = null; opReason = '待同步完整財報';
+      profitScore = null; profitReason = '待同步完整財報';
+      epsScore = null; epsReason = '待同步完整財報';
+      invScore = null; invReason = '待同步完整財報';
+      fcfScore = null; fcfReason = '待同步完整財報';
     }
 
     const items = [
@@ -438,8 +447,8 @@ export const GoodStockCore = {
     ];
 
     const scoredItems = items.filter((i) => i.score !== null);
-    const totalScore = scoredItems.length > 0 ? round2(scoredItems.reduce((s, i) => s + i.score, 0)) : null;
-    const avgScore = scoredItems.length > 0 ? round2(totalScore / scoredItems.length) : null;
+    const totalScore = hasRealFinancials && scoredItems.length > 0 ? round2(scoredItems.reduce((s, i) => s + i.score, 0)) : null;
+    const avgScore = hasRealFinancials && scoredItems.length > 0 ? round2(totalScore / scoredItems.length) : null;
 
     let grade = '待同步';
     if (avgScore !== null) {

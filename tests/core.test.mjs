@@ -310,7 +310,15 @@ test('GoodStockUI defaults six_indicators sort to marketCap desc and preserves m
   assert.equal(emptyEval.current.grade, '待同步');
   assert.equal(emptyEval.deltaMoM, null);
   assert.equal(emptyEval.deltaQoQ, null);
-  assert.ok(emptyEval.current.items.every((it) => it.score === null));
+  // Verify 1-quarter summary without finmind-batch/live also gets null avgScore and '待同步'
+  const partialEval = GoodStockCore.evaluateSixIndicatorsWithHistory({
+    code: '1102',
+    dataSource: 'universe-index',
+    quarters: [{ q: '2026Q3', opMargin: 7.77, eps: 2.86 }],
+    monthlyRevenues: [{ ym: '2026-10', yoy: 12.5 }]
+  });
+  assert.equal(partialEval.current.avgScore, null);
+  assert.equal(partialEval.current.grade, '待同步');
 });
 
 test('AssetCore.getFsSharedAssets preserves negative amounts on non-expense rows', async () => {
