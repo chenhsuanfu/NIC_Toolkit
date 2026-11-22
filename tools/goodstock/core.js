@@ -115,7 +115,8 @@ export const GoodStockCore = {
             quarters: Array.isArray(u.quarters) ? u.quarters : [],
             annualDividends: [],
             priceHistory: [],
-            dataSource: 'universe-index'
+            finSyncedAt: u.finSyncedAt || '',
+            dataSource: u.finSyncedAt ? 'finmind-batch' : 'universe-index'
           });
         }
       }
@@ -786,6 +787,8 @@ export const GoodStockCore = {
     // Common scope filter (ALL | ETF_0050 | HOLDINGS | WATCHLIST)
     if (filters.scope === 'ETF_0050') {
       list = list.filter((s) => s.is0050);
+    } else if (filters.scope === 'SYNCED_FIN') {
+      list = list.filter((s) => s.dataSource === 'finmind-live' || s.dataSource === 'finmind-batch');
     } else if (filters.scope === 'HOLDINGS') {
       list = list.filter((s) => s.isHolding);
     } else if (filters.scope === 'WATCHLIST') {

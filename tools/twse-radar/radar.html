@@ -966,9 +966,12 @@
 
         <!-- 區塊 0：五大高命中率濾網一鍵開關 -->
         <div class="rounded-xl border-2 border-blue-200 bg-blue-50/50 p-3.5 space-y-2.5">
-          <div class="flex items-center justify-between">
+          <div class="flex items-center justify-between gap-2">
             <span class="text-xs font-extrabold text-blue-950">🛡️ 命中率強化濾網開關</span>
-            <button id="btn-drawer-reset" type="button" class="text-[11px] font-bold text-blue-700 hover:underline cursor-pointer">恢復預設</button>
+            <div class="flex items-center gap-2">
+              <button id="btn-drawer-save" type="button" class="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold transition cursor-pointer">💾 儲存參數</button>
+              <button id="btn-drawer-reset" type="button" class="text-[11px] font-bold text-blue-700 hover:underline cursor-pointer">恢復預設</button>
+            </div>
           </div>
 
           <label class="flex items-start gap-2 text-xs cursor-pointer select-none">
@@ -3605,9 +3608,44 @@ if __name__ == "__main__":
         document.getElementById('btn-close-drawer').addEventListener('click', closeDrawer);
         document.getElementById('param-drawer-backdrop').addEventListener('click', closeDrawer);
 
-        const resetFn = () => { state.params = { ...DEFAULT_PARAMS }; syncDrawerControls(); refreshAll(); showToast('已恢復 v4.0 預設參數與濾網', 'info'); };
+        const resetFn = () => { state.params = { ...DEFAULT_PARAMS }; try { localStorage.removeItem('nic_twse_radar_params_v1'); } catch (_) {} syncDrawerControls(); refreshAll(); showToast('已恢復 v4.0 預設參數與濾網', 'info'); };
         document.getElementById('btn-drawer-reset').addEventListener('click', resetFn);
         document.getElementById('btn-opt-reset').addEventListener('click', resetFn);
+
+        const saveParamsBtn = document.getElementById('btn-drawer-save');
+        if (saveParamsBtn) {
+          saveParamsBtn.addEventListener('click', async () => {
+            saveParamsBtn.disabled = true;
+            try {
+              localStorage.setItem('nic_twse_radar_params_v1', JSON.stringify(state.params));
+              refreshAll();
+              let cloudOk = false;
+              try {
+                const cfg = JSON.parse(localStorage.getItem('nic_toolkit_config_v1') || 'null');
+                if (cfg && cfg.mode === 'cloud' && cfg.gasUrl && cfg.apiToken) {
+                  const resp = await fetch(cfg.gasUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify({
+                      action: 'batchMutate',
+                      token: cfg.apiToken,
+                      mutations: [{
+                        id: 'radar-params-' + Date.now(),
+                        type: 'stock.upsertSetting',
+                        payload: { '項目': 'TWSE雷達參數JSON', '值': JSON.stringify(state.params), '說明': 'TWSE 減碼行動雷達自訂參數' }
+                      }]
+                    })
+                  });
+                  const json = await resp.json();
+                  if (json && json.ok) cloudOk = true;
+                }
+              } catch (_) {}
+              showToast(cloudOk ? '✅ 已儲存參數至本機並同步至雲端 (N_BD_C 設定)！' : '✅ 已儲存自訂參數至本機！', 'success');
+            } finally {
+              saveParamsBtn.disabled = false;
+            }
+          });
+        }
 
         let sliderTimer = null;
         const paramKeys = ['futDelta5d', 'spotQ', 'confirmDays', 'dropPct', 'maintTh', 'volQ', 'yellowScore', 'redScore', 'yellowPos', 'redPos', 'reentryDays', 'feePct', 'fwdDays', 'crashPct'];
@@ -3800,6 +3838,10 @@ if __name__ == "__main__":
           const cached = cachedRaw ? JSON.parse(cachedRaw) : null;
           if (cached && cached.version === 'v4' && cached.params) {
             state.params = { ...DEFAULT_PARAMS, ...cached.params };
+          }
+          const savedDedicatedParams = JSON.parse(localStorage.getItem('nic_twse_radar_params_v1') || 'null');
+          if (savedDedicatedParams && typeof savedDedicatedParams === 'object') {
+            state.params = { ...state.params, ...savedDedicatedParams };
           }
           const savedToken = (cached && cached.finmindToken) || localStorage.getItem('twse_radar_finmind_token') || '';
           if (savedToken) document.getElementById('fm-token').value = savedToken;

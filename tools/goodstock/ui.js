@@ -316,6 +316,7 @@ export class GoodStockUI {
                 <select class="form-select" id="six-scope">
                   <option value="ALL" ${f.scope === 'ALL' ? 'selected' : ''}>全股票池 (${GoodStockData.getAllStocks().length} 檔)</option>
                   <option value="ETF_0050" ${f.scope === 'ETF_0050' ? 'selected' : ''}>0050 台灣50成分股 (50 檔)</option>
+                  <option value="SYNCED_FIN" ${f.scope === 'SYNCED_FIN' ? 'selected' : ''}>已更新完整財報 (${universe.filter((s) => s.dataSource === 'finmind-live' || s.dataSource === 'finmind-batch').length} 檔)</option>
                   <option value="HOLDINGS" ${f.scope === 'HOLDINGS' ? 'selected' : ''}>僅看我的庫存持股</option>
                   <option value="WATCHLIST" ${f.scope === 'WATCHLIST' ? 'selected' : ''}>僅看我的觀察清單</option>
                 </select>
@@ -448,6 +449,7 @@ export class GoodStockUI {
                         </a>
                         ${s.isHolding ? '<span class="pill" style="font-size:10px;">庫存</span>' : ''}
                         ${s.dataSource === 'finmind-live' ? '<span class="pill pill-emerald" style="font-size:9.5px;" title="已同步 FinMind 真實財報">實</span>' : ''}
+                        ${s.dataSource === 'finmind-batch' ? `<span class="pill pill-emerald" style="font-size:9.5px;" title="已更新完整 8 季財報 (${s.finSyncedAt || ''})">財報</span>` : ''}
                       </div>
                     </td>
                     <td class="text-muted">${s.industry}</td>
@@ -504,6 +506,7 @@ export class GoodStockUI {
                     <div style="display:flex; align-items:center; gap:5px; min-width:0;">
                       <span class="font-mono" style="font-weight:700; font-size:14px; color:var(--accent-blue);">${s.code} ${s.name}</span>
                       ${s.isHolding ? '<span class="pill" style="font-size:9.5px;">庫存</span>' : ''}
+                      ${s.dataSource === 'finmind-live' || s.dataSource === 'finmind-batch' ? `<span class="pill pill-emerald" style="font-size:9.5px;">財報</span>` : ''}
                     </div>
                     <span class="pill ${cur.avgScore >= 3.2 ? 'pill-emerald' : ''}">${cur.avgScore.toFixed(2)} (${cur.grade})</span>
                   </div>
