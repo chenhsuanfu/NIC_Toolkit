@@ -149,27 +149,21 @@ export class AssetTrackerUI {
           <button type="button" id="btn-record-snapshot" class="btn btn-primary btn-sm">📸 記錄資產快照</button>
         </div>
         <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(135px, 1fr)); gap:8px;">
-          <div style="padding:10px 12px; border-radius:10px; background:var(--bg-elevated, rgba(255,255,255,0.03)); border-left:3px solid #a855f7;">
-            <div class="text-muted" style="font-size:11.5px;">流動資金</div>
-            <div class="font-mono mask-amount" style="font-size:15px; font-weight:700; margin-top:2px;">$${fmtInt(sum.liquidSavingsTwd)}</div>
-          </div>
-          <div style="padding:10px 12px; border-radius:10px; background:var(--bg-elevated, rgba(255,255,255,0.03)); border-left:3px solid #10b981;">
-            <div class="text-muted" style="font-size:11.5px;">保障資金</div>
-            <div class="font-mono mask-amount" style="font-size:15px; font-weight:700; margin-top:2px;">$${fmtInt(sum.protectionTwd)}</div>
-          </div>
-          <div style="padding:10px 12px; border-radius:10px; background:var(--bg-elevated, rgba(255,255,255,0.03)); border-left:3px solid #f59e0b;">
-            <div class="text-muted" style="font-size:11.5px;">國內股票</div>
-            <div class="font-mono mask-amount" style="font-size:15px; font-weight:700; margin-top:2px;">$${fmtInt(sum.twStockTwd)}</div>
-          </div>
-          <div style="padding:10px 12px; border-radius:10px; background:var(--bg-elevated, rgba(255,255,255,0.03)); border-left:3px solid #eab308;">
-            <div class="text-muted" style="font-size:11.5px;">海外股票</div>
-            <div class="font-mono mask-amount" style="font-size:15px; font-weight:700; margin-top:2px;">$${fmtInt(sum.usStockTwd)}</div>
-          </div>
-          <div style="padding:10px 12px; border-radius:10px; background:var(--bg-elevated, rgba(255,255,255,0.03)); border-left:3px solid #64748b;">
-            <div class="text-muted" style="font-size:11.5px;">其他</div>
-            <div class="font-mono mask-amount" style="font-size:15px; font-weight:700; margin-top:2px;">$${fmtInt(otherTwd)}</div>
-          </div>
-          <div data-tab="fs_shared" style="cursor:pointer; padding:10px 12px; border-radius:10px; background:var(--bg-elevated, rgba(255,255,255,0.03)); border-left:3px solid #38bdf8;" title="點擊查看 FS共同資產明細">
+          ${[
+            { attr: '流動資金', label: '流動資金', color: '#a855f7', val: sum.liquidSavingsTwd },
+            { attr: '保障資金', label: '保障資金', color: '#10b981', val: sum.protectionTwd },
+            { attr: '國內股票', label: '國內股票', color: '#f59e0b', val: sum.twStockTwd },
+            { attr: '海外股票', label: '海外股票', color: '#eab308', val: sum.usStockTwd },
+            { attr: '其他', label: '其他', color: '#64748b', val: otherTwd }
+          ].map((c) => {
+            const isActive = this.activeTab === 'accounts' && this.filterAttr === c.attr;
+            return `
+          <div data-card-attr="${c.attr}" style="cursor:pointer; padding:10px 12px; border-radius:10px; background:${isActive ? 'rgba(59,130,246,0.12)' : 'var(--bg-elevated, rgba(255,255,255,0.03))'}; border-left:3px solid ${c.color}; ${isActive ? `outline:1px solid ${c.color};` : ''}" title="點擊篩選「${c.label}」帳戶（再點一次顯示全部）">
+            <div class="text-muted" style="font-size:11.5px;">${c.label}${isActive ? ' ✓' : ''}</div>
+            <div class="font-mono mask-amount" style="font-size:15px; font-weight:700; margin-top:2px;">$${fmtInt(c.val)}</div>
+          </div>`;
+          }).join('')}
+          <div data-tab="fs_shared" style="cursor:pointer; padding:10px 12px; border-radius:10px; background:${this.activeTab === 'fs_shared' ? 'rgba(56,189,248,0.12)' : 'var(--bg-elevated, rgba(255,255,255,0.03))'}; border-left:3px solid #38bdf8; ${this.activeTab === 'fs_shared' ? 'outline:1px solid #38bdf8;' : ''}" title="點擊查看 FS共同資產明細">
             <div class="text-muted" style="font-size:11.5px;">FS共同資產 ↗</div>
             <div class="font-mono mask-amount" style="font-size:15px; font-weight:700; margin-top:2px;">$${fmtInt(fsData.totalCombinedTwd)}</div>
           </div>
@@ -882,6 +876,13 @@ export class AssetTrackerUI {
 
     on('[data-toggle-form]', 'click', (el) => { const f = el.getAttribute('data-toggle-form'); this.activeForm = this.activeForm === f ? null : f; rerender(); });
     on('[data-tab]', 'click', (el) => { this.activeTab = el.getAttribute('data-tab'); this.reconcilingKey = null; rerender(); });
+    on('[data-card-attr]', 'click', (el) => {
+      const attr = el.getAttribute('data-card-attr');
+      this.filterAttr = (this.activeTab === 'accounts' && this.filterAttr === attr) ? 'ALL' : attr;
+      this.activeTab = 'accounts';
+      this.reconcilingKey = null;
+      rerender();
+    });
     on('[data-attr]', 'click', (el) => { this.filterAttr = el.getAttribute('data-attr'); rerender(); });
     on('th[data-sort-table]', 'click', (el) => { this._toggleSort(el.getAttribute('data-sort-table'), el.getAttribute('data-sort-col'), el.getAttribute('data-sort-default')); rerender(); });
     on('#select-exp-main', 'change', (el) => { this.selectedMainCat = el.value; rerender(); });
