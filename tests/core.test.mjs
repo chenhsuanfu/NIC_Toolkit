@@ -299,6 +299,12 @@ test('GoodStockUI defaults six_indicators sort to marketCap desc and preserves m
   const list1 = GoodStockCore.getEnrichedUniverse({ stock: { overview: [], watchlist: [] } });
   const list2 = GoodStockCore.getEnrichedUniverse({ stock: { overview: [], watchlist: [] } });
   assert.equal(list1, list2);
+
+  // Verify expanding advanced filters drawer renders without ReferenceError
+  ui.showAdvancedFilters = true;
+  const html = ui._renderSixIndicatorsScreener({ stock: { overview: [], watchlist: [] } }, ['半導體'], list1);
+  assert.ok(html.includes('id="six-scope"'));
+  assert.ok(html.includes('▲ 收起進階篩選'));
 });
 
 test('GAS Code.gs and copy-paste version stay structurally in sync', () => {

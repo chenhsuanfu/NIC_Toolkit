@@ -279,7 +279,7 @@ export class GoodStockUI {
         </button>
       </div>
 
-      ${this.screenerMode === 'six_indicators' ? this._renderSixIndicatorsScreener(state, industries) : ''}
+      ${this.screenerMode === 'six_indicators' ? this._renderSixIndicatorsScreener(state, industries, universe) : ''}
       ${this.screenerMode === 'strong' ? this._renderStrongScreener(state) : ''}
       ${this.screenerMode === 'financial' ? this._renderFinancialScreener(state, industries) : ''}
       ${this.screenerMode === 'trend' ? this._renderTrendScreener(state) : ''}
@@ -327,12 +327,14 @@ export class GoodStockUI {
     `;
   }
 
-  _renderSixIndicatorsScreener(state, industries) {
+  _renderSixIndicatorsScreener(state, industries, universe = []) {
     const f = this.sixFilters;
     const rawResults = GoodStockCore.screenStocks(state, 'six_indicators', f);
     const results = this._sortResults('six_indicators', rawResults);
     const limit = this.pageLimit.six_indicators || 50;
     const visible = results.slice(0, limit);
+    const allCount = universe.length || GoodStockData.getAllStocks().length;
+    const syncedCount = universe.filter((s) => s.dataSource === 'finmind-live' || s.dataSource === 'finmind-batch').length;
 
     return `
       <div class="card" style="margin-bottom:14px;">
@@ -358,9 +360,9 @@ export class GoodStockUI {
               <div class="form-group">
                 <label class="form-label">篩選範圍</label>
                 <select class="form-select" id="six-scope">
-                  <option value="ALL" ${f.scope === 'ALL' ? 'selected' : ''}>全股票池 (${GoodStockData.getAllStocks().length} 檔)</option>
+                  <option value="ALL" ${f.scope === 'ALL' ? 'selected' : ''}>全股票池 (${allCount} 檔)</option>
                   <option value="ETF_0050" ${f.scope === 'ETF_0050' ? 'selected' : ''}>0050 台灣50成分股 (50 檔)</option>
-                  <option value="SYNCED_FIN" ${f.scope === 'SYNCED_FIN' ? 'selected' : ''}>已更新完整財報 (${universe.filter((s) => s.dataSource === 'finmind-live' || s.dataSource === 'finmind-batch').length} 檔)</option>
+                  <option value="SYNCED_FIN" ${f.scope === 'SYNCED_FIN' ? 'selected' : ''}>已更新完整財報 (${syncedCount} 檔)</option>
                   <option value="HOLDINGS" ${f.scope === 'HOLDINGS' ? 'selected' : ''}>僅看我的庫存持股</option>
                   <option value="WATCHLIST" ${f.scope === 'WATCHLIST' ? 'selected' : ''}>僅看我的觀察清單</option>
                 </select>
