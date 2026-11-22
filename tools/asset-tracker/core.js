@@ -905,7 +905,7 @@ export const AssetCore = {
       const cur = String(r['幣別'] || 'TWD').trim().toUpperCase();
       const nature = String(r['性質'] || '').trim();
       const rawAmt = toNum(r['金額'], 0);
-      const signedAmt = nature === '支出' ? -Math.abs(rawAmt) : Math.abs(rawAmt);
+      const signedAmt = nature === '支出' ? -Math.abs(rawAmt) : rawAmt;
       if (cur === 'USD') totalUsd += signedAmt;
       else totalTwd += signedAmt;
 

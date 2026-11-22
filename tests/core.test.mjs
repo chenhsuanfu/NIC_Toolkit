@@ -313,6 +313,24 @@ test('GoodStockUI defaults six_indicators sort to marketCap desc and preserves m
   assert.ok(emptyEval.current.items.every((it) => it.score === null));
 });
 
+test('AssetCore.getFsSharedAssets preserves negative amounts on non-expense rows', async () => {
+  const { AssetCore } = await import('../tools/asset-tracker/core.js');
+  const res = AssetCore.getFsSharedAssets({
+    asset: {
+      config: [],
+      recentLogs: [
+        { 日期: '2026-04-09', 性質: '轉帳', 類別: '換匯', 帳戶: '中信', 幣別: 'TWD', 金額: -65845, 標籤: 'FS' },
+        { 日期: '2026-04-09', 性質: '轉帳', 類別: '換匯', 帳戶: '中信_定存', 幣別: 'USD', 金額: 2037, 標籤: 'FS' },
+        { 日期: '2026-04-16', 性質: '轉帳', 類別: '定存解約', 帳戶: '中信', 幣別: 'TWD', 金額: 70000, 標籤: 'FS' },
+        { 日期: '2026-04-16', 性質: '轉帳', 類別: '定存解約', 帳戶: '中信_定存', 幣別: 'TWD', 金額: -70000, 標籤: 'FS' },
+        { 日期: '2026-05-01', 性質: '支出', 類別: '雜支', 帳戶: '中信', 幣別: 'TWD', 金額: 500, 標籤: 'FS' }
+      ]
+    }
+  });
+  assert.equal(res.totalTwd, -66345);
+  assert.equal(res.totalUsd, 2037);
+});
+
 test('GAS Code.gs and copy-paste version stay structurally in sync', () => {
   const codeGs = fs.readFileSync(path.join(ROOT, 'backend-gas/Code.gs'), 'utf8').replace(/^\uFEFF/, '');
   const copyGs = fs.readFileSync(path.join(ROOT, 'data/GAS_直接複製貼上版.gs'), 'utf8').replace(/^\uFEFF/, '');
