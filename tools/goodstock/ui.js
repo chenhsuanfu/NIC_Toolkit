@@ -288,7 +288,10 @@ export class GoodStockUI {
   }
 
   _renderDeltaBadge(delta, prefix = '') {
-    const d = Number(delta || 0);
+    if (!isFiniteNum(delta)) {
+      return `<span class="text-muted" style="font-size:11px;">—</span>`;
+    }
+    const d = Number(delta);
     if (d > 0) {
       return `<span class="pill pill-emerald">${prefix}▲ +${d.toFixed(2)}</span>`;
     }
@@ -506,15 +509,15 @@ export class GoodStockUI {
                       <div class="text-muted" style="font-size:11px;">PE ${fmtFixed(s.pe, 1)}</div>
                     </td>
                     <td class="font-mono" style="text-align:right;">
-                      <div style="font-weight:700;" class="${cur.avgScore >= 3.2 ? 'text-emerald' : ''}">${cur.avgScore.toFixed(2)}</div>
+                      <div style="font-weight:700;" class="${cur.avgScore >= 3.2 ? 'text-emerald' : ''}">${fmtFixed(cur.avgScore, 2)}</div>
                       <span class="pill" style="font-size:10px;">${cur.grade}</span>
                     </td>
                     <td class="font-mono" style="text-align:right;">
-                      <div class="text-muted" style="font-size:11px;">前月 ${ev.prevMonth.avgScore.toFixed(2)}</div>
+                      <div class="text-muted" style="font-size:11px;">前月 ${fmtFixed(ev.prevMonth?.avgScore, 2)}</div>
                       <div>${this._renderDeltaBadge(ev.deltaMoM)}</div>
                     </td>
                     <td class="font-mono" style="text-align:right;">
-                      <div class="text-muted" style="font-size:11px;">前季 ${ev.prevQuarter.avgScore.toFixed(2)}</div>
+                      <div class="text-muted" style="font-size:11px;">前季 ${fmtFixed(ev.prevQuarter?.avgScore, 2)}</div>
                       <div>${this._renderDeltaBadge(ev.deltaQoQ)}</div>
                     </td>
                     <td style="text-align:right;">${this._renderItemScoreCell(comps[0])}</td>
@@ -556,7 +559,7 @@ export class GoodStockUI {
                       ${s.isHolding ? '<span class="pill" style="font-size:9.5px;">庫存</span>' : ''}
                       ${s.dataSource === 'finmind-live' || s.dataSource === 'finmind-batch' ? `<span class="pill pill-emerald" style="font-size:9.5px;">財報</span>` : ''}
                     </div>
-                    <span class="pill ${cur.avgScore >= 3.2 ? 'pill-emerald' : ''}">${cur.avgScore.toFixed(2)} (${cur.grade})</span>
+                    <span class="pill ${cur.avgScore >= 3.2 ? 'pill-emerald' : ''}">${fmtFixed(cur.avgScore, 2)} (${cur.grade})</span>
                   </div>
                   <div class="m-stock-row2">
                     <span class="font-mono" style="font-weight:600;">$${fmtNum(s.price, 1)} <span class="text-muted">市值 ${fmtNum(s.marketCap, 0)}億</span></span>

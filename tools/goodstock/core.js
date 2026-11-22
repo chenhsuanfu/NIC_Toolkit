@@ -233,14 +233,17 @@ export const GoodStockCore = {
     const r5 = r[r.length - 2] ?? 0;
     const r4 = r[r.length - 3] ?? 0;
     const rAvg6 = round2(mean(r));
-    const rAllPos = r.every((v) => v > 0);
+    const rAllPos = r.length > 0 && r.every((v) => v > 0);
     const rDec3 = r6 < r5 && r5 < r4;
     const rLastNonDec = r6 >= r5;
     const rLastDropRatio = r5 > 0 ? (r5 - r6) / r5 : 1;
 
     let revScore = 2.0;
     let revReason = '';
-    if (rAvg6 < 0 || r6 < 0) {
+    if (mWin6.length === 0) {
+      revScore = null;
+      revReason = '尚無月營收資料';
+    } else if (rAvg6 < 0 || r6 < 0) {
       revScore = 0.0;
       revReason = `近6月均年增 ${rAvg6}% / 最新月 ${r6}% (平均或最近一月為負數)`;
     } else if (rAvg6 > 0 && rDec3) {
@@ -417,6 +420,14 @@ export const GoodStockCore = {
       fcfReason = `近6季累積 (${sum6.toLocaleString()}) 與近4季累積 (${sum4.toLocaleString()}) 皆為負數`;
     }
 
+    if (qWin4.length === 0) {
+      opScore = null; opReason = '尚無季報資料';
+      profitScore = null; profitReason = '尚無季報資料';
+      epsScore = null; epsReason = '尚無季報資料';
+      invScore = null; invReason = '尚無季報資料';
+      fcfScore = null; fcfReason = '尚無季報資料';
+    }
+
     const items = [
       { key: 'revGrowth', label: '營收成長性', score: revScore, reason: revReason },
       { key: 'opMargin', label: '營業利益率', score: opScore, reason: opReason },
@@ -427,14 +438,17 @@ export const GoodStockCore = {
     ];
 
     const scoredItems = items.filter((i) => i.score !== null);
-    const totalScore = round2(scoredItems.reduce((s, i) => s + i.score, 0));
-    const avgScore = round2(totalScore / Math.max(1, scoredItems.length));
+    const totalScore = scoredItems.length > 0 ? round2(scoredItems.reduce((s, i) => s + i.score, 0)) : null;
+    const avgScore = scoredItems.length > 0 ? round2(totalScore / scoredItems.length) : null;
 
-    let grade = 'C';
-    if (avgScore >= 3.6) grade = 'AA';
-    else if (avgScore >= 3.1) grade = 'A';
-    else if (avgScore >= 2.5) grade = 'BB';
-    else if (avgScore >= 1.8) grade = 'B';
+    let grade = '待同步';
+    if (avgScore !== null) {
+      grade = 'C';
+      if (avgScore >= 3.6) grade = 'AA';
+      else if (avgScore >= 3.1) grade = 'A';
+      else if (avgScore >= 2.5) grade = 'BB';
+      else if (avgScore >= 1.8) grade = 'B';
+    }
 
     const byKey = {};
     for (const it of items) byKey[it.key] = it.score;
@@ -461,8 +475,8 @@ export const GoodStockCore = {
     const prevMonth = this.scoreSixIndicatorsAtWindow(stock, 0, 1);
     const prevQuarter = this.scoreSixIndicatorsAtWindow(stock, 1, 3);
 
-    const deltaMoM = round2(current.avgScore - prevMonth.avgScore);
-    const deltaQoQ = round2(current.avgScore - prevQuarter.avgScore);
+    const deltaMoM = current.avgScore !== null && prevMonth.avgScore !== null ? round2(current.avgScore - prevMonth.avgScore) : null;
+    const deltaQoQ = current.avgScore !== null && prevQuarter.avgScore !== null ? round2(current.avgScore - prevQuarter.avgScore) : null;
 
     const itemComparisons = current.items.map((curItem) => {
       const m1Score = prevMonth.byKey[curItem.key];

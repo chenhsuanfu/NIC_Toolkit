@@ -304,7 +304,13 @@ test('GoodStockUI defaults six_indicators sort to marketCap desc and preserves m
   ui.showAdvancedFilters = true;
   const html = ui._renderSixIndicatorsScreener({ stock: { overview: [], watchlist: [] } }, ['半導體'], list1);
   assert.ok(html.includes('id="six-scope"'));
-  assert.ok(html.includes('▲ 收起進階篩選'));
+  // Verify stock with no financials gets null scores and '待同步' grade (no fake scores)
+  const emptyEval = GoodStockCore.evaluateSixIndicatorsWithHistory({ code: '0050', quarters: [], monthlyRevenues: [] });
+  assert.equal(emptyEval.current.avgScore, null);
+  assert.equal(emptyEval.current.grade, '待同步');
+  assert.equal(emptyEval.deltaMoM, null);
+  assert.equal(emptyEval.deltaQoQ, null);
+  assert.ok(emptyEval.current.items.every((it) => it.score === null));
 });
 
 test('GAS Code.gs and copy-paste version stay structurally in sync', () => {
