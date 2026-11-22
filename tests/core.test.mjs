@@ -220,3 +220,67 @@ test('GAS doPost fetchMarketFactors parses Yahoo Finance SOX and VIX series', ()
   assert.equal(res.data.sox[1].close, 9419.72);
   assert.equal(res.data.vix[1].close, 28.44);
 });
+
+test('GoodStockUI safely handles missing numeric fields without throwing and sorts nulls last', async () => {
+  const { GoodStockUI } = await import('../tools/goodstock/ui.js');
+  const ui = new GoodStockUI();
+
+  const mockRows = [
+    {
+      code: '9999',
+      name: '缺欄測試股',
+      industry: '測試業',
+      price: 50,
+      pe: null,
+      change5dPct: undefined,
+      change10dPct: undefined,
+      change20dPct: undefined,
+      change1mPct: undefined,
+      volumeLots: undefined,
+      latestOpMargin: undefined,
+      latestEps: undefined,
+      latestNetMargin: undefined,
+      latestRevYoY: undefined,
+      latestCumYoY: undefined,
+      doubleArrow: undefined,
+      sixEval: { current: { avgScore: undefined }, deltaQoQ: undefined }
+    },
+    {
+      code: '2330',
+      name: '台積電',
+      industry: '半導體',
+      price: 1000,
+      pe: 20,
+      change5dPct: 2.5,
+      change10dPct: 5.0,
+      change20dPct: 8.0,
+      change1mPct: 10.0,
+      volumeLots: 30000,
+      latestOpMargin: 45.2,
+      latestEps: 12.3,
+      latestNetMargin: 40.1,
+      latestRevYoY: 30.5,
+      latestCumYoY: 28.4,
+      doubleArrow: 15.0,
+      sixEval: { current: { avgScore: 3.8 }, deltaQoQ: 0.2 }
+    }
+  ];
+
+  // Missing change1mPct should sort to the bottom in both desc and asc
+  ui.tableSort.strong = { col: 'change1mPct', dir: 'desc' };
+  const descSorted = ui._sortResults('strong', mockRows);
+  assert.equal(descSorted[0].code, '2330');
+  assert.equal(descSorted[1].code, '9999');
+
+  ui.tableSort.strong = { col: 'change1mPct', dir: 'asc' };
+  const ascSorted = ui._sortResults('strong', mockRows);
+  assert.equal(ascSorted[0].code, '2330');
+  assert.equal(ascSorted[1].code, '9999');
+});
+
+test('GAS Code.gs and copy-paste version stay structurally in sync', () => {
+  const codeGs = fs.readFileSync(path.join(ROOT, 'backend-gas/Code.gs'), 'utf8').replace(/^\uFEFF/, '');
+  const copyGs = fs.readFileSync(path.join(ROOT, 'data/GAS_直接複製貼上版.gs'), 'utf8').replace(/^\uFEFF/, '');
+  const stripConfig = (s) => s.replace(/function getConfig_\(\)\s*\{[\s\S]*?\n\}/, 'function getConfig_() { /* normalized */ }');
+  assert.equal(stripConfig(codeGs), stripConfig(copyGs));
+});

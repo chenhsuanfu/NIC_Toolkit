@@ -1,12 +1,34 @@
 import { GoodStockCore } from './core.js';
 import { GoodStockData } from './data.js';
 
+const isFiniteNum = (v) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v));
+const fmtFixed = (v, d = 2, suffix = '') => (isFiniteNum(v) ? `${Number(v).toFixed(d)}${suffix}` : '—');
+const fmtSignedPct = (v, d = 2) => {
+  if (!isFiniteNum(v)) return '—';
+  const n = Number(v);
+  return `${n >= 0 ? '+' : ''}${n.toFixed(d)}%`;
+};
+const fmtArrowPct = (v, d = 2) => {
+  if (!isFiniteNum(v)) return '—';
+  const n = Number(v);
+  return `${n >= 0 ? '▲ +' : '▼ '}${n.toFixed(d)}%`;
+};
+const pctToneClass = (v) => (!isFiniteNum(v) ? 'text-muted' : Number(v) >= 0 ? 'text-emerald' : 'text-rose');
+const cmpNullableNum = (va, vb, mul) => {
+  const ha = isFiniteNum(va);
+  const hb = isFiniteNum(vb);
+  if (!ha && !hb) return 0;
+  if (!ha) return 1;
+  if (!hb) return -1;
+  return (Number(va) - Number(vb)) * mul;
+};
+
 const fmtNum = (n, d = 2) => {
-  if (n === null || n === undefined || n === '' || !Number.isFinite(Number(n))) return '-';
+  if (!isFiniteNum(n)) return '—';
   return Number(n).toLocaleString('zh-TW', { minimumFractionDigits: d, maximumFractionDigits: d });
 };
 const fmtInt = (n) => {
-  if (n === null || n === undefined || n === '' || !Number.isFinite(Number(n))) return '-';
+  if (!isFiniteNum(n)) return '—';
   return Math.round(Number(n)).toLocaleString('zh-TW');
 };
 
@@ -137,35 +159,35 @@ export class GoodStockUI {
     return [...list].sort((a, b) => {
       if (col === 'code') return String(a.code || '').localeCompare(String(b.code || '')) * mul;
       if (col === 'industry') return String(a.industry || '').localeCompare(String(b.industry || '')) * mul;
-      if (col === 'price') return ((a.price || 0) - (b.price || 0)) * mul;
-      if (col === 'pe') return ((a.pe || 999) - (b.pe || 999)) * mul;
-      if (col === 'avgScore') return ((a.sixEval?.current?.avgScore || 0) - (b.sixEval?.current?.avgScore || 0)) * mul;
-      if (col === 'deltaMoM') return ((a.sixEval?.deltaMoM || 0) - (b.sixEval?.deltaMoM || 0)) * mul;
-      if (col === 'deltaQoQ') return ((a.sixEval?.deltaQoQ || 0) - (b.sixEval?.deltaQoQ || 0)) * mul;
-      if (col === 's0') return ((a.sixEval?.itemComparisons?.[0]?.score ?? -1) - (b.sixEval?.itemComparisons?.[0]?.score ?? -1)) * mul;
-      if (col === 's1') return ((a.sixEval?.itemComparisons?.[1]?.score ?? -1) - (b.sixEval?.itemComparisons?.[1]?.score ?? -1)) * mul;
-      if (col === 's2') return ((a.sixEval?.itemComparisons?.[2]?.score ?? -1) - (b.sixEval?.itemComparisons?.[2]?.score ?? -1)) * mul;
-      if (col === 's3') return ((a.sixEval?.itemComparisons?.[3]?.score ?? -1) - (b.sixEval?.itemComparisons?.[3]?.score ?? -1)) * mul;
-      if (col === 's4') return ((a.sixEval?.itemComparisons?.[4]?.score ?? -1) - (b.sixEval?.itemComparisons?.[4]?.score ?? -1)) * mul;
-      if (col === 's5') return ((a.sixEval?.itemComparisons?.[5]?.score ?? -1) - (b.sixEval?.itemComparisons?.[5]?.score ?? -1)) * mul;
-      if (col === 'landmines') return ((a.landmines?.hitCount || 0) - (b.landmines?.hitCount || 0)) * mul;
-      if (col === 'doubleArrow') return ((a.doubleArrow || 0) - (b.doubleArrow || 0)) * mul;
+      if (col === 'price') return cmpNullableNum(a.price, b.price, mul);
+      if (col === 'pe') return cmpNullableNum(a.pe, b.pe, mul);
+      if (col === 'avgScore') return cmpNullableNum(a.sixEval?.current?.avgScore, b.sixEval?.current?.avgScore, mul);
+      if (col === 'deltaMoM') return cmpNullableNum(a.sixEval?.deltaMoM, b.sixEval?.deltaMoM, mul);
+      if (col === 'deltaQoQ') return cmpNullableNum(a.sixEval?.deltaQoQ, b.sixEval?.deltaQoQ, mul);
+      if (col === 's0') return cmpNullableNum(a.sixEval?.itemComparisons?.[0]?.score, b.sixEval?.itemComparisons?.[0]?.score, mul);
+      if (col === 's1') return cmpNullableNum(a.sixEval?.itemComparisons?.[1]?.score, b.sixEval?.itemComparisons?.[1]?.score, mul);
+      if (col === 's2') return cmpNullableNum(a.sixEval?.itemComparisons?.[2]?.score, b.sixEval?.itemComparisons?.[2]?.score, mul);
+      if (col === 's3') return cmpNullableNum(a.sixEval?.itemComparisons?.[3]?.score, b.sixEval?.itemComparisons?.[3]?.score, mul);
+      if (col === 's4') return cmpNullableNum(a.sixEval?.itemComparisons?.[4]?.score, b.sixEval?.itemComparisons?.[4]?.score, mul);
+      if (col === 's5') return cmpNullableNum(a.sixEval?.itemComparisons?.[5]?.score, b.sixEval?.itemComparisons?.[5]?.score, mul);
+      if (col === 'landmines') return cmpNullableNum(a.landmines?.hitCount, b.landmines?.hitCount, mul);
+      if (col === 'doubleArrow') return cmpNullableNum(a.doubleArrow, b.doubleArrow, mul);
       if (col === 'gain') {
         const gA = lookbackDays >= 10 ? a.change10dPct : a.change5dPct;
         const gB = lookbackDays >= 10 ? b.change10dPct : b.change5dPct;
-        return ((gA || 0) - (gB || 0)) * mul;
+        return cmpNullableNum(gA, gB, mul);
       }
-      if (col === 'change1mPct') return ((a.change1mPct || 0) - (b.change1mPct || 0)) * mul;
-      if (col === 'change5dPct') return ((a.change5dPct || 0) - (b.change5dPct || 0)) * mul;
-      if (col === 'change10dPct') return ((a.change10dPct || 0) - (b.change10dPct || 0)) * mul;
-      if (col === 'change20dPct') return ((a.change20dPct || 0) - (b.change20dPct || 0)) * mul;
-      if (col === 'volumeLots') return ((a.volumeLots || 0) - (b.volumeLots || 0)) * mul;
-      if (col === 'latestOpMargin') return ((a.latestOpMargin || 0) - (b.latestOpMargin || 0)) * mul;
-      if (col === 'latestEps') return ((a.latestEps || 0) - (b.latestEps || 0)) * mul;
-      if (col === 'latestNetMargin') return ((a.latestNetMargin || 0) - (b.latestNetMargin || 0)) * mul;
-      if (col === 'latestRevYoY') return ((a.latestRevYoY || 0) - (b.latestRevYoY || 0)) * mul;
-      if (col === 'latestCumYoY') return ((a.latestCumYoY || 0) - (b.latestCumYoY || 0)) * mul;
-      if (col === 'revNewHighMonths') return ((a.revNewHighMonths || 0) - (b.revNewHighMonths || 0)) * mul;
+      if (col === 'change1mPct') return cmpNullableNum(a.change1mPct, b.change1mPct, mul);
+      if (col === 'change5dPct') return cmpNullableNum(a.change5dPct, b.change5dPct, mul);
+      if (col === 'change10dPct') return cmpNullableNum(a.change10dPct, b.change10dPct, mul);
+      if (col === 'change20dPct') return cmpNullableNum(a.change20dPct, b.change20dPct, mul);
+      if (col === 'volumeLots') return cmpNullableNum(a.volumeLots, b.volumeLots, mul);
+      if (col === 'latestOpMargin') return cmpNullableNum(a.latestOpMargin, b.latestOpMargin, mul);
+      if (col === 'latestEps') return cmpNullableNum(a.latestEps, b.latestEps, mul);
+      if (col === 'latestNetMargin') return cmpNullableNum(a.latestNetMargin, b.latestNetMargin, mul);
+      if (col === 'latestRevYoY') return cmpNullableNum(a.latestRevYoY, b.latestRevYoY, mul);
+      if (col === 'latestCumYoY') return cmpNullableNum(a.latestCumYoY, b.latestCumYoY, mul);
+      if (col === 'revNewHighMonths') return cmpNullableNum(a.revNewHighMonths, b.revNewHighMonths, mul);
       return 0;
     });
   }
@@ -267,10 +289,10 @@ export class GoodStockUI {
   }
 
   _renderItemScoreCell(itemComp) {
-    if (!itemComp || itemComp.score === null) {
-      return `<span class="text-muted" style="font-size:11px;">-</span>`;
+    if (!itemComp || !isFiniteNum(itemComp.score)) {
+      return `<span class="text-muted" style="font-size:11px;">—</span>`;
     }
-    const s = itemComp.score;
+    const s = Number(itemComp.score);
     const cls = s >= 3.5 ? 'text-emerald' : s < 2.0 ? 'text-rose' : '';
     const arrows = [];
     if (itemComp.deltaMoM > 0) arrows.push(`<span class="text-emerald" title="較前月 +${itemComp.deltaMoM}">月▲</span>`);
@@ -592,16 +614,16 @@ export class GoodStockUI {
                   <tr>
                     <td><a href="javascript:void(0)" data-open-stock="${s.code}" class="font-mono" style="color:var(--accent-blue); font-weight:700; text-decoration:none;">${s.code} ${s.name}</a></td>
                     <td class="text-muted">${s.industry}</td>
-                    <td class="font-mono ${gain >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right; font-weight:700;">${gain >= 0 ? '▲ +' : '▼ '}${gain.toFixed(2)}%</td>
+                    <td class="font-mono ${pctToneClass(gain)}" style="text-align:right; font-weight:700;">${fmtArrowPct(gain, 2)}</td>
                     <td class="font-mono" style="text-align:right; font-weight:700;">${fmtNum(s.price, 1)}</td>
-                    <td class="font-mono" style="text-align:right;">${s.pe ?? '-'}</td>
-                    <td class="font-mono ${s.change1mPct >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right;">${s.change1mPct >= 0 ? '+' : ''}${s.change1mPct.toFixed(2)}%</td>
+                    <td class="font-mono" style="text-align:right;">${fmtFixed(s.pe, 1)}</td>
+                    <td class="font-mono ${pctToneClass(s.change1mPct)}" style="text-align:right;">${fmtSignedPct(s.change1mPct, 2)}</td>
                     <td class="font-mono" style="text-align:right;">${fmtInt(s.volumeLots)}</td>
-                    <td class="font-mono" style="text-align:right;">${s.latestOpMargin.toFixed(2)}%</td>
-                    <td class="font-mono" style="text-align:right;">${s.latestEps.toFixed(2)}</td>
-                    <td class="font-mono ${s.latestRevYoY >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right;">${s.latestRevYoY >= 0 ? '+' : ''}${s.latestRevYoY.toFixed(2)}%</td>
-                    <td class="font-mono" style="text-align:right; font-weight:700;">${s.doubleArrow.toFixed(1)}%</td>
-                    <td class="font-mono" style="text-align:right; font-weight:700;">${s.sixEval.current.avgScore.toFixed(2)}</td>
+                    <td class="font-mono" style="text-align:right;">${fmtFixed(s.latestOpMargin, 2, '%')}</td>
+                    <td class="font-mono" style="text-align:right;">${fmtFixed(s.latestEps, 2)}</td>
+                    <td class="font-mono ${pctToneClass(s.latestRevYoY)}" style="text-align:right;">${fmtSignedPct(s.latestRevYoY, 2)}</td>
+                    <td class="font-mono" style="text-align:right; font-weight:700;">${fmtFixed(s.doubleArrow, 1, '%')}</td>
+                    <td class="font-mono" style="text-align:right; font-weight:700;">${fmtFixed(s.sixEval?.current?.avgScore, 2)}</td>
                   </tr>
                 `;
               }).join('')}
@@ -688,15 +710,15 @@ export class GoodStockUI {
                   <td><a href="javascript:void(0)" data-open-stock="${s.code}" class="font-mono" style="color:var(--accent-blue); font-weight:700; text-decoration:none;">${s.code} ${s.name}</a></td>
                   <td class="text-muted">${s.industry}</td>
                   <td class="font-mono" style="text-align:right; font-weight:700;">${fmtNum(s.price, 1)}</td>
-                  <td class="font-mono" style="text-align:right;">${s.pe ?? '-'}</td>
-                  <td class="font-mono ${s.change1mPct >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right;">${s.change1mPct >= 0 ? '+' : ''}${s.change1mPct.toFixed(2)}%</td>
-                  <td class="font-mono" style="text-align:right; font-weight:700;">${s.latestOpMargin.toFixed(2)}%</td>
-                  <td class="font-mono" style="text-align:right;">${s.latestEps.toFixed(2)}</td>
-                  <td class="font-mono" style="text-align:right;">${s.latestNetMargin.toFixed(2)}%</td>
-                  <td class="font-mono ${s.latestRevYoY >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right;">${s.latestRevYoY >= 0 ? '+' : ''}${s.latestRevYoY.toFixed(2)}%</td>
-                  <td class="font-mono ${s.latestCumYoY >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right;">${s.latestCumYoY >= 0 ? '+' : ''}${s.latestCumYoY.toFixed(2)}%</td>
-                  <td class="font-mono" style="text-align:right; font-weight:700;">${s.doubleArrow.toFixed(2)}%</td>
-                  <td class="font-mono" style="text-align:right; font-weight:700;">${s.sixEval.current.avgScore.toFixed(2)}</td>
+                  <td class="font-mono" style="text-align:right;">${fmtFixed(s.pe, 1)}</td>
+                  <td class="font-mono ${pctToneClass(s.change1mPct)}" style="text-align:right;">${fmtSignedPct(s.change1mPct, 2)}</td>
+                  <td class="font-mono" style="text-align:right; font-weight:700;">${fmtFixed(s.latestOpMargin, 2, '%')}</td>
+                  <td class="font-mono" style="text-align:right;">${fmtFixed(s.latestEps, 2)}</td>
+                  <td class="font-mono" style="text-align:right;">${fmtFixed(s.latestNetMargin, 2, '%')}</td>
+                  <td class="font-mono ${pctToneClass(s.latestRevYoY)}" style="text-align:right;">${fmtSignedPct(s.latestRevYoY, 2)}</td>
+                  <td class="font-mono ${pctToneClass(s.latestCumYoY)}" style="text-align:right;">${fmtSignedPct(s.latestCumYoY, 2)}</td>
+                  <td class="font-mono" style="text-align:right; font-weight:700;">${fmtFixed(s.doubleArrow, 2, '%')}</td>
+                  <td class="font-mono" style="text-align:right; font-weight:700;">${fmtFixed(s.sixEval?.current?.avgScore, 2)}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -752,15 +774,15 @@ export class GoodStockUI {
                   <td><a href="javascript:void(0)" data-open-stock="${s.code}" class="font-mono" style="color:var(--accent-blue); font-weight:700; text-decoration:none;">${s.code} ${s.name}</a></td>
                   <td class="text-muted">${s.industry}</td>
                   <td class="font-mono" style="text-align:right; font-weight:700;">${fmtNum(s.price, 1)}</td>
-                  <td class="font-mono ${s.change5dPct >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right;">${s.change5dPct >= 0 ? '+' : ''}${s.change5dPct.toFixed(2)}%</td>
-                  <td class="font-mono ${s.change10dPct >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right; font-weight:700;">${s.change10dPct >= 0 ? '+' : ''}${s.change10dPct.toFixed(2)}%</td>
-                  <td class="font-mono ${s.change20dPct >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right;">${s.change20dPct >= 0 ? '+' : ''}${s.change20dPct.toFixed(2)}%</td>
-                  <td class="font-mono" style="text-align:right;">${s.latestOpMargin.toFixed(2)}%</td>
-                  <td class="font-mono" style="text-align:right;">${s.latestEps.toFixed(2)}</td>
-                  <td class="font-mono ${s.latestRevYoY >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right;">${s.latestRevYoY >= 0 ? '+' : ''}${s.latestRevYoY.toFixed(2)}%</td>
+                  <td class="font-mono ${pctToneClass(s.change5dPct)}" style="text-align:right;">${fmtSignedPct(s.change5dPct, 2)}</td>
+                  <td class="font-mono ${pctToneClass(s.change10dPct)}" style="text-align:right; font-weight:700;">${fmtSignedPct(s.change10dPct, 2)}</td>
+                  <td class="font-mono ${pctToneClass(s.change20dPct)}" style="text-align:right;">${fmtSignedPct(s.change20dPct, 2)}</td>
+                  <td class="font-mono" style="text-align:right;">${fmtFixed(s.latestOpMargin, 2, '%')}</td>
+                  <td class="font-mono" style="text-align:right;">${fmtFixed(s.latestEps, 2)}</td>
+                  <td class="font-mono ${pctToneClass(s.latestRevYoY)}" style="text-align:right;">${fmtSignedPct(s.latestRevYoY, 2)}</td>
                   <td class="font-mono" style="text-align:right;">
-                    <span style="font-weight:700;">${s.sixEval.current.avgScore.toFixed(2)}</span>
-                    ${this._renderDeltaBadge(s.sixEval.deltaQoQ)}
+                    <span style="font-weight:700;">${fmtFixed(s.sixEval?.current?.avgScore, 2)}</span>
+                    ${this._renderDeltaBadge(s.sixEval?.deltaQoQ)}
                   </td>
                 </tr>
               `).join('')}
@@ -828,8 +850,8 @@ export class GoodStockUI {
                   <td style="text-align:right;"><span class="pill">${s.opMarginNewHighQuarters} 季新高</span></td>
                   <td style="text-align:right;"><span class="pill">${s.epsNewHighQuarters} 季新高</span></td>
                   <td style="text-align:right;"><span class="pill">${s.priceNewHighDays} 日新高</span></td>
-                  <td class="font-mono" style="text-align:right; font-weight:700;">${s.doubleArrow.toFixed(1)}%</td>
-                  <td class="font-mono" style="text-align:right; font-weight:700;">${s.sixEval.current.avgScore.toFixed(2)}</td>
+                  <td class="font-mono" style="text-align:right; font-weight:700;">${fmtFixed(s.doubleArrow, 1, '%')}</td>
+                  <td class="font-mono" style="text-align:right; font-weight:700;">${fmtFixed(s.sixEval?.current?.avgScore, 2)}</td>
                 </tr>
               `).join('')}
             </tbody>

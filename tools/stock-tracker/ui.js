@@ -547,7 +547,9 @@ export class StockTrackerUI {
       if (Math.abs(diffPct) < 0.1) {
         return `<span class="pill pill-emerald">0.0% 達標</span>`;
       }
-      return `<span class="pill">${sign}${diffPct.toFixed(1)}% (${diffPct < 0 ? '不足' : '超標'})</span>`;
+      if (!Number.isFinite(Number(diffPct))) return '<span class="text-muted">—</span>';
+      const d = Number(diffPct);
+      return `<span class="pill">${sign}${d.toFixed(1)}% (${d < 0 ? '不足' : '超標'})</span>`;
     };
 
     const renderActionCell = (actionTwd, actionShares, targetPct, currentTwd) => {

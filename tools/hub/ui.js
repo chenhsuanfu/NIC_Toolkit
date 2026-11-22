@@ -77,7 +77,7 @@ export class HubUI {
             <span class="pill">淨值</span>
           </div>
           <div class="kpi-value mask-amount">$${fmtInt(assetSum.netWorthTwd)}</div>
-          <div class="kpi-sub mask-amount">金融資產 $${fmtInt(assetSum.totalFinancialAssetsTwd)} ｜ 目標 ${(assetSum.goalProgress * 100).toFixed(1)}%</div>
+          <div class="kpi-sub mask-amount">金融資產 $${fmtInt(assetSum.totalFinancialAssetsTwd)} ｜ 目標 ${Number.isFinite(Number(assetSum.goalProgress)) ? (Number(assetSum.goalProgress) * 100).toFixed(1) + '%' : '—'}</div>
         </div>
 
         <div class="card">
@@ -103,7 +103,7 @@ export class HubUI {
         <div class="card">
           <div class="kpi-label">
             <span>${salData.latestAnnual?.year || 2026} 年度累計實領薪資 (N_薪資)</span>
-            <span class="pill pill-emerald">▲ ${salData.totalGrowthMultiple.toFixed(2)}x</span>
+            <span class="pill pill-emerald">▲ ${Number.isFinite(Number(salData.totalGrowthMultiple)) ? Number(salData.totalGrowthMultiple).toFixed(2) + 'x' : '—'}</span>
           </div>
           <div class="kpi-value mask-amount">$${fmtInt(salData.latestAnnual?.annualSalary || 0)}</div>
           <div class="kpi-sub mask-amount">
