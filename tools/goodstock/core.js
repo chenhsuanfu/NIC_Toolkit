@@ -15,6 +15,11 @@ const mean = (arr) => (arr.length ? arr.reduce((s, x) => s + Number(x || 0), 0) 
 export const GoodStockCore = {
   _universeIndex: null,
   _universePromise: null,
+  _enrichedCache: null,
+
+  invalidateCache() {
+    this._enrichedCache = null;
+  },
 
   async loadUniverseIndex(force = false) {
     if (!force && this._universeIndex) return this._universeIndex;
@@ -27,6 +32,7 @@ export const GoodStockCore = {
         const json = await resp.json();
         if (json && Array.isArray(json.stocks) && json.stocks.length > 0) {
           this._universeIndex = json;
+          this.invalidateCache();
           return json;
         }
       } catch (_) {}
@@ -95,12 +101,26 @@ export const GoodStockCore = {
    * Retrieve all enriched stock objects (cross-referenced with user's holdings & watchlist in state)
    */
   getEnrichedUniverse(state) {
+    const overview = state?.stock?.overview || [];
+    const watchlist = state?.stock?.watchlist || [];
+    let storageSig = '';
+    try {
+      if (typeof localStorage !== 'undefined') {
+        storageSig = `${(localStorage.getItem('nic_goodstock_custom_db_v1') || '').length}:${(localStorage.getItem('nic_goodstock_live_prices_v1') || '').length}`;
+      }
+    } catch (_) {}
+    const cacheKey = `${this._universeIndex?.updatedAt || ''}:${this._universeIndex?.stocks?.length || 0}:${overview.length}:${watchlist.length}:${storageSig}`;
+    if (this._enrichedCache && this._enrichedCache.key === cacheKey && this._enrichedCache.idxRef === this._universeIndex) {
+      return this._enrichedCache.list;
+    }
+
     const baseList = GoodStockData.getAllStocks();
     const byCode = new Map(baseList.map((s) => [s.code, s]));
     if (this._universeIndex && Array.isArray(this._universeIndex.stocks)) {
       for (const u of this._universeIndex.stocks) {
         if (!u || !u.code) continue;
-        if (!byCode.has(u.code)) {
+        const existing = byCode.get(u.code);
+        if (!existing) {
           byCode.set(u.code, {
             code: u.code,
             name: u.name || u.code,
@@ -110,6 +130,7 @@ export const GoodStockCore = {
             pe: u.pe ?? null,
             pb: u.pb ?? null,
             yield: u.yield ?? null,
+            marketCap: u.marketCap ?? null,
             peBands: [12, 16, 20],
             monthlyRevenues: Array.isArray(u.monthlyRevenues) ? u.monthlyRevenues : [],
             quarters: Array.isArray(u.quarters) ? u.quarters : [],
@@ -118,12 +139,12 @@ export const GoodStockCore = {
             finSyncedAt: u.finSyncedAt || '',
             dataSource: u.finSyncedAt ? 'finmind-batch' : 'universe-index'
           });
+        } else if (u.marketCap != null && existing.marketCap == null) {
+          existing.marketCap = u.marketCap;
         }
       }
     }
     const rawList = Array.from(byCode.values());
-    const overview = state?.stock?.overview || [];
-    const watchlist = state?.stock?.watchlist || [];
 
     const holdingSet = new Set(
       overview
@@ -142,7 +163,7 @@ export const GoodStockCore = {
       if (code && p > 0) livePriceMap.set(code, p);
     }
 
-    return rawList.map((stock) => {
+    const enriched = rawList.map((stock) => {
       const s = { ...stock };
       if (livePriceMap.has(s.code)) {
         s.price = livePriceMap.get(s.code);
@@ -185,6 +206,8 @@ export const GoodStockCore = {
         landmines
       };
     });
+    this._enrichedCache = { key: cacheKey, idxRef: this._universeIndex, list: enriched };
+    return enriched;
   },
 
   /**

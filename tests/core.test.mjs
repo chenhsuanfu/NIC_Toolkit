@@ -278,6 +278,29 @@ test('GoodStockUI safely handles missing numeric fields without throwing and sor
   assert.equal(ascSorted[1].code, '9999');
 });
 
+test('GoodStockUI defaults six_indicators sort to marketCap desc and preserves marketCap in cache', async () => {
+  const { GoodStockUI } = await import('../tools/goodstock/ui.js');
+  const { GoodStockCore } = await import('../tools/goodstock/core.js');
+  const ui = new GoodStockUI();
+
+  assert.equal(ui.tableSort.six_indicators.col, 'marketCap');
+  assert.equal(ui.tableSort.six_indicators.dir, 'desc');
+  assert.equal(ui.pageLimit.six_indicators, 50);
+
+  const sorted = ui._sortResults('six_indicators', [
+    { code: 'A', marketCap: 120 },
+    { code: 'B', marketCap: null },
+    { code: 'C', marketCap: 5000 }
+  ]);
+  assert.deepEqual(sorted.map((x) => x.code), ['C', 'A', 'B']);
+
+  // Verify getEnrichedUniverse caches result for identical state
+  GoodStockCore.invalidateCache();
+  const list1 = GoodStockCore.getEnrichedUniverse({ stock: { overview: [], watchlist: [] } });
+  const list2 = GoodStockCore.getEnrichedUniverse({ stock: { overview: [], watchlist: [] } });
+  assert.equal(list1, list2);
+});
+
 test('GAS Code.gs and copy-paste version stay structurally in sync', () => {
   const codeGs = fs.readFileSync(path.join(ROOT, 'backend-gas/Code.gs'), 'utf8').replace(/^\uFEFF/, '');
   const copyGs = fs.readFileSync(path.join(ROOT, 'data/GAS_直接複製貼上版.gs'), 'utf8').replace(/^\uFEFF/, '');

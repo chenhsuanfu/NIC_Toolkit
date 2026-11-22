@@ -50,11 +50,20 @@ export class GoodStockUI {
 
     // Universal table sort state across all 5 screeners
     this.tableSort = {
-      six_indicators: { col: 'avgScore', dir: 'desc' },
+      six_indicators: { col: 'marketCap', dir: 'desc' },
       strong: { col: 'gain', dir: 'desc' },
       financial: { col: 'doubleArrow', dir: 'desc' },
       trend: { col: 'change10dPct', dir: 'desc' },
       newhigh: { col: 'avgScore', dir: 'desc' }
+    };
+
+    // Pagination limit per screener to keep mobile DOM fast & responsive
+    this.pageLimit = {
+      six_indicators: 50,
+      strong: 50,
+      financial: 50,
+      trend: 50,
+      newhigh: 50
     };
 
     this.sixFilters = {
@@ -160,6 +169,7 @@ export class GoodStockUI {
       if (col === 'code') return String(a.code || '').localeCompare(String(b.code || '')) * mul;
       if (col === 'industry') return String(a.industry || '').localeCompare(String(b.industry || '')) * mul;
       if (col === 'price') return cmpNullableNum(a.price, b.price, mul);
+      if (col === 'marketCap') return cmpNullableNum(a.marketCap, b.marketCap, mul);
       if (col === 'pe') return cmpNullableNum(a.pe, b.pe, mul);
       if (col === 'avgScore') return cmpNullableNum(a.sixEval?.current?.avgScore, b.sixEval?.current?.avgScore, mul);
       if (col === 'deltaMoM') return cmpNullableNum(a.sixEval?.deltaMoM, b.sixEval?.deltaMoM, mul);
@@ -307,10 +317,22 @@ export class GoodStockUI {
     `;
   }
 
+  _renderLoadMoreBar(mode, shown, total) {
+    if (shown >= total) return '';
+    return `
+      <div style="display:flex; justify-content:center; align-items:center; gap:10px; padding:12px 0 4px;">
+        <span class="text-muted" style="font-size:12px;">已顯示 ${shown} / 共 ${total} 檔</span>
+        <button class="btn btn-ghost btn-sm" data-gs-load-more="${mode}">顯示更多 (+50 檔)</button>
+      </div>
+    `;
+  }
+
   _renderSixIndicatorsScreener(state, industries) {
     const f = this.sixFilters;
     const rawResults = GoodStockCore.screenStocks(state, 'six_indicators', f);
     const results = this._sortResults('six_indicators', rawResults);
+    const limit = this.pageLimit.six_indicators || 50;
+    const visible = results.slice(0, limit);
 
     return `
       <div class="card" style="margin-bottom:14px;">
@@ -442,6 +464,7 @@ export class GoodStockUI {
               <tr>
                 ${this._sortTh('six_indicators', 'code', '代號 / 名稱', 'asc', 'left')}
                 ${this._sortTh('six_indicators', 'industry', '產業', 'asc', 'left')}
+                ${this._sortTh('six_indicators', 'marketCap', '市值(億)', 'desc', 'right')}
                 ${this._sortTh('six_indicators', 'price', '股價 (PE)', 'desc', 'right')}
                 ${this._sortTh('six_indicators', 'avgScore', '當期總分', 'desc', 'right')}
                 ${this._sortTh('six_indicators', 'deltaMoM', '較前月 (MoM)', 'desc', 'right')}
@@ -458,7 +481,7 @@ export class GoodStockUI {
               </tr>
             </thead>
             <tbody>
-              ${results.map((s) => {
+              ${visible.map((s) => {
                 const ev = s.sixEval;
                 const cur = ev.current;
                 const comps = ev.itemComparisons;
@@ -475,9 +498,10 @@ export class GoodStockUI {
                       </div>
                     </td>
                     <td class="text-muted">${s.industry}</td>
+                    <td class="font-mono" style="text-align:right;">${fmtNum(s.marketCap, 0)}</td>
                     <td class="font-mono" style="text-align:right;">
                       <div style="font-weight:700;">${fmtNum(s.price, 1)}</div>
-                      <div class="text-muted" style="font-size:11px;">PE ${s.pe ?? '-'}</div>
+                      <div class="text-muted" style="font-size:11px;">PE ${fmtFixed(s.pe, 1)}</div>
                     </td>
                     <td class="font-mono" style="text-align:right;">
                       <div style="font-weight:700;" class="${cur.avgScore >= 3.2 ? 'text-emerald' : ''}">${cur.avgScore.toFixed(2)}</div>
@@ -512,13 +536,13 @@ export class GoodStockUI {
                   </tr>
                 `;
               }).join('')}
-              ${results.length === 0 ? `<tr><td colspan="15" class="text-muted" style="text-align:center; padding:20px;">無符合篩選條件的股票</td></tr>` : ''}
+              ${visible.length === 0 ? `<tr><td colspan="16" class="text-muted" style="text-align:center; padding:20px;">無符合篩選條件的股票</td></tr>` : ''}
             </tbody>
           </table>
         </div>
 
         <div class="mobile-card-list">
-          ${results.length ? results.map((s) => {
+          ${visible.length ? visible.map((s) => {
             const ev = s.sixEval;
             const cur = ev.current;
             return `
@@ -533,7 +557,7 @@ export class GoodStockUI {
                     <span class="pill ${cur.avgScore >= 3.2 ? 'pill-emerald' : ''}">${cur.avgScore.toFixed(2)} (${cur.grade})</span>
                   </div>
                   <div class="m-stock-row2">
-                    <span class="font-mono" style="font-weight:600;">$${fmtNum(s.price, 1)} <span class="text-muted">PE ${s.pe ?? '-'}</span></span>
+                    <span class="font-mono" style="font-weight:600;">$${fmtNum(s.price, 1)} <span class="text-muted">市值 ${fmtNum(s.marketCap, 0)}億</span></span>
                     <span class="font-mono">雙箭頭 <b>${fmtNum(s.doubleArrow, 1)}%</b> · 地雷 ${s.landmines.hitCount}/7</span>
                   </div>
                 </summary>
@@ -551,6 +575,7 @@ export class GoodStockUI {
             `;
           }).join('') : `<div class="text-muted" style="text-align:center; padding:18px;">無符合篩選條件的股票</div>`}
         </div>
+        ${this._renderLoadMoreBar('six_indicators', visible.length, results.length)}
       </div>
     `;
   }
@@ -559,6 +584,7 @@ export class GoodStockUI {
     const f = this.strongFilters;
     const rawResults = GoodStockCore.screenStocks(state, 'strong', f);
     const results = this._sortResults('strong', rawResults, f.lookbackDays);
+    const visible = results.slice(0, this.pageLimit.strong || 50);
 
     return `
       <div class="card" style="margin-bottom:14px;">
@@ -608,7 +634,7 @@ export class GoodStockUI {
               </tr>
             </thead>
             <tbody>
-              ${results.map((s) => {
+              ${visible.map((s) => {
                 const gain = f.lookbackDays >= 10 ? s.change10dPct : s.change5dPct;
                 return `
                   <tr>
@@ -1628,11 +1654,24 @@ export class GoodStockUI {
     // Toggle advanced filters drawer
     const advBtn = container.querySelector('#btn-toggle-gs-filters');
     if (advBtn) {
-      advBtn.addEventListener('click', () => {
+      advBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         this.showAdvancedFilters = !this.showAdvancedFilters;
         rerender();
       });
     }
+
+    // Load more pagination button
+    container.querySelectorAll('[data-gs-load-more]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const mode = btn.getAttribute('data-gs-load-more');
+        if (mode) {
+          this.pageLimit[mode] = (this.pageLimit[mode] || 50) + 50;
+          rerender();
+        }
+      });
+    });
 
     // Universal column sorting across all 5 screeners
     container.querySelectorAll('th[data-gs-sort-mode]').forEach((th) => {
