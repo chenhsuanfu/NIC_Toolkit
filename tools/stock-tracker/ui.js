@@ -17,6 +17,7 @@ const toRatio = (v) => {
 const fmtInt = (n) => toNum(n, 0).toLocaleString('zh-TW', { maximumFractionDigits: 0 });
 const fmtDec = (n, d = 2) => toNum(n, 0).toLocaleString('zh-TW', { minimumFractionDigits: d, maximumFractionDigits: d });
 const fmtPct = (n) => `${(toRatio(n) * 100).toFixed(2)}%`;
+const escapeHtml = (s) => String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 const NBDC_SHEET_URL = 'https://docs.google.com/spreadsheets/d/18zTY4jjQ8Q1BRmqp_meYS24OOLE0GOkbn_56DWdwQrM/edit';
 
@@ -427,6 +428,7 @@ export class StockTrackerUI {
       return (toNum(a['市值(TWD)'], 0) - toNum(b['市值(TWD)'], 0)) * dirMul;
     });
 
+    const escapeHtml = (s) => String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     return `
       ${this._renderSelectedSymbolLotsPanel(state, options)}
 
@@ -441,83 +443,92 @@ export class StockTrackerUI {
               <option value="ALL" ${this.filterType === 'ALL' ? 'selected' : ''}>全部策略類型</option>
               ${options.types.map((t) => `<option value="${t}" ${this.filterType === t ? 'selected' : ''}>${t}</option>`).join('')}
             </select>
-            <input id="filter-query" class="form-control" style="width:150px; padding:5px 10px;" placeholder="搜尋代號..." value="${this.searchQuery}" />
+            <input id="filter-query" type="search" class="form-control" style="width:150px; padding:5px 10px;" placeholder="搜尋代號..." value="${escapeHtml(this.searchQuery)}" />
           </div>
           <div class="text-muted" style="font-size:12px;">
             點擊任一欄位標題可排序；點擊「代號」可展開該股分批庫存並指定出場
           </div>
         </div>
 
-        <div class="table-wrap desktop-table-only">
-          <table class="data-table">
-            <thead>
-              <tr>
-                ${this._sortTh('holdings', 'code', '代號 (點擊看批次)', 'asc')}
-                ${this._sortTh('holdings', 'type', '類型', 'asc')}
-                ${this._sortTh('holdings', 'shares', '股數', 'desc', 'right')}
-                ${this._sortTh('holdings', 'avgCost', '均價 (原幣)', 'desc', 'right')}
-                ${this._sortTh('holdings', 'price', '現價 (原幣)', 'desc', 'right')}
-                ${this._sortTh('holdings', 'market', '市值 (TWD)', 'desc', 'right')}
-                ${this._sortTh('holdings', 'pnl', '未實現 (TWD)', 'desc', 'right')}
-                ${this._sortTh('holdings', 'roi', '報酬率', 'desc', 'right')}
-                <th>券商</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${holdings.map((r) => {
-                const sym = r['代號'];
-                const isSelected = this.selectedSymbol === sym;
-                const pnl = toNum(r['未實現(TWD)'], 0);
-                const roi = toRatio(r['報酬率']);
-                const cls = pnl >= 0 ? 'text-emerald' : 'text-rose';
-                const sign = pnl >= 0 ? '+' : '';
-                return `
-                  <tr data-click-symbol="${sym}" style="cursor:pointer; ${isSelected ? 'background:var(--accent-blue-soft);' : ''}">
-                    <td>
-                      <div style="display:flex; align-items:center; gap:6px;">
-                        <span class="font-mono" style="font-weight:700; color:var(--accent-blue);">${sym}</span>
-                        <span class="pill" style="font-size:10px;">${r['市場']}</span>
-                      </div>
-                    </td>
-                    <td><span class="pill">${r['類型'] || '-'}</span></td>
-                    <td class="font-mono" style="text-align:right;">${fmtDec(r['剩餘股數'], 0)}</td>
-                    <td class="font-mono text-muted" style="text-align:right;">${fmtDec(r['平均成本(原幣)'])}</td>
-                    <td class="font-mono" style="text-align:right; font-weight:600;">${fmtDec(r['現價(原幣)'])}</td>
-                    <td class="font-mono mask-amount" style="text-align:right; font-weight:700;">$${fmtInt(r['市值(TWD)'])}</td>
-                    <td class="font-mono mask-amount ${cls}" style="text-align:right; font-weight:700;">${sign}$${fmtInt(pnl)}</td>
-                    <td style="text-align:right;"><span class="pill ${pnl >= 0 ? 'pill-emerald' : 'pill-rose'}">${pnl >= 0 ? '▲ ' : '▼ '}${fmtPct(roi)}</span></td>
-                    <td class="text-muted">${r['券商分佈'] || '-'}</td>
-                  </tr>
-                `;
-              }).join('')}
-            </tbody>
-          </table>
+        <div id="holdings-list-container">
+          ${this._renderHoldingsTableAndCards(holdings)}
         </div>
+      </div>
+    `;
+  }
 
-        <div class="mobile-card-list">
-          ${holdings.map((r) => {
-            const sym = r['代號'];
-            const pnl = toNum(r['未實現(TWD)'], 0);
-            const roi = toRatio(r['報酬率']);
-            const cls = pnl >= 0 ? 'text-emerald' : 'text-rose';
-            const sign = pnl >= 0 ? '+' : '';
-            return `
-              <details class="m-stock-card">
-                <summary>
-                  <div class="m-stock-row1">
+  _renderHoldingsTableAndCards(holdings) {
+    return `
+      <div class="table-wrap desktop-table-only">
+        <table class="data-table">
+          <thead>
+            <tr>
+              ${this._sortTh('holdings', 'code', '代號 (點擊看批次)', 'asc')}
+              ${this._sortTh('holdings', 'type', '類型', 'asc')}
+              ${this._sortTh('holdings', 'shares', '股數', 'desc', 'right')}
+              ${this._sortTh('holdings', 'avgCost', '均價 (原幣)', 'desc', 'right')}
+              ${this._sortTh('holdings', 'price', '現價 (原幣)', 'desc', 'right')}
+              ${this._sortTh('holdings', 'market', '市值 (TWD)', 'desc', 'right')}
+              ${this._sortTh('holdings', 'pnl', '未實現 (TWD)', 'desc', 'right')}
+              ${this._sortTh('holdings', 'roi', '報酬率', 'desc', 'right')}
+              <th>券商</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${holdings.map((r) => {
+              const sym = r['代號'];
+              const isSelected = this.selectedSymbol === sym;
+              const pnl = toNum(r['未實現(TWD)'], 0);
+              const roi = toRatio(r['報酬率']);
+              const cls = pnl >= 0 ? 'text-emerald' : 'text-rose';
+              const sign = pnl >= 0 ? '+' : '';
+              return `
+                <tr data-click-symbol="${sym}" style="cursor:pointer; ${isSelected ? 'background:var(--accent-blue-soft);' : ''}">
+                  <td>
                     <div style="display:flex; align-items:center; gap:6px;">
-                      <span class="font-mono" style="font-weight:700; font-size:14.5px; color:var(--accent-blue);">${sym}</span>
+                      <span class="font-mono" style="font-weight:700; color:var(--accent-blue);">${sym}</span>
                       <span class="pill" style="font-size:10px;">${r['市場']}</span>
-                      <span class="pill" style="font-size:10px;">${r['類型'] || '-'}</span>
                     </div>
-                    <span class="pill ${pnl >= 0 ? 'pill-emerald' : 'pill-rose'}">${pnl >= 0 ? '▲ ' : '▼ '}${fmtPct(roi)}</span>
+                  </td>
+                  <td><span class="pill">${r['類型'] || '-'}</span></td>
+                  <td class="font-mono" style="text-align:right;">${fmtDec(r['剩餘股數'], 0)}</td>
+                  <td class="font-mono text-muted" style="text-align:right;">${fmtDec(r['平均成本(原幣)'])}</td>
+                  <td class="font-mono" style="text-align:right; font-weight:600;">${fmtDec(r['現價(原幣)'])}</td>
+                  <td class="font-mono mask-amount" style="text-align:right; font-weight:700;">$${fmtInt(r['市值(TWD)'])}</td>
+                  <td class="font-mono mask-amount ${cls}" style="text-align:right; font-weight:700;">${sign}$${fmtInt(pnl)}</td>
+                  <td style="text-align:right;"><span class="pill ${pnl >= 0 ? 'pill-emerald' : 'pill-rose'}">${pnl >= 0 ? '▲ ' : '▼ '}${fmtPct(roi)}</span></td>
+                  <td class="text-muted">${r['券商分佈'] || '-'}</td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mobile-card-list">
+        ${holdings.map((r) => {
+          const sym = r['代號'];
+          const pnl = toNum(r['未實現(TWD)'], 0);
+          const roi = toRatio(r['報酬率']);
+          const cls = pnl >= 0 ? 'text-emerald' : 'text-rose';
+          const sign = pnl >= 0 ? '+' : '';
+          return `
+            <details class="m-stock-card">
+              <summary>
+                <div class="m-stock-row1">
+                  <div style="display:flex; align-items:center; gap:6px;">
+                    <span class="font-mono" style="font-weight:700; font-size:14.5px; color:var(--accent-blue);">${sym}</span>
+                    <span class="pill" style="font-size:10px;">${r['市場']}</span>
+                    <span class="pill" style="font-size:10px;">${r['類型'] || '-'}</span>
                   </div>
-                  <div class="m-stock-row2">
-                    <span class="font-mono mask-amount" style="font-weight:700;">市值 $${fmtInt(r['市值(TWD)'])}</span>
-                    <span class="font-mono mask-amount ${cls}" style="font-weight:700;">${sign}$${fmtInt(pnl)}</span>
-                  </div>
-                </summary>
-                <div class="m-stock-detail">
+                  <span class="pill ${pnl >= 0 ? 'pill-emerald' : 'pill-rose'}">${pnl >= 0 ? '▲ ' : '▼ '}${fmtPct(roi)}</span>
+                </div>
+                <div class="m-stock-row2">
+                  <span class="font-mono mask-amount" style="font-weight:700;">市值 $${fmtInt(r['市值(TWD)'])}</span>
+                  <span class="font-mono mask-amount ${cls}" style="font-weight:700;">${sign}$${fmtInt(pnl)}</span>
+                </div>
+              </summary>
+              <div class="m-stock-detail">
                   <div><span class="text-muted">現價：</span><span class="font-mono">${fmtDec(r['現價(原幣)'])}</span></div>
                   <div><span class="text-muted">均價：</span><span class="font-mono">${fmtDec(r['平均成本(原幣)'])}</span></div>
                   <div><span class="text-muted">股數：</span><span class="font-mono">${fmtDec(r['剩餘股數'], 0)}</span></div>
@@ -663,7 +674,7 @@ export class StockTrackerUI {
             ${['進攻型', '防禦型', '樂透型'].map((tp) => `
               <button type="button" class="btn ${this.rebalancePool === tp ? 'btn-primary' : 'btn-ghost'} btn-sm" data-select-pool="${tp}">${tp}</button>
             `).join('')}
-            <input id="rebalance-query" class="form-control" style="width:130px; padding:4px 8px;" placeholder="篩選代號..." value="${this.rebalanceQuery}" />
+            <input id="rebalance-query" type="search" class="form-control" style="width:130px; padding:4px 8px;" placeholder="篩選代號..." value="${escapeHtml(this.rebalanceQuery)}" />
           </div>
           <div class="action-toolbar-group">
             <button type="button" class="btn ${this.rebalanceCalcMode === 'TOP_DOWN' ? 'btn-primary' : 'btn-ghost'} btn-sm" data-calc-mode="TOP_DOWN">連動第一層資金</button>
@@ -674,48 +685,79 @@ export class StockTrackerUI {
           </div>
         </div>
 
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead>
-              <tr>
-                ${this._sortTh('rebalance', 'symbol', '代號', 'asc')}
-                ${this._sortTh('rebalance', 'targetPct', '池內目標 %', 'desc')}
-                ${this._sortTh('rebalance', 'costTwd', '持有成本 (TWD)', 'desc', 'right', 'border-left:1px solid var(--border-color);')}
-                ${this._sortTh('rebalance', 'costWeightPct', '池內成本%', 'desc', 'right')}
-                <th>成本差距</th>
-                <th>成本法建議</th>
-                ${this._sortTh('rebalance', 'marketTwd', '目前現值 (TWD)', 'desc', 'right', 'border-left:1px solid var(--border-color);')}
-                ${this._sortTh('rebalance', 'marketWeightPct', '池內現值%', 'desc', 'right')}
-                <th>現值差距</th>
-                <th>現值法建議</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${sortedTier2.map((r) => `
-                <tr>
-                  <td data-jump-symbol="${r.symbol}" style="cursor:pointer;">
-                    <div class="font-mono" style="font-weight:700; color:var(--accent-blue);">${r.symbol}</div>
-                    <div class="text-muted font-mono" style="font-size:11px;">${r.shares} 股 @ ${fmtDec(r.currentPriceNative)}</div>
-                  </td>
-                  <td>
-                    <div style="display:flex; align-items:center; gap:4px;">
-                      <input type="number" step="0.1" min="0" max="100" class="form-control font-mono" style="width:76px; padding:4px 7px;" data-stock-weight="${r.symbol}" placeholder="0" value="${r.targetPct > 0 ? r.targetPct : ''}" />
-                      <span class="font-mono">%</span>
-                    </div>
-                  </td>
-                  <td class="font-mono mask-amount" style="text-align:right; border-left:1px solid var(--border-color);">$${fmtInt(r.costTwd)}</td>
-                  <td class="font-mono" style="text-align:right;">${r.costWeightPct.toFixed(1)}%</td>
-                  <td>${renderDiffBadge(r.costDiffPct, r.targetPct)}</td>
-                  <td class="mask-amount">${renderActionCell(r.costActionTwd, r.costActionShares, r.targetPct, r.costTwd)}</td>
-                  <td class="font-mono mask-amount" style="text-align:right; border-left:1px solid var(--border-color);">$${fmtInt(r.marketTwd)}</td>
-                  <td class="font-mono" style="text-align:right;">${r.marketWeightPct.toFixed(1)}%</td>
-                  <td>${renderDiffBadge(r.marketDiffPct, r.targetPct)}</td>
-                  <td class="mask-amount">${renderActionCell(r.marketActionTwd, r.marketActionShares, r.targetPct, r.marketTwd)}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
+        <div id="rebalance-table-container">
+          ${this._renderRebalanceTable(sortedTier2, renderDiffBadge, renderActionCell)}
         </div>
+      </div>
+    `;
+  }
+
+  _renderRebalanceTable(sortedTier2, renderDiffBadge, renderActionCell) {
+    if (!renderDiffBadge) {
+      renderDiffBadge = (diffPct, targetPct) => {
+        if (targetPct <= 0 && Math.abs(diffPct) < 0.05) return '<span class="text-muted">-</span>';
+        const sign = diffPct > 0 ? '+' : '';
+        const cls = diffPct > 0 ? 'pill-rose' : (diffPct < 0 ? 'pill-emerald' : '');
+        return `<span class="pill ${cls}">${sign}${diffPct.toFixed(1)}%</span>`;
+      };
+    }
+    if (!renderActionCell) {
+      renderActionCell = (actionTwd, actionShares, targetPct, costTwd) => {
+        if (targetPct <= 0 && costTwd <= 0) return '<span class="text-muted">未配置</span>';
+        const absTwd = Math.abs(actionTwd);
+        if (absTwd < 100) return '<span class="text-muted">平衡</span>';
+        if (actionTwd > 0) {
+          const shText = actionShares > 0 ? ` (+${Math.round(actionShares)} 股)` : '';
+          return `<span class="pill pill-rose">加碼 $${fmtInt(actionTwd)}${shText}</span>`;
+        } else {
+          const shText = actionShares > 0 ? ` (-${Math.round(actionShares)} 股)` : '';
+          return `<span class="pill pill-emerald">減碼 $${fmtInt(absTwd)}${shText}</span>`;
+        }
+      };
+    }
+
+    return `
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              ${this._sortTh('rebalance', 'symbol', '代號', 'asc')}
+              ${this._sortTh('rebalance', 'targetPct', '池內目標 %', 'desc')}
+              ${this._sortTh('rebalance', 'costTwd', '持有成本 (TWD)', 'desc', 'right', 'border-left:1px solid var(--border-color);')}
+              ${this._sortTh('rebalance', 'costWeightPct', '池內成本%', 'desc', 'right')}
+              <th>成本差距</th>
+              <th>成本法建議</th>
+              ${this._sortTh('rebalance', 'marketTwd', '目前現值 (TWD)', 'desc', 'right', 'border-left:1px solid var(--border-color);')}
+              ${this._sortTh('rebalance', 'marketWeightPct', '池內現值%', 'desc', 'right')}
+              <th>現值差距</th>
+              <th>現值法建議</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${sortedTier2.map((r) => `
+              <tr>
+                <td data-jump-symbol="${r.symbol}" style="cursor:pointer;">
+                  <div class="font-mono" style="font-weight:700; color:var(--accent-blue);">${r.symbol}</div>
+                  <div class="text-muted font-mono" style="font-size:11px;">${r.shares} 股 @ ${fmtDec(r.currentPriceNative)}</div>
+                </td>
+                <td>
+                  <div style="display:flex; align-items:center; gap:4px;">
+                    <input type="number" step="0.1" min="0" max="100" class="form-control font-mono" style="width:76px; padding:4px 7px;" data-stock-weight="${r.symbol}" placeholder="0" value="${r.targetPct > 0 ? r.targetPct : ''}" />
+                    <span class="font-mono">%</span>
+                  </div>
+                </td>
+                <td class="font-mono mask-amount" style="text-align:right; border-left:1px solid var(--border-color);">$${fmtInt(r.costTwd)}</td>
+                <td class="font-mono" style="text-align:right;">${r.costWeightPct.toFixed(1)}%</td>
+                <td>${renderDiffBadge(r.costDiffPct, r.targetPct)}</td>
+                <td class="mask-amount">${renderActionCell(r.costActionTwd, r.costActionShares, r.targetPct, r.costTwd)}</td>
+                <td class="font-mono mask-amount" style="text-align:right; border-left:1px solid var(--border-color);">$${fmtInt(r.marketTwd)}</td>
+                <td class="font-mono" style="text-align:right;">${r.marketWeightPct.toFixed(1)}%</td>
+                <td>${renderDiffBadge(r.marketDiffPct, r.targetPct)}</td>
+                <td class="mask-amount">${renderActionCell(r.marketActionTwd, r.marketActionShares, r.targetPct, r.marketTwd)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
       </div>
     `;
   }
@@ -861,6 +903,40 @@ export class StockTrackerUI {
     `;
   }
 
+  _bindHoldingsRowEvents(container, state, store, showToast) {
+    container.querySelectorAll('#holdings-list-container [data-click-symbol]').forEach((tr) => {
+      tr.addEventListener('click', () => {
+        const sym = tr.getAttribute('data-click-symbol');
+        this.selectedSymbol = this.selectedSymbol === sym ? null : sym;
+        this.selectedLotId = null;
+        this.showBuyForSelected = false;
+        this.render(container, store.getState(), store, showToast);
+      });
+    });
+  }
+
+  _bindRebalanceRowEvents(container, state, store, showToast) {
+    container.querySelectorAll('#rebalance-table-container [data-jump-symbol]').forEach((td) => {
+      td.addEventListener('click', () => {
+        const sym = td.getAttribute('data-jump-symbol');
+        this.activeTab = 'holdings';
+        this.selectedSymbol = sym;
+        this.selectedLotId = null;
+        this.showBuyForSelected = false;
+        this.render(container, store.getState(), store, showToast);
+      });
+    });
+
+    container.querySelectorAll('#rebalance-table-container [data-stock-weight]').forEach((input) => {
+      input.addEventListener('change', (e) => {
+        const symbol = input.getAttribute('data-stock-weight');
+        const targetPct = e.target.value;
+        StockCore.setStockTargetWeight(store.getState(), { symbol, targetPct }, store);
+        this.render(container, store.getState(), store, showToast);
+      });
+    });
+  }
+
   _bindEvents(container, state, store, showToast) {
     container.querySelectorAll('[data-tab]').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -1001,13 +1077,32 @@ export class StockTrackerUI {
 
     const qEl = container.querySelector('#filter-query');
     if (qEl) {
+      let isComposing = false;
+      const updateHoldingsList = () => {
+        const listContainer = container.querySelector('#holdings-list-container');
+        if (!listContainer) return;
+        const curState = store.getState();
+        const filtered = StockCore.filterHoldings(curState, {
+          market: this.filterMarket,
+          type: this.filterType,
+          query: this.searchQuery
+        });
+        const sortCfg = this.sortState.holdings || { col: 'market', dir: 'desc' };
+        StockCore.sortHoldings(filtered, sortCfg.col, sortCfg.dir);
+        listContainer.innerHTML = this._renderHoldingsTableAndCards(filtered);
+        this._bindHoldingsRowEvents(container, curState, store, showToast);
+      };
+
+      qEl.addEventListener('compositionstart', () => { isComposing = true; });
+      qEl.addEventListener('compositionend', (e) => {
+        isComposing = false;
+        this.searchQuery = e.target.value;
+        updateHoldingsList();
+      });
       qEl.addEventListener('input', (e) => {
         this.searchQuery = e.target.value;
-        this.render(container, store.getState(), store, showToast);
-        const input = container.querySelector('#filter-query');
-        if (input) {
-          input.focus();
-          input.setSelectionRange(input.value.length, input.value.length);
+        if (!isComposing) {
+          updateHoldingsList();
         }
       });
     }
@@ -1160,13 +1255,33 @@ export class StockTrackerUI {
 
     const rebQ = container.querySelector('#rebalance-query');
     if (rebQ) {
+      let isComposingReb = false;
+      const updateRebalanceTable = () => {
+        const tableContainer = container.querySelector('#rebalance-table-container');
+        if (!tableContainer) return;
+        const curState = store.getState();
+        const reb = StockCore.getRebalanceAnalysis(curState, {
+          activePool: this.rebalancePool,
+          calcMode: this.rebalanceCalcMode,
+          query: this.rebalanceQuery
+        });
+        const sortCfg = this.sortState.rebalance || { col: 'costTwd', dir: 'desc' };
+        const sortedTier2 = [...reb.tier2];
+        StockCore.sortRebalanceTier2(sortedTier2, sortCfg.col, sortCfg.dir);
+        tableContainer.innerHTML = this._renderRebalanceTable(sortedTier2);
+        this._bindRebalanceRowEvents(container, curState, store, showToast);
+      };
+
+      rebQ.addEventListener('compositionstart', () => { isComposingReb = true; });
+      rebQ.addEventListener('compositionend', (e) => {
+        isComposingReb = false;
+        this.rebalanceQuery = e.target.value;
+        updateRebalanceTable();
+      });
       rebQ.addEventListener('input', (e) => {
         this.rebalanceQuery = e.target.value;
-        this.render(container, store.getState(), store, showToast);
-        const inp = container.querySelector('#rebalance-query');
-        if (inp) {
-          inp.focus();
-          inp.setSelectionRange(inp.value.length, inp.value.length);
+        if (!isComposingReb) {
+          updateRebalanceTable();
         }
       });
     }

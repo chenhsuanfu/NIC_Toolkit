@@ -1217,12 +1217,17 @@ export class GoodStockUI {
   _renderTargetPriceBlock(stock, targetData) {
     const peBands = targetData.peBands;
     const sc = targetData.scenarios;
+    const peSourceTag = targetData.peSource === 'custom'
+      ? '（使用者自訂 PE）'
+      : (targetData.currentPe
+          ? `（依目前 PE ${targetData.currentPe}x 動態推估）`
+          : '（預設 PE 區間）');
 
     return `
       <div class="card" style="margin-bottom:14px;">
         <div class="card-header" style="flex-wrap:wrap; gap:8px;">
           <div>
-            <div class="card-title">股價走勢 vs 目標價（${targetData.horizon === 3 ? '推估三年目標價' : '推估今年目標價'} · 9 條情境目標線）</div>
+            <div class="card-title">股價走勢 vs 目標價（${targetData.horizon === 3 ? '推估三年目標價' : '推估今年目標價'} · 9 條情境目標線） <span style="font-size:12px; font-weight:normal; color:var(--text-muted);">${peSourceTag}</span></div>
             <div class="text-muted" style="font-size:12px; margin-top:2px;">
               近四季 EPS ${targetData.ttmEps} 元 ｜ 預估${targetData.horizon}年後 EPS：樂觀 ${sc.optimistic.eps} 元 · 中性 ${sc.neutral.eps} 元 · 悲觀 ${sc.pessimistic.eps} 元
             </div>
@@ -1230,10 +1235,11 @@ export class GoodStockUI {
 
           <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
             <span class="text-muted" style="font-size:12px;">自訂 PE：</span>
-            <input type="number" class="form-input font-mono" id="gs-pe-1" value="${peBands[0]}" style="width:64px; padding:4px 8px;" />
-            <input type="number" class="form-input font-mono" id="gs-pe-2" value="${peBands[1]}" style="width:64px; padding:4px 8px;" />
-            <input type="number" class="form-input font-mono" id="gs-pe-3" value="${peBands[2]}" style="width:64px; padding:4px 8px;" />
+            <input type="number" step="0.1" class="form-input font-mono" id="gs-pe-1" value="${peBands[0]}" style="width:64px; padding:4px 8px;" />
+            <input type="number" step="0.1" class="form-input font-mono" id="gs-pe-2" value="${peBands[1]}" style="width:64px; padding:4px 8px;" />
+            <input type="number" step="0.1" class="form-input font-mono" id="gs-pe-3" value="${peBands[2]}" style="width:64px; padding:4px 8px;" />
             <button class="btn btn-primary btn-sm" id="btn-gs-apply-pe">套用 PE</button>
+            ${this.customPeBands ? '<button class="btn btn-secondary btn-sm" id="btn-gs-reset-pe" style="padding:4px 8px; font-size:11px;">重設為動態</button>' : ''}
           </div>
         </div>
 
@@ -1981,6 +1987,14 @@ export class GoodStockUI {
         const p2 = Number(container.querySelector('#gs-pe-2')?.value) || 30;
         const p3 = Number(container.querySelector('#gs-pe-3')?.value) || 40;
         this.customPeBands = [p1, p2, p3];
+        rerender();
+      });
+    }
+
+    const resetPeBtn = container.querySelector('#btn-gs-reset-pe');
+    if (resetPeBtn) {
+      resetPeBtn.addEventListener('click', () => {
+        this.customPeBands = null;
         rerender();
       });
     }

@@ -339,6 +339,143 @@ test('AssetCore.getFsSharedAssets preserves negative amounts on non-expense rows
   assert.equal(res.totalUsd, 2037);
 });
 
+test('GoodStockCore.estimateTargetPrices dynamically computes PE bands from live price', async () => {
+  const { GoodStockCore } = await import('../tools/goodstock/core.js');
+
+  // Case 1: 4967-like low PE stock (Price: 216.5, TTM EPS: 90.95 => PE ~ 2.38)
+  const stock4967 = {
+    code: '4967',
+    name: '十銓',
+    price: 216.5,
+    quarters: [
+      { q: '2026Q3', eps: 90.95, revYoY: 159.4 }
+    ]
+  };
+
+  const res1 = GoodStockCore.estimateTargetPrices(stock4967, { horizon: 1 });
+  assert.equal(res1.currentPe, 2.38);
+  assert.equal(res1.peSource, 'dynamic-live');
+  // Bands should be dynamic [1.9, 2.4, 3.0] rather than static [12, 16, 20]
+  assert.deepEqual(res1.peBands, [1.9, 2.4, 3.0]);
+  // All target prices should be reasonable (close to ~200-400), not thousands
+  for (const line of res1.lines) {
+    assert.ok(line.targetPrice > 100 && line.targetPrice < 500, `Target price ${line.targetPrice} should be realistic`);
+  }
+
+  // Case 2: Update live price updates currentPe and peBands dynamically
+  const updatedStock4967 = { ...stock4967, price: 300 };
+  const resUpdated = GoodStockCore.estimateTargetPrices(updatedStock4967, { horizon: 1 });
+  assert.equal(resUpdated.currentPe, 3.3);
+  assert.deepEqual(resUpdated.peBands, [2.6, 3.3, 4.1]);
+
+  // Case 3: Manual override with custom peBands
+  const resCustom = GoodStockCore.estimateTargetPrices(stock4967, { peBands: [5, 8, 10] });
+  assert.equal(resCustom.peSource, 'custom');
+  assert.deepEqual(resCustom.peBands, [5, 8, 10]);
+
+  // Case 4: Stock with PE >= 10 uses integer rounded bands
+  const stock2330 = {
+    code: '2330',
+    name: '台積電',
+    price: 1000,
+    quarters: [
+      { q: '2026Q1', eps: 10 },
+      { q: '2026Q2', eps: 10 },
+      { q: '2026Q3', eps: 12 },
+      { q: '2026Q4', eps: 13, revYoY: 25 }
+    ]
+  };
+  const res2330 = GoodStockCore.estimateTargetPrices(stock2330, { horizon: 1 });
+  assert.equal(res2330.ttmEps, 45);
+  assert.equal(res2330.currentPe, 22.22);
+  assert.deepEqual(res2330.peBands, [18, 22, 28]);
+
+  // Case 5: Stock with no price and no PE falls back to fallback peBands
+  const noPriceStock = {
+    code: '0000',
+    price: 0,
+    pe: null,
+    quarters: [{ q: '2026Q3', eps: 2 }]
+  };
+  const resFallback = GoodStockCore.estimateTargetPrices(noPriceStock, { horizon: 1 });
+  assert.equal(resFallback.peSource, 'fallback');
+  assert.deepEqual(resFallback.peBands, [12, 16, 20]);
+});
+
+test('StockTrackerUI search inputs render with type search and isolated list containers', async () => {
+  const { StockTrackerUI } = await import('../tools/stock-tracker/ui.js');
+  const ui = new StockTrackerUI();
+
+  const mockState = {
+    stock: {
+      overview: [
+        { '代號': '2330.TW', '市場': 'TW', '類型': '進攻型', '剩餘股數': 1000, '平均成本(原幣)': 800, '現價(原幣)': 1000, '市值(TWD)': 1000000, '未實現(TWD)': 200000, '報酬率': 0.25 },
+        { '代號': 'NVDA', '市場': 'US', '類型': '進攻型', '剩餘股數': 50, '平均成本(原幣)': 100, '現價(原幣)': 140, '市值(TWD)': 224000, '未實現(TWD)': 64000, '報酬率': 0.4 }
+      ],
+      settings: []
+    }
+  };
+
+  const mockStore = {
+    getState: () => mockState,
+    getConfig: () => ({ lastSyncAt: null })
+  };
+
+  // Test Holdings tab rendering
+  ui.activeTab = 'holdings';
+  const mockContainerHoldings = { innerHTML: '', querySelector: () => null, querySelectorAll: () => [] };
+  ui.render(mockContainerHoldings, mockState, mockStore);
+
+  assert.ok(mockContainerHoldings.innerHTML.includes('id="filter-query" type="search"'));
+  assert.ok(mockContainerHoldings.innerHTML.includes('id="holdings-list-container"'));
+
+  // Test Rebalance tab rendering
+  ui.activeTab = 'rebalance';
+  const mockContainerReb = { innerHTML: '', querySelector: () => null, querySelectorAll: () => [] };
+  ui.render(mockContainerReb, mockState, mockStore);
+
+  assert.ok(mockContainerReb.innerHTML.includes('id="rebalance-query" type="search"'));
+  assert.ok(mockContainerReb.innerHTML.includes('id="rebalance-table-container"'));
+});
+
+test('TwseRadarUI renders native 4-tab responsive views without iframe', async () => {
+  const { TwseRadarUI } = await import('../tools/twse-radar/ui.js');
+  const ui = new TwseRadarUI();
+  ui._csvLoadedAttempted = true; // Skip network fetch in unit test
+
+  const makeMockContainer = () => ({ innerHTML: '', querySelector: () => null, querySelectorAll: () => [] });
+
+  // Tab 1 (default): Minimalist T+1 action directive + 5 factors, no iframe
+  assert.equal(ui.activeTab, 'action');
+  const cAction = makeMockContainer();
+  ui.render(cAction, {}, {});
+  assert.ok(!cAction.innerHTML.includes('<iframe'));
+  assert.ok(cAction.innerHTML.includes('radar-hero'));
+  assert.ok(cAction.innerHTML.includes('radar-factors-grid'));
+  assert.ok(cAction.innerHTML.includes('明日 T+1 行動指令'));
+
+  // Tab 2: Radar SVG chart & action list
+  ui.activeTab = 'radar';
+  const cRadar = makeMockContainer();
+  ui.render(cRadar, {}, {});
+  assert.ok(cRadar.innerHTML.includes('<svg viewBox='));
+  assert.ok(cRadar.innerHTML.includes('歷史加減碼行動清單'));
+
+  // Tab 3: Yearly calendar
+  ui.activeTab = 'calendar';
+  const cCal = makeMockContainer();
+  ui.render(cCal, {}, {});
+  assert.ok(cCal.innerHTML.includes('radar-cal-grid'));
+  assert.ok(cCal.innerHTML.includes('年度減碼執行日曆'));
+
+  // Tab 4: Audit KPIs & What-If simulator
+  ui.activeTab = 'audit';
+  const cAudit = makeMockContainer();
+  ui.render(cAudit, {}, {});
+  assert.ok(cAudit.innerHTML.includes('form-radar-whatif'));
+  assert.ok(cAudit.innerHTML.includes('歷次大跌波段複盤'));
+});
+
 test('GAS Code.gs and copy-paste version stay structurally in sync', () => {
   const codeGs = fs.readFileSync(path.join(ROOT, 'backend-gas/Code.gs'), 'utf8').replace(/^\uFEFF/, '');
   const copyGs = fs.readFileSync(path.join(ROOT, 'data/GAS_直接複製貼上版.gs'), 'utf8').replace(/^\uFEFF/, '');

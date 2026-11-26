@@ -703,9 +703,47 @@ export const GoodStockCore = {
     const latestRevYoY = Math.max(5, Math.min(60, toNum(qList[qList.length - 1]?.revYoY, 20)));
 
     const horizon = customOpts.horizon === 3 ? 3 : 1; // 1-year or 3-year
-    const peBands = Array.isArray(customOpts.peBands) && customOpts.peBands.length === 3
-      ? customOpts.peBands.map((n) => toNum(n, 20))
-      : (stock.peBands || [20, 30, 40]);
+
+    // Determine current PE and dynamic PE bands
+    const currentPrice = toNum(stock.price, 0);
+    let currentPe = null;
+    let peSource = 'fallback';
+
+    if (currentPrice > 0 && ttmEps > 0) {
+      currentPe = round2(currentPrice / ttmEps);
+      peSource = 'dynamic-live';
+    } else if (toNum(stock.pe, 0) > 0) {
+      currentPe = toNum(stock.pe);
+      peSource = 'dynamic-static';
+    }
+
+    let peBands;
+    if (Array.isArray(customOpts.peBands) && customOpts.peBands.length === 3) {
+      peBands = customOpts.peBands.map((n) => Math.max(0.1, toNum(n, 20)));
+      peSource = 'custom';
+    } else if (currentPe && currentPe > 0) {
+      // Dynamic bands around current PE: [0.8x, 1.0x, 1.25x]
+      if (currentPe >= 10) {
+        let b1 = Math.round(currentPe * 0.8);
+        let b2 = Math.round(currentPe);
+        let b3 = Math.round(currentPe * 1.25);
+        if (b1 < 1) b1 = 1;
+        if (b2 <= b1) b2 = b1 + 1;
+        if (b3 <= b2) b3 = b2 + 1;
+        peBands = [b1, b2, b3];
+      } else {
+        let b1 = round2(Math.round(currentPe * 0.8 * 10) / 10);
+        let b2 = round2(Math.round(currentPe * 10) / 10);
+        let b3 = round2(Math.round(currentPe * 1.25 * 10) / 10);
+        if (b1 < 0.5) b1 = 0.5;
+        if (b2 <= b1) b2 = round2(b1 + 0.5);
+        if (b3 <= b2) b3 = round2(b2 + 0.5);
+        peBands = [b1, b2, b3];
+      }
+    } else {
+      peBands = stock.peBands || [12, 16, 20];
+      peSource = 'fallback';
+    }
 
     // Growth multipliers for Optimistic / Neutral / Pessimistic
     const gOpt = Math.min(0.55, Math.max(0.18, (latestRevYoY * 0.9) / 100));
@@ -750,6 +788,8 @@ export const GoodStockCore = {
     return {
       horizon,
       ttmEps,
+      currentPe,
+      peSource,
       peBands,
       scenarios: {
         optimistic: { label: '樂觀', growthPct: round2(gOpt * 100), eps: epsOpt },
