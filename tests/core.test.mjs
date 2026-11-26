@@ -438,42 +438,94 @@ test('StockTrackerUI search inputs render with type search and isolated list con
   assert.ok(mockContainerReb.innerHTML.includes('id="rebalance-table-container"'));
 });
 
-test('TwseRadarUI renders native 4-tab responsive views without iframe', async () => {
+test('TwseRadarCore v4.0 engine parses real_twse_v4.csv and computes 0-100 risk thermometer', async () => {
+  const { parseCsvText, generateDemoData, inferDataMeta, runQuantEngine, buildLatestSummary, DEFAULT_PARAMS } = await import('../tools/twse-radar/core.js');
+  const csvText = fs.readFileSync(path.join(ROOT, 'tools/twse-radar/real_twse_v4.csv'), 'utf8');
+  const parsed = parseCsvText(csvText, 'real_twse_v4.csv');
+  assert.ok(parsed && parsed.rawData.length >= 1000);
+  assert.equal(parsed.dataMeta.hasChip, true);
+  assert.equal(parsed.dataMeta.hasUs, true);
+  assert.equal(parsed.dataMeta.hasFx, true);
+
+  const res = runQuantEngine(parsed.rawData, DEFAULT_PARAMS, parsed.dataMeta);
+  const summary = buildLatestSummary(parsed.rawData, DEFAULT_PARAMS, parsed.dataMeta, res);
+  assert.equal(summary.maxScore, 100);
+  assert.ok(summary.score >= 0 && summary.score <= 100);
+  assert.equal(summary.activeFactorCount, parsed.dataMeta.hasOtc ? 5 : 4);
+  assert.equal(DEFAULT_PARAMS.futQ, 18);
+  assert.equal(DEFAULT_PARAMS.yellowScore, 55);
+  assert.equal(DEFAULT_PARAMS.redScore, 80);
+
+  // Full 5-factor dataset (with OTC populated) activates all 5 factors
+  const demo = generateDemoData();
+  const demoMeta = inferDataMeta(demo);
+  assert.equal(demoMeta.hasOtc, true);
+  const demoSum = buildLatestSummary(demo, DEFAULT_PARAMS, demoMeta);
+  assert.equal(demoSum.activeFactorCount, 5);
+  assert.equal(demoSum.maxScore, 100);
+});
+
+test('TwseRadarUI renders native 5-tab v4.0 responsive views with zoom, calendar jump, and settings tab', async () => {
   const { TwseRadarUI } = await import('../tools/twse-radar/ui.js');
+  const { TwseRadarCore } = await import('../tools/twse-radar/core.js');
   const ui = new TwseRadarUI();
   ui._csvLoadedAttempted = true; // Skip network fetch in unit test
 
   const makeMockContainer = () => ({ innerHTML: '', querySelector: () => null, querySelectorAll: () => [] });
 
-  // Tab 1 (default): Minimalist T+1 action directive + 5 factors, no iframe
+  // Tab 1 (default): Minimalist T+1 action directive + 5 v4.0 factors, no iframe
   assert.equal(ui.activeTab, 'action');
   const cAction = makeMockContainer();
   ui.render(cAction, {}, {});
   assert.ok(!cAction.innerHTML.includes('<iframe'));
   assert.ok(cAction.innerHTML.includes('radar-hero'));
-  assert.ok(cAction.innerHTML.includes('radar-factors-grid'));
-  assert.ok(cAction.innerHTML.includes('明日 T+1 行動指令'));
+  assert.ok(cAction.innerHTML.includes('風險溫度'));
+  assert.ok(cAction.innerHTML.includes('OTC 櫃買廣度'));
+  assert.ok(cAction.innerHTML.includes('美股費半 / VIX'));
 
-  // Tab 2: Radar SVG chart & action list
+  // Tab 2: Interactive SVG chart with date range inputs & zoom controls
   ui.activeTab = 'radar';
   const cRadar = makeMockContainer();
   ui.render(cRadar, {}, {});
-  assert.ok(cRadar.innerHTML.includes('<svg viewBox='));
-  assert.ok(cRadar.innerHTML.includes('歷史加減碼行動清單'));
+  assert.ok(cRadar.innerHTML.includes('id="radar-svg-host"'));
+  assert.ok(cRadar.innerHTML.includes('id="radar-date-start"'));
+  assert.ok(cRadar.innerHTML.includes('id="radar-date-end"'));
+  assert.ok(cRadar.innerHTML.includes('id="btn-radar-zoom-in"'));
 
-  // Tab 3: Yearly calendar
+  // Tab 3: Yearly calendar with clickable days & current month marker
   ui.activeTab = 'calendar';
   const cCal = makeMockContainer();
   ui.render(cCal, {}, {});
   assert.ok(cCal.innerHTML.includes('radar-cal-grid'));
-  assert.ok(cCal.innerHTML.includes('年度減碼執行日曆'));
+  assert.ok(cCal.innerHTML.includes('data-cal-date='));
+  assert.ok(cCal.innerHTML.includes('data-cal-current-month="true"'));
 
-  // Tab 4: Audit KPIs & What-If simulator
+  // Calendar click -> _jumpToDate switches to Tab 2 focused on that date
+  const { rawData } = TwseRadarCore.getWorkingData();
+  const sampleDate = rawData[Math.floor(rawData.length / 2)].Date;
+  ui._jumpToDate(sampleDate, rawData);
+  assert.equal(ui.activeTab, 'radar');
+  assert.equal(ui.focusDate, sampleDate);
+  const cFocused = makeMockContainer();
+  ui.render(cFocused, {}, {});
+  assert.ok(cFocused.innerHTML.includes(`聚焦日期：${sampleDate}`));
+
+  // Tab 4: Audit KPIs & What-If simulator (params moved out to Tab 5)
   ui.activeTab = 'audit';
   const cAudit = makeMockContainer();
   ui.render(cAudit, {}, {});
   assert.ok(cAudit.innerHTML.includes('form-radar-whatif'));
   assert.ok(cAudit.innerHTML.includes('歷次大跌波段複盤'));
+  assert.ok(!cAudit.innerHTML.includes('id="form-radar-params"'));
+
+  // Tab 5: Full v4.0 parameter settings tab
+  ui.activeTab = 'settings';
+  const cSettings = makeMockContainer();
+  ui.render(cSettings, {}, {});
+  assert.ok(cSettings.innerHTML.includes('id="form-radar-params"'));
+  assert.ok(cSettings.innerHTML.includes('name="useUsFilter"'));
+  assert.ok(cSettings.innerHTML.includes('name="yellowScore"'));
+  assert.ok(cSettings.innerHTML.includes('name="finmindToken"'));
 });
 
 test('GAS Code.gs and copy-paste version stay structurally in sync', () => {

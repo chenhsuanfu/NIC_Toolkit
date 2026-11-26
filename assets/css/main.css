@@ -892,6 +892,93 @@ body.privacy-masked .mask-amount:hover {
   color: var(--text-primary);
   font-weight: 600;
 }
+.radar-cal-cell.is-clickable {
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.radar-cal-cell.is-clickable:hover {
+  transform: scale(1.1);
+  box-shadow: 0 0 0 2px var(--accent-blue);
+  z-index: 2;
+}
+.radar-cal-cell.is-today {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 1px;
+  font-weight: 800;
+}
+.radar-cal-month.is-current-month {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.22);
+}
+.radar-svg-host {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grab;
+}
+.radar-svg-host:active {
+  cursor: grabbing;
+}
+.radar-date-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.radar-date-inputs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.radar-date-inputs input[type="date"] {
+  width: auto;
+  min-width: 132px;
+  padding: 5px 8px;
+  font-size: 13px;
+}
+.radar-toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.radar-toggle-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-subtle);
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.radar-toggle-item input[type="checkbox"] {
+  margin-top: 2px;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent-blue);
+  flex-shrink: 0;
+}
+@media (max-width: 768px) {
+  .radar-toggle-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .radar-date-inputs {
+    width: 100%;
+  }
+  .radar-date-inputs input[type="date"] {
+    flex: 1;
+    min-width: 120px;
+  }
+}
+@media (max-width: 480px) {
+  .radar-toggle-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 .pill-amber {
   background: rgba(245, 158, 11, 0.16);
   color: #d97706;
