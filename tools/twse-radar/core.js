@@ -1172,6 +1172,56 @@ function normalizeParams(raw = {}) {
   return out;
 }
 
+/**
+ * Out-of-Sample Anti-Overfitting Grid Search (81 combinations)
+ * Strictly ranks by In-Sample (first 70%) score while reporting OOS (last 30%) precision.
+ */
+export function runOosGridSearch(rawData, paramsIn = {}, dataMetaIn = DEFAULT_DATA_META) {
+  const baseP = normalizeParams(paramsIn);
+  const meta = inferDataMeta(rawData, dataMetaIn);
+  const pre = buildPrecomputed(rawData, baseP);
+
+  const futDeltas = [-4000, -6000, -9000];
+  const maintList = [157, 159, 161];
+  const confList = [1, 2, 3];
+  const yScoreList = [50, 55, 65];
+
+  const results = [];
+  for (const fd of futDeltas) {
+    for (const mt of maintList) {
+      for (const cd of confList) {
+        for (const ys of yScoreList) {
+          const combo = { futDelta5d: fd, maintTh: mt, confirmDays: cd, yellowScore: ys };
+          const r = runQuantEngine(rawData, { ...baseP, ...combo }, meta, pre);
+          const isPrec = r.isPrecision !== null ? r.isPrecision : 0;
+          const actPenalty = r.isCutsCount < 2 ? 0.4 : (r.actions.length / r.totalYears > 9 ? 0.8 : 1.0);
+          const score = (isPrec * 0.55 + r.eventRecall * 0.25 + Math.max(0, r.mddReductionPct) * 0.20) * actPenalty;
+          results.push({
+            combo,
+            isPrec: Number(isPrec.toFixed(1)),
+            isCnt: r.isCutsCount,
+            oosPrec: r.oosPrecision !== null ? Number(r.oosPrecision.toFixed(1)) : null,
+            oosCnt: r.oosCutsCount,
+            recall: Number(r.eventRecall.toFixed(1)),
+            mddSt: Number(r.mddSt.toFixed(1)),
+            trades: r.actions.length,
+            score: Number(score.toFixed(2))
+          });
+        }
+      }
+    }
+  }
+
+  results.sort((a, b) => b.score - a.score);
+  const topResults = results.slice(0, 8).map((item, idx) => ({ rank: idx + 1, ...item }));
+
+  return {
+    combosCount: results.length,
+    topResults,
+    bestCombo: topResults[0]?.combo || null
+  };
+}
+
 export const TwseRadarCore = {
   DEFAULT_PARAMS,
 
@@ -1416,6 +1466,23 @@ export const TwseRadarCore = {
     return { params: nextParams, latestSummary: summary };
   },
 
+  runOosGridSearch(opts = {}) {
+    const { rawData, dataMeta, params } = this.getWorkingData();
+    const scan = runOosGridSearch(rawData, params, dataMeta);
+    let applied = false;
+    let latestSummary = null;
+    if (opts.applyBest && scan.bestCombo) {
+      const updated = this.updateParams(scan.bestCombo);
+      applied = true;
+      latestSummary = updated.latestSummary;
+    }
+    return {
+      ...scan,
+      applied,
+      latestSummary
+    };
+  },
+
   setFinMindToken(token) {
     this.saveCache({ finmindToken: String(token || '').trim() });
     return this.loadCache().finmindToken;
@@ -1456,7 +1523,8 @@ agentBridge.registerModule('twse-radar', {
     refreshFromFinMind: (_state, params = {}) => TwseRadarCore.refreshFromFinMind(params),
     runWhatIf: (_state, params = {}) => TwseRadarCore.runWhatIf(params),
     getBacktestSummary: (_state, params = {}) => TwseRadarCore.getBacktestSummary(params?.limitActions || 10),
-    updateParams: (_state, params = {}) => TwseRadarCore.updateParams(params)
+    updateParams: (_state, params = {}) => TwseRadarCore.updateParams(params),
+    runOosGridSearch: (_state, params = {}) => TwseRadarCore.runOosGridSearch(params)
   },
   schemas: [
     {
@@ -1525,6 +1593,16 @@ agentBridge.registerModule('twse-radar', {
           useOtcSignal: { type: 'boolean' },
           useMa240Protect: { type: 'boolean' },
           useOversoldProtect: { type: 'boolean' }
+        }
+      }
+    },
+    {
+      name: 'runOosGridSearch',
+      description: '執行 81 組樣本外防過度擬合網格最佳化掃描，可選擇自動套用第 1 名最佳參數',
+      parameters: {
+        type: 'object',
+        properties: {
+          applyBest: { type: 'boolean', description: '是否自動將第 1 名最佳組合寫入參數設定並重算明日指令' }
         }
       }
     }

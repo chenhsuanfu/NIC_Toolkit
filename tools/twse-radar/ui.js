@@ -49,6 +49,7 @@ export class TwseRadarUI {
     this.isRefreshing = false;
     this.refreshStatus = '';
     this.whatIfResult = null;
+    this.gridScanResult = null;
     this._csvLoadedAttempted = false;
   }
 
@@ -752,6 +753,22 @@ export class TwseRadarUI {
     ];
 
     return `
+      <div class="card" style="margin-bottom:14px;">
+        <div class="card-header">
+          <div>
+            <div class="card-title">🧪 樣本外防過度擬合・最佳化掃描（81 組網格）</div>
+            <div class="text-muted" style="font-size:12px; margin-top:2px;">
+              僅依前 70% 訓練集評分排序（空單急增 × 維持率 × 破線天數 × 黃燈分），同時揭露後 30% 樣本外盲測命中率
+            </div>
+          </div>
+          <div class="action-toolbar-group">
+            <button type="button" class="btn btn-primary btn-sm" id="btn-radar-scan-apply">⚡ 掃描並自動套用第 1 名</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-radar-scan-only">🔍 僅掃描比較 Top 8</button>
+          </div>
+        </div>
+        ${this._renderGridScanTable()}
+      </div>
+
       <form id="form-radar-params">
         <div class="card" style="margin-bottom:14px;">
           <div class="card-header">
@@ -880,6 +897,54 @@ export class TwseRadarUI {
           </div>
         </div>
       </form>
+    `;
+  }
+
+  _renderGridScanTable() {
+    if (!this.gridScanResult || !Array.isArray(this.gridScanResult.topResults)) {
+      return '<div class="text-muted" style="font-size:12px;">點擊上方「⚡ 掃描並自動套用第 1 名」即可自動跑完 81 組並把最佳結果帶入下方參數設定。</div>';
+    }
+    const list = this.gridScanResult.topResults;
+    return `
+      <div style="margin-bottom:8px; font-size:12px;" class="text-muted">
+        已完成 <strong>${this.gridScanResult.combosCount}</strong> 組掃描${this.gridScanResult.applied ? '（<span style="color:var(--accent-emerald); font-weight:700;">已自動套用第 1 名至下方參數</span>）' : ''}：
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>排名</th>
+              <th>參數組合 (空單/維持率/破線/黃燈)</th>
+              <th style="text-align:right;">訓練集命中</th>
+              <th style="text-align:right;">樣本外盲測</th>
+              <th style="text-align:right;">捕捉率</th>
+              <th style="text-align:right;">策略MDD</th>
+              <th style="text-align:right;">行動數</th>
+              <th>套用</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${list.map((item, idx) => {
+              const c = item.combo;
+              const oosTxt = item.oosPrec !== null ? `${fmtDec(item.oosPrec, 1)}% (${item.oosCnt})` : '--';
+              return `
+                <tr style="${idx === 0 ? 'background:var(--accent-blue-soft);' : ''}">
+                  <td class="font-mono" style="font-weight:700;">#${item.rank}</td>
+                  <td class="font-mono" style="font-size:11.5px;">${c.futDelta5d} / ${c.maintTh}% / ${c.confirmDays}日 / ${c.yellowScore}分</td>
+                  <td class="font-mono" style="text-align:right;">${fmtDec(item.isPrec, 1)}% (${item.isCnt})</td>
+                  <td class="font-mono" style="text-align:right; font-weight:700; color:${item.oosPrec !== null && item.oosPrec >= 50 ? 'var(--accent-emerald)' : 'var(--text-primary)'};">${oosTxt}</td>
+                  <td class="font-mono" style="text-align:right;">${fmtDec(item.recall, 1)}%</td>
+                  <td class="font-mono" style="text-align:right;">${fmtDec(item.mddSt, 1)}%</td>
+                  <td class="font-mono" style="text-align:right;">${item.trades}</td>
+                  <td>
+                    <button type="button" class="btn ${idx === 0 ? 'btn-primary' : 'btn-ghost'} btn-sm" data-apply-grid-idx="${idx}" style="padding:3px 8px; font-size:11px;">套用此組</button>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
     `;
   }
 
@@ -1271,5 +1336,41 @@ export class TwseRadarUI {
         this.render(container, state, store, showToast);
       });
     }
+
+    // OOS Grid Search buttons (Tab 5)
+    const runScan = (applyBest) => {
+      const scanRes = TwseRadarCore.runOosGridSearch({ applyBest });
+      this.gridScanResult = scanRes;
+      if (applyBest && scanRes.latestSummary && typeof window !== 'undefined' && typeof window.NIC_OnRadarUpdated === 'function') {
+        window.NIC_OnRadarUpdated(scanRes.latestSummary);
+      }
+      if (showToast) {
+        showToast(applyBest && scanRes.bestCombo
+          ? `✅ 掃描完成！已自動套用第 1 名最佳參數（空單 ${scanRes.bestCombo.futDelta5d} / 維持率 ${scanRes.bestCombo.maintTh}% / 破線 ${scanRes.bestCombo.confirmDays} 日 / 黃燈 ${scanRes.bestCombo.yellowScore} 分）`
+          : `✅ 完成 ${scanRes.combosCount} 組樣本外掃描，請挑選要套用的組合`);
+      }
+      this.render(container, state, store, showToast);
+    };
+
+    const scanApplyBtn = container.querySelector('#btn-radar-scan-apply');
+    if (scanApplyBtn) scanApplyBtn.addEventListener('click', () => runScan(true));
+
+    const scanOnlyBtn = container.querySelector('#btn-radar-scan-only');
+    if (scanOnlyBtn) scanOnlyBtn.addEventListener('click', () => runScan(false));
+
+    container.querySelectorAll('[data-apply-grid-idx]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const idx = Number(btn.getAttribute('data-apply-grid-idx'));
+        const chosen = this.gridScanResult?.topResults?.[idx];
+        if (!chosen) return;
+        const out = TwseRadarCore.updateParams(chosen.combo);
+        this.gridScanResult = { ...this.gridScanResult, applied: true };
+        if (typeof window !== 'undefined' && typeof window.NIC_OnRadarUpdated === 'function') {
+          window.NIC_OnRadarUpdated(out.latestSummary);
+        }
+        if (showToast) showToast(`✅ 已套用排名 #${chosen.rank} 參數組合並重算明日指令`);
+        this.render(container, state, store, showToast);
+      });
+    });
   }
 }

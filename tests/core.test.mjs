@@ -518,14 +518,32 @@ test('TwseRadarUI renders native 5-tab v4.0 responsive views with zoom, calendar
   assert.ok(cAudit.innerHTML.includes('歷次大跌波段複盤'));
   assert.ok(!cAudit.innerHTML.includes('id="form-radar-params"'));
 
-  // Tab 5: Full v4.0 parameter settings tab
+  // Tab 5: Full v4.0 parameter settings tab + OOS grid search scanner
   ui.activeTab = 'settings';
   const cSettings = makeMockContainer();
   ui.render(cSettings, {}, {});
+  assert.ok(cSettings.innerHTML.includes('id="btn-radar-scan-apply"'));
+  assert.ok(cSettings.innerHTML.includes('id="btn-radar-scan-only"'));
   assert.ok(cSettings.innerHTML.includes('id="form-radar-params"'));
   assert.ok(cSettings.innerHTML.includes('name="useUsFilter"'));
   assert.ok(cSettings.innerHTML.includes('name="yellowScore"'));
   assert.ok(cSettings.innerHTML.includes('name="finmindToken"'));
+});
+
+test('TwseRadarCore.runOosGridSearch scans 81 combos and applies best combo when requested', async () => {
+  const { TwseRadarCore, DEFAULT_PARAMS } = await import('../tools/twse-radar/core.js');
+  const scan = TwseRadarCore.runOosGridSearch({ applyBest: false });
+  assert.equal(scan.combosCount, 81);
+  assert.equal(scan.topResults.length, 8);
+  assert.equal(scan.applied, false);
+  assert.ok(scan.bestCombo && typeof scan.bestCombo.futDelta5d === 'number');
+  assert.ok(scan.topResults[0].score >= scan.topResults[1].score);
+
+  const scanApply = TwseRadarCore.runOosGridSearch({ applyBest: true });
+  assert.equal(scanApply.applied, true);
+  assert.ok(scanApply.latestSummary && scanApply.latestSummary.maxScore === 100);
+  // Restore defaults after test
+  TwseRadarCore.updateParams(DEFAULT_PARAMS);
 });
 
 test('GAS Code.gs and copy-paste version stay structurally in sync', () => {
