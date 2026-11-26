@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="NIC工具集" />
   <title>NIC Toolkit | 個人財務與量化工具集</title>
   <link rel="manifest" href="./manifest.webmanifest" />
-  <link rel="stylesheet" href="./assets/css/main.css?v=44" />
+  <link rel="stylesheet" href="./assets/css/main.css?v=45" />
   <script src="./core/app-meta.js"></script>
 </head>
 <body>
@@ -37,13 +37,14 @@
       <header class="topbar">
         <div class="topbar-left">
           <button class="btn btn-ghost btn-sm" id="btn-sidebar-toggle" title="收合 / 展開導覽列" aria-label="切換導覽列">☰</button>
+          <button class="btn btn-back btn-sm" id="btn-nav-back" hidden title="返回上一個畫面 (Alt + ←)">← 返回</button>
           <h1 class="page-title" id="topbar-title">工具集總覽</h1>
           <span class="mode-badge sandbox" id="topbar-mode-badge">本機沙盒</span>
         </div>
 
         <div class="topbar-actions">
-          <button class="btn btn-ghost btn-sm" id="btn-theme-toggle" title="切換淺色 / 深色主題">
-            ☀ 淺色
+          <button class="btn btn-ghost btn-sm" id="btn-theme-toggle" title="切換淺色 / 深色主題" aria-label="切換淺色或深色主題">
+            ☀<span class="btn-label-desktop"> 淺色</span>
           </button>
           <button class="btn btn-ghost btn-sm" id="btn-privacy-toggle" title="切換金額隱私遮罩">
             遮罩
@@ -51,15 +52,34 @@
           <button class="btn btn-ghost btn-sm" id="btn-quick-sync" title="檢視雲端同步狀態">
             同步(<span id="sync-count-badge">0</span>)
           </button>
-          <button class="btn btn-ghost btn-sm" id="btn-pwa-update" title="清除快取並更新版本">
-            更新
-          </button>
+          <div class="topbar-more-wrap">
+            <button class="btn btn-ghost btn-sm" id="btn-topbar-more" title="更多操作與版本更新" aria-label="更多操作" aria-expanded="false">
+              ⋯
+            </button>
+            <div class="topbar-more-menu" id="topbar-more-menu" hidden>
+              <button type="button" class="btn btn-ghost topbar-more-item" id="btn-pwa-update" title="清除快取並更新版本（需點擊兩次確認）">
+                🔄 強制更新 PWA (<span id="more-version-label">v56</span>)
+              </button>
+              <button type="button" class="btn btn-ghost topbar-more-item" id="btn-more-settings">
+                ⚙ 設定與同步中心
+              </button>
+              <div class="topbar-more-meta" id="topbar-more-meta">
+                模式：本機沙盒
+              </div>
+            </div>
+          </div>
         </div>
       </header>
 
       <main class="view-container" id="app-view">
         <div class="card">正在載入資料...</div>
       </main>
+    </div>
+
+    <!-- Floating Quick Navigation Pill (Visible after scrolling down) -->
+    <div class="floating-nav-pill" id="floating-nav-pill" aria-label="快速返回與回頂部">
+      <button type="button" class="floating-pill-btn is-primary" id="btn-float-back" hidden title="返回上一個畫面">←</button>
+      <button type="button" class="floating-pill-btn" id="btn-float-top" title="回到頂部">↑</button>
     </div>
 
     <!-- iPhone / Mobile Bottom Navigation -->
@@ -70,10 +90,12 @@
   <div class="toast-container" id="toast-container"></div>
 
   <script type="module">
-    const APP_VERSION = window.NIC_APP_META?.version || 'v29';
+    const APP_VERSION = window.NIC_APP_META?.version || 'v56';
     window.NIC_APP_VERSION = APP_VERSION;
     const versionLabelEl = document.getElementById('app-version-label');
     if (versionLabelEl) versionLabelEl.textContent = APP_VERSION;
+    const moreVerEl = document.getElementById('more-version-label');
+    if (moreVerEl) moreVerEl.textContent = APP_VERSION;
     const APP_VERSION_KEY = 'nic_toolkit_app_ver';
     const CORE_ASSETS = window.NIC_APP_META?.coreAssets || [];
 
@@ -86,6 +108,7 @@
     const [
       { store },
       { registry },
+      { NavHistory, bindTwoStepConfirm },
       _agentBridgeMod,
       { HubUI },
       { StockTrackerUI },
@@ -96,6 +119,7 @@
     ] = await Promise.all([
       import('./core/store.js'),
       import('./core/registry.js'),
+      import('./core/nav-history.js'),
       import('./core/agent-bridge.js'),
       import('./tools/hub/ui.js'),
       import('./tools/stock-tracker/ui.js'),
@@ -106,6 +130,9 @@
     ]);
 
     let currentToolId = 'hub';
+    const navHistory = new NavHistory({ maxDepth: 30 });
+    let historyCursor = 0;
+    let isHandlingPopState = false;
 
     // Initialize Theme (Default: Dark, or user saved preference)
     const THEME_KEY = 'nic_toolkit_theme';
@@ -113,7 +140,11 @@
       const isLight = theme === 'light';
       document.body.classList.toggle('theme-light', isLight);
       const btn = document.getElementById('btn-theme-toggle');
-      if (btn) btn.textContent = isLight ? '🌙 深色' : '☀ 淺色';
+      if (btn) {
+        btn.innerHTML = isLight
+          ? '🌙<span class="btn-label-desktop"> 深色</span>'
+          : '☀<span class="btn-label-desktop"> 淺色</span>';
+      }
       const metaTheme = document.getElementById('meta-theme-color');
       if (metaTheme) metaTheme.setAttribute('content', isLight ? '#f8fafc' : '#0b1120');
       localStorage.setItem(THEME_KEY, isLight ? 'light' : 'dark');
@@ -129,12 +160,149 @@
       setTimeout(() => el.remove(), 3200);
     }
 
-    function navigateTo(toolId) {
+    function closeMoreMenu() {
+      const menu = document.getElementById('topbar-more-menu');
+      const moreBtn = document.getElementById('btn-topbar-more');
+      if (menu) menu.hidden = true;
+      if (moreBtn) moreBtn.setAttribute('aria-expanded', 'false');
+    }
+
+    function captureCurrentSnapshot() {
+      const tool = registry.get(currentToolId);
+      const fallbackLabel = tool ? (tool.shortName || tool.name) : currentToolId;
+      let label = fallbackLabel;
+      let viewState = null;
+      if (tool?.ui && typeof tool.ui.getViewSnapshot === 'function') {
+        try {
+          const snap = tool.ui.getViewSnapshot();
+          if (snap) {
+            if (snap.label) label = snap.label;
+            viewState = snap.state ?? null;
+          }
+        } catch (_) {}
+      }
+      return {
+        toolId: currentToolId,
+        label,
+        viewState,
+        scrollY: window.scrollY || document.documentElement.scrollTop || 0
+      };
+    }
+
+    function updateBackControls() {
+      const backBtn = document.getElementById('btn-nav-back');
+      const floatBackBtn = document.getElementById('btn-float-back');
+      const prev = navHistory.peek();
+      if (prev) {
+        if (backBtn) {
+          backBtn.hidden = false;
+          backBtn.textContent = `← ${prev.label}`;
+          backBtn.title = `返回 ${prev.label} (Alt + ←)`;
+        }
+        if (floatBackBtn) {
+          floatBackBtn.hidden = false;
+          floatBackBtn.title = `返回 ${prev.label}`;
+        }
+      } else {
+        if (backBtn) backBtn.hidden = true;
+        if (floatBackBtn) floatBackBtn.hidden = true;
+      }
+    }
+
+    function pushBrowserHistoryState(toolId) {
+      try {
+        historyCursor += 1;
+        window.history.pushState({ nicNav: true, nicIdx: historyCursor, toolId }, '', `#${toolId}`);
+      } catch (_) {
+        window.location.hash = toolId;
+      }
+    }
+
+    function restoreScrollPosition(y) {
+      const targetY = Number.isFinite(Number(y)) ? Math.max(0, Number(y)) : 0;
+      requestAnimationFrame(() => {
+        try {
+          window.scrollTo({ top: targetY, behavior: 'instant' });
+        } catch (_) {
+          window.scrollTo(0, targetY);
+        }
+      });
+    }
+
+    function navigateTo(toolId, options = {}) {
       if (!registry.get(toolId)) toolId = 'hub';
-      currentToolId = toolId;
-      window.location.hash = toolId;
+      const { onBeforeEnter, skipHistory = false, scrollY = 0 } = options || {};
+
+      closeMoreMenu();
       document.body.classList.remove('sidebar-mobile-open');
+
+      const isSameToolWithoutHook = toolId === currentToolId && typeof onBeforeEnter !== 'function';
+      if (isSameToolWithoutHook && !skipHistory) {
+        restoreScrollPosition(0);
+        return;
+      }
+
+      if (!skipHistory) {
+        const snap = captureCurrentSnapshot();
+        const pushed = navHistory.push(snap);
+        if (pushed) {
+          pushBrowserHistoryState(toolId);
+        }
+      }
+
+      currentToolId = toolId;
+      const targetTool = registry.get(toolId);
+      if (typeof onBeforeEnter === 'function' && targetTool?.ui) {
+        try { onBeforeEnter(targetTool.ui); } catch (_) {}
+      }
+
       renderShell();
+      restoreScrollPosition(scrollY);
+    }
+
+    function pushIntraView(toolId, label, viewState) {
+      const pushed = navHistory.push({
+        toolId: toolId || currentToolId,
+        label: label || registry.get(toolId || currentToolId)?.shortName || '上一頁',
+        viewState: viewState ?? null,
+        scrollY: window.scrollY || document.documentElement.scrollTop || 0
+      });
+      if (pushed) {
+        pushBrowserHistoryState(toolId || currentToolId);
+      }
+      updateBackControls();
+    }
+
+    function applyGoBackFromStack() {
+      const prev = navHistory.pop();
+      if (!prev) {
+        updateBackControls();
+        return false;
+      }
+      closeMoreMenu();
+      document.body.classList.remove('sidebar-mobile-open');
+      currentToolId = registry.get(prev.toolId) ? prev.toolId : 'hub';
+      const targetTool = registry.get(currentToolId);
+      if (targetTool?.ui && typeof targetTool.ui.restoreViewSnapshot === 'function') {
+        try { targetTool.ui.restoreViewSnapshot(prev.viewState); } catch (_) {}
+      }
+      renderShell();
+      restoreScrollPosition(prev.scrollY);
+      return true;
+    }
+
+    function goBack() {
+      if (!navHistory.canGoBack()) return false;
+      const st = window.history.state;
+      if (st && st.nicNav && Number(st.nicIdx) > 0) {
+        window.history.back();
+        return true;
+      }
+      const ok = applyGoBackFromStack();
+      try {
+        window.history.replaceState({ nicNav: true, nicIdx: historyCursor, toolId: currentToolId }, '', `#${currentToolId}`);
+      } catch (_) {}
+      return ok;
     }
 
     // Register Modular Tools
@@ -145,9 +313,47 @@
     const assetInstance = new AssetTrackerUI();
     const settingsInstance = new SettingsUI();
 
-    window.NIC_OpenGoodStock = (code, subView = 'all') => {
-      if (code) goodstockInstance.openStockInfo(code, subView);
-      navigateTo('goodstock');
+    const openGoodStock = (code, subView = 'all') => {
+      navigateTo('goodstock', {
+        onBeforeEnter: (ui) => {
+          if (code) ui.openStockInfo(code, subView);
+        }
+      });
+    };
+
+    const openStockDetail = (symbol, tab = 'holdings') => {
+      navigateTo('stock-tracker', {
+        onBeforeEnter: (ui) => {
+          ui.activeTab = tab || 'holdings';
+          if (symbol) {
+            ui.selectedSymbol = symbol;
+            ui.selectedLotId = null;
+            ui.showBuyForSelected = false;
+          }
+        }
+      });
+    };
+
+    const openAssetTab = (tab = 'accounts', filterAttr = null) => {
+      navigateTo('asset-tracker', {
+        onBeforeEnter: (ui) => {
+          ui.activeTab = tab || 'accounts';
+          if (filterAttr !== null) ui.filterAttr = filterAttr;
+          ui.reconcilingKey = null;
+        }
+      });
+    };
+
+    window.NIC_OpenGoodStock = openGoodStock;
+    window.NIC_Nav = {
+      navigateTo,
+      pushIntraView,
+      goBack,
+      canGoBack: () => navHistory.canGoBack(),
+      syncBackUI: updateBackControls,
+      openGoodStock,
+      openStockDetail,
+      openAssetTab
     };
 
     registry.register({
@@ -267,6 +473,13 @@
         document.body.classList.remove('privacy-masked');
         privBtn.textContent = '遮罩';
       }
+
+      const moreMeta = document.getElementById('topbar-more-meta');
+      if (moreMeta) {
+        moreMeta.textContent = `版本 ${APP_VERSION} · ${cfg.mode === 'cloud' ? '雲端同步' : '本機沙盒'}`;
+      }
+
+      updateBackControls();
     }
 
     function renderShell() {
@@ -344,9 +557,78 @@
 
     window.NIC_ForceUpdatePWA = forceUpdatePWA;
 
-    document.getElementById('btn-pwa-update').addEventListener('click', (e) => {
-      forceUpdatePWA(e.currentTarget);
-    });
+    const navBackBtn = document.getElementById('btn-nav-back');
+    if (navBackBtn) {
+      navBackBtn.addEventListener('click', () => goBack());
+    }
+
+    const floatBackBtn = document.getElementById('btn-float-back');
+    if (floatBackBtn) {
+      floatBackBtn.addEventListener('click', () => goBack());
+    }
+
+    const floatTopBtn = document.getElementById('btn-float-top');
+    if (floatTopBtn) {
+      floatTopBtn.addEventListener('click', () => {
+        try {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        } catch (_) {
+          window.scrollTo(0, 0);
+        }
+      });
+    }
+
+    // Floating pill visibility on scroll (rAF throttled, passive listener)
+    const floatingPill = document.getElementById('floating-nav-pill');
+    if (floatingPill) {
+      let scrollRaf = 0;
+      const syncFloatPill = () => {
+        scrollRaf = 0;
+        const y = window.scrollY || document.documentElement.scrollTop || 0;
+        floatingPill.classList.toggle('is-visible', y > 360);
+      };
+      window.addEventListener('scroll', () => {
+        if (!scrollRaf) scrollRaf = requestAnimationFrame(syncFloatPill);
+      }, { passive: true });
+      syncFloatPill();
+    }
+
+    // Topbar More Menu (Overflow) + Two-step confirm for Force PWA Update
+    const moreBtn = document.getElementById('btn-topbar-more');
+    const moreMenu = document.getElementById('topbar-more-menu');
+    if (moreBtn && moreMenu) {
+      moreBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const nextHidden = !moreMenu.hidden;
+        moreMenu.hidden = nextHidden;
+        moreBtn.setAttribute('aria-expanded', nextHidden ? 'false' : 'true');
+      });
+      document.addEventListener('click', (e) => {
+        if (!moreMenu.hidden && !moreMenu.contains(e.target) && e.target !== moreBtn) {
+          closeMoreMenu();
+        }
+      });
+    }
+
+    const moreSettingsBtn = document.getElementById('btn-more-settings');
+    if (moreSettingsBtn) {
+      moreSettingsBtn.addEventListener('click', () => {
+        closeMoreMenu();
+        navigateTo('settings');
+      });
+    }
+
+    const pwaUpdateBtn = document.getElementById('btn-pwa-update');
+    if (pwaUpdateBtn) {
+      bindTwoStepConfirm(pwaUpdateBtn, {
+        confirmText: '再點一次確認更新',
+        timeoutMs: 3000,
+        onConfirm: (e) => {
+          closeMoreMenu();
+          forceUpdatePWA(e.currentTarget);
+        }
+      });
+    }
 
     document.getElementById('btn-privacy-toggle').addEventListener('click', () => {
       const cur = store.getConfig().privacyMask;
@@ -358,10 +640,64 @@
       navigateTo('settings');
     });
 
+    // Global Keyboard Shortcuts: Alt+ArrowLeft (Back) & Escape (Close menus/panels/forms)
+    document.addEventListener('keydown', (e) => {
+      if (e.altKey && e.key === 'ArrowLeft') {
+        if (navHistory.canGoBack()) {
+          e.preventDefault();
+          goBack();
+        }
+        return;
+      }
+      if (e.key === 'Escape') {
+        if (moreMenu && !moreMenu.hidden) {
+          closeMoreMenu();
+          return;
+        }
+        if (document.body.classList.contains('sidebar-mobile-open')) {
+          document.body.classList.remove('sidebar-mobile-open');
+          return;
+        }
+        const tool = registry.get(currentToolId);
+        if (tool?.ui && typeof tool.ui.handleEscape === 'function') {
+          const handled = tool.ui.handleEscape();
+          if (handled) {
+            renderShell();
+          }
+        }
+      }
+    });
+
+    // Browser / Mobile native back gesture integration
+    window.addEventListener('popstate', (e) => {
+      if (isHandlingPopState) return;
+      isHandlingPopState = true;
+      try {
+        if (navHistory.canGoBack()) {
+          applyGoBackFromStack();
+          return;
+        }
+        const hashId = window.location.hash.replace('#', '');
+        const nextId = (e.state && e.state.toolId && registry.get(e.state.toolId))
+          ? e.state.toolId
+          : (hashId && registry.get(hashId) ? hashId : 'hub');
+        if (nextId !== currentToolId) {
+          currentToolId = nextId;
+          renderShell();
+          restoreScrollPosition(0);
+        }
+      } finally {
+        isHandlingPopState = false;
+      }
+    });
+
     // Initialize Local-First Store
     (async () => {
       const hash = window.location.hash.replace('#', '');
       if (hash && registry.get(hash)) currentToolId = hash;
+      try {
+        window.history.replaceState({ nicNav: true, nicIdx: 0, toolId: currentToolId }, '', `#${currentToolId}`);
+      } catch (_) {}
 
       await store.init();
       renderShell();

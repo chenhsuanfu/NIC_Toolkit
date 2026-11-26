@@ -47,6 +47,11 @@ export class GoodStockUI {
     this.isSyncingAllFinancials = false;
     this.syncFinProgress = null; // { done, total, successCount, failCount, lastCode }
     this.showAdvancedFilters = false; // Collapsed by default for clean mobile & desktop layout
+    this.showMaintenancePanel = false;
+    this.activeSixPreset = null;
+    this.activeFinPreset = 'DEFAULT';
+    this.lastScreenerCodes = [];
+    this.recentCodes = this._loadRecentCodes();
 
     // Universal table sort state across all 5 screeners
     this.tableSort = {
@@ -134,12 +139,78 @@ export class GoodStockUI {
     };
   }
 
+  _loadRecentCodes() {
+    try {
+      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('nic_goodstock_recent_v1') : null;
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr.filter(Boolean).slice(0, 6) : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  _pushRecentCode(code) {
+    const clean = String(code || '').replace(/\.TW$/i, '').trim();
+    if (!clean) return;
+    this.recentCodes = [clean, ...this.recentCodes.filter((c) => c !== clean)].slice(0, 6);
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('nic_goodstock_recent_v1', JSON.stringify(this.recentCodes));
+      }
+    } catch (_) {}
+  }
+
+  getViewSnapshot() {
+    let label = '好股價';
+    if (this.mainTab === 'screener') label = '選股結果';
+    else if (this.mainTab === 'stock_info') label = `${this.selectedCode} 健診`;
+    else if (this.mainTab === 'pk') label = '雙股 PK';
+    return {
+      label,
+      state: {
+        mainTab: this.mainTab,
+        screenerMode: this.screenerMode,
+        selectedCode: this.selectedCode,
+        infoSection: this.infoSection,
+        healthTab: this.healthTab,
+        pkCodeA: this.pkCodeA,
+        pkCodeB: this.pkCodeB,
+        showAdvancedFilters: this.showAdvancedFilters
+      }
+    };
+  }
+
+  restoreViewSnapshot(snap) {
+    if (!snap) return;
+    if (snap.mainTab) this.mainTab = snap.mainTab;
+    if (snap.screenerMode) this.screenerMode = snap.screenerMode;
+    if (snap.selectedCode) this.selectedCode = snap.selectedCode;
+    if (snap.infoSection) this.infoSection = snap.infoSection;
+    if (snap.healthTab) this.healthTab = snap.healthTab;
+    if (snap.pkCodeA) this.pkCodeA = snap.pkCodeA;
+    if (snap.pkCodeB) this.pkCodeB = snap.pkCodeB;
+    if (snap.showAdvancedFilters !== undefined) this.showAdvancedFilters = Boolean(snap.showAdvancedFilters);
+  }
+
+  handleEscape() {
+    if (this.showMaintenancePanel) {
+      this.showMaintenancePanel = false;
+      return true;
+    }
+    if (this.showAdvancedFilters) {
+      this.showAdvancedFilters = false;
+      return true;
+    }
+    return false;
+  }
+
   openStockInfo(rawCode, subView = 'all') {
     const clean = String(rawCode || '2330').replace(/\.TW$/i, '').trim();
     this.selectedCode = clean || '2330';
     this.mainTab = 'stock_info';
     this.infoSection = subView || 'all';
     this.customPeBands = null;
+    this._pushRecentCode(this.selectedCode);
   }
 
   _toggleSort(mode, col, defaultDir = 'desc') {
@@ -214,12 +285,18 @@ export class GoodStockUI {
     const universe = GoodStockCore.getEnrichedUniverse(state);
     const industries = Array.from(new Set(universe.map((s) => s.industry))).filter(Boolean);
 
+    const syncedLiveCount = universe.filter((s) => s.dataSource === 'finmind-live').length;
+    const isBusySync = this.isSyncingAllFinancials || this.isSyncingAllPrices;
+    const maintLabel = this.isSyncingAllFinancials && this.syncFinProgress
+      ? `⏳ 財報 ${this.syncFinProgress.done}/${this.syncFinProgress.total}`
+      : (this.isSyncingAllPrices ? '⏳ 同步股價...' : `資料更新 ${this.showMaintenancePanel ? '▴' : '▾'}`);
+
     container.innerHTML = `
-      <!-- Clean Compact Top Toolbar -->
-      <div class="action-toolbar">
+      <!-- Clean Compact Top Toolbar (Maintenance actions folded for mobile ergonomics) -->
+      <div class="action-toolbar" style="margin-bottom:${this.showMaintenancePanel ? '8px' : '14px'};">
         <div class="action-toolbar-group">
           <button class="btn ${this.mainTab === 'screener' ? 'btn-primary' : 'btn-ghost'}" data-gs-main="screener">
-            ① 選股功能 (5大引擎)
+            ① 選股功能
           </button>
           <button class="btn ${this.mainTab === 'stock_info' ? 'btn-primary' : 'btn-ghost'}" data-gs-main="stock_info">
             ② 股票資訊 (${this.selectedCode})
@@ -230,23 +307,30 @@ export class GoodStockUI {
         </div>
 
         <div class="action-toolbar-group">
-          <input type="text" class="form-control font-mono" id="gs-quick-jump-input" placeholder="輸入代號/名稱 (如 3037)" style="width:148px; padding:5px 9px;" />
+          <input type="search" class="form-control font-mono" id="gs-quick-jump-input" placeholder="代號/名稱 (如 3037)" style="width:142px; padding:5px 9px;" />
           <button class="btn btn-ghost btn-sm" id="btn-gs-quick-jump">查詢</button>
-          <button class="btn ${this.isSyncingAllFinancials ? 'btn-primary' : 'btn-ghost'} btn-sm" id="btn-gs-sync-all-financials" ${this.isSyncingAllFinancials ? 'disabled' : ''}>
-            ${this.isSyncingAllFinancials && this.syncFinProgress
-              ? `同步財報 (${this.syncFinProgress.done}/${this.syncFinProgress.total})`
-              : `同步真實財報 (${universe.filter((s) => s.dataSource === 'finmind-live').length}/${universe.length})`}
-          </button>
-          <button class="btn btn-ghost btn-sm" id="btn-gs-sync-all-prices" ${this.isSyncingAllPrices ? 'disabled' : ''}>
-            ${this.isSyncingAllPrices ? '同步中...' : `同步最新股價 (${universe.length}檔)`}
-          </button>
-          <a class="btn btn-ghost btn-sm" href="https://github.com/chenhsuanfu/NIC_Toolkit/actions/workflows/update-goodstock-universe.yml" target="_blank" rel="noopener" title="前往 GitHub Actions 立即觸發上市＋上櫃全市場抓取">
-            ⚡ 觸發全市場更新
-          </a>
-          <button class="btn btn-ghost btn-sm" id="btn-gs-reload-universe" title="重新讀取最新 tw-universe-index.json">
-            🔄 重載全市場索引
+          <button class="btn ${this.showMaintenancePanel || isBusySync ? 'btn-primary' : 'btn-ghost'} btn-sm" id="btn-gs-toggle-maint" aria-expanded="${this.showMaintenancePanel ? 'true' : 'false'}">
+            ${maintLabel}
           </button>
         </div>
+      </div>
+
+      <div class="gs-maintenance-panel" id="gs-maintenance-panel" ${this.showMaintenancePanel ? '' : 'hidden'} style="margin-bottom:14px;">
+        <span class="text-muted" style="font-size:12px; font-weight:600;">資料維護與即時同步：</span>
+        <button class="btn ${this.isSyncingAllFinancials ? 'btn-primary' : 'btn-ghost'} btn-sm" id="btn-gs-sync-all-financials" ${this.isSyncingAllFinancials ? 'disabled' : ''}>
+          ${this.isSyncingAllFinancials && this.syncFinProgress
+            ? `同步財報 (${this.syncFinProgress.done}/${this.syncFinProgress.total})`
+            : `同步真實財報 (${syncedLiveCount}/${universe.length})`}
+        </button>
+        <button class="btn btn-ghost btn-sm" id="btn-gs-sync-all-prices" ${this.isSyncingAllPrices ? 'disabled' : ''}>
+          ${this.isSyncingAllPrices ? '同步中...' : `同步最新股價 (${universe.length}檔)`}
+        </button>
+        <a class="btn btn-ghost btn-sm" href="https://github.com/chenhsuanfu/NIC_Toolkit/actions/workflows/update-goodstock-universe.yml" target="_blank" rel="noopener" title="前往 GitHub Actions 立即觸發上市＋上櫃全市場抓取">
+          ⚡ 觸發全市場更新
+        </a>
+        <button class="btn btn-ghost btn-sm" id="btn-gs-reload-universe" title="重新讀取最新 tw-universe-index.json">
+          🔄 重載全市場索引
+        </button>
       </div>
 
       <div id="goodstock-main-body">
@@ -334,22 +418,24 @@ export class GoodStockUI {
     const f = this.sixFilters;
     const rawResults = GoodStockCore.screenStocks(state, 'six_indicators', f);
     const results = this._sortResults('six_indicators', rawResults);
+    this.lastScreenerCodes = results.map((s) => s.code);
     const limit = this.pageLimit.six_indicators || 50;
     const visible = results.slice(0, limit);
     const allCount = universe.length || GoodStockData.getAllStocks().length;
     const syncedCount = universe.filter((s) => s.dataSource === 'finmind-live' || s.dataSource === 'finmind-batch').length;
+    const pBtn = (key, label) => `<button class="btn ${this.activeSixPreset === key ? 'btn-primary' : 'btn-ghost'} btn-sm" data-six-preset="${key}">${label}</button>`;
 
     return `
       <div class="card" style="margin-bottom:14px;">
         <div class="action-toolbar" style="margin-bottom:0;">
           <div class="action-toolbar-group">
-            <button class="btn btn-ghost btn-sm" data-six-preset="ETF_0050">0050 成分股 (50檔)</button>
-            <button class="btn btn-ghost btn-sm" data-six-preset="ALL_HIGH">資優高分 (≥3.0分)</button>
-            <button class="btn btn-ghost btn-sm" data-six-preset="MOM_UP">較前月轉強 (MoM ▲)</button>
-            <button class="btn btn-ghost btn-sm" data-six-preset="QOQ_UP">較前季躍進 (QoQ ▲)</button>
-            <button class="btn btn-ghost btn-sm" data-six-preset="DUAL_UP">雙重成長</button>
-            <button class="btn btn-ghost btn-sm" data-six-preset="MY_HOLDINGS">我的庫存台股</button>
-            <button class="btn btn-ghost btn-sm" data-six-preset="WEAKENING">評分轉弱 (▼)</button>
+            ${pBtn('ETF_0050', '0050 成分股 (50檔)')}
+            ${pBtn('ALL_HIGH', '資優高分 (≥3.0分)')}
+            ${pBtn('MOM_UP', '較前月轉強 (MoM ▲)')}
+            ${pBtn('QOQ_UP', '較前季躍進 (QoQ ▲)')}
+            ${pBtn('DUAL_UP', '雙重成長')}
+            ${pBtn('MY_HOLDINGS', '我的庫存台股')}
+            ${pBtn('WEAKENING', '評分轉弱 (▼)')}
             <button class="btn btn-ghost btn-sm" data-six-preset="RESET">↺ 重設</button>
           </div>
           <button class="btn ${this.showAdvancedFilters ? 'btn-primary' : 'btn-ghost'} btn-sm" id="btn-toggle-gs-filters">
@@ -589,6 +675,7 @@ export class GoodStockUI {
     const f = this.strongFilters;
     const rawResults = GoodStockCore.screenStocks(state, 'strong', f);
     const results = this._sortResults('strong', rawResults, f.lookbackDays);
+    this.lastScreenerCodes = results.map((s) => s.code);
     const visible = results.slice(0, this.pageLimit.strong || 50);
 
     return `
@@ -669,14 +756,16 @@ export class GoodStockUI {
     const f = this.finFilters;
     const rawResults = GoodStockCore.screenStocks(state, 'financial', f);
     const results = this._sortResults('financial', rawResults);
+    this.lastScreenerCodes = results.map((s) => s.code);
+    const fpBtn = (key, label) => `<button class="btn ${this.activeFinPreset === key ? 'btn-primary' : 'btn-ghost'} btn-sm" data-fin-preset="${key}">${label}</button>`;
 
     return `
       <div class="card" style="margin-bottom:14px;">
         <div class="action-toolbar" style="margin-bottom:10px;">
           <div class="action-toolbar-group">
-            <button class="btn btn-ghost btn-sm" data-fin-preset="DEFAULT">預設 (營益≥10、EPS≥1、年增≥20)</button>
-            <button class="btn btn-ghost btn-sm" data-fin-preset="DOUBLE_ARROW">財務雙箭頭 ≥ 65%</button>
-            <button class="btn btn-ghost btn-sm" data-fin-preset="HIGH_PRICE">千金股排行 (股價≥1000)</button>
+            ${fpBtn('DEFAULT', '預設 (營益≥10、EPS≥1、年增≥20)')}
+            ${fpBtn('DOUBLE_ARROW', '財務雙箭頭 ≥ 65%')}
+            ${fpBtn('HIGH_PRICE', '千金股排行 (股價≥1000)')}
             <button class="btn btn-ghost btn-sm" data-fin-preset="CLEAR">清除條件</button>
           </div>
         </div>
@@ -763,6 +852,7 @@ export class GoodStockUI {
     const f = this.trendFilters;
     const rawResults = GoodStockCore.screenStocks(state, 'trend', f);
     const results = this._sortResults('trend', rawResults);
+    this.lastScreenerCodes = results.map((s) => s.code);
 
     return `
       <div class="card" style="margin-bottom:14px;">
@@ -828,6 +918,7 @@ export class GoodStockUI {
     const f = this.newHighFilters;
     const rawResults = GoodStockCore.screenStocks(state, 'newhigh', f);
     const results = this._sortResults('newhigh', rawResults);
+    this.lastScreenerCodes = results.map((s) => s.code);
 
     return `
       <div class="card" style="margin-bottom:14px;">
@@ -909,23 +1000,49 @@ export class GoodStockUI {
       peBands: this.customPeBands || stock.peBands
     });
 
+    const universeMap = new Map(universe.map((u) => [u.code, u]));
+    const listIdx = this.lastScreenerCodes.indexOf(stock.code);
+    const hasListNav = listIdx >= 0 && this.lastScreenerCodes.length > 1;
+    const prevCode = hasListNav && listIdx > 0 ? this.lastScreenerCodes[listIdx - 1] : null;
+    const nextCode = hasListNav && listIdx < this.lastScreenerCodes.length - 1 ? this.lastScreenerCodes[listIdx + 1] : null;
+    const recentItems = this.recentCodes
+      .map((c) => universeMap.get(c))
+      .filter(Boolean)
+      .slice(0, 6);
+
     return `
       <div class="card" style="margin-bottom:14px;">
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
           <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-            <input type="text" class="form-input font-mono" id="gs-stock-search-input" value="${stock.code}" placeholder="代號或名稱 (如 2330)" style="width:150px;" />
+            <input type="search" class="form-input font-mono" id="gs-stock-search-input" value="${stock.code}" placeholder="代號或名稱 (如 2330)" style="width:142px;" />
             <button class="btn btn-primary btn-sm" id="btn-gs-search-stock">查詢個股</button>
             <button class="btn btn-ghost btn-sm" id="btn-gs-fetch-live" ${this.isFetchingLive ? 'disabled' : ''}>
               ${this.isFetchingLive ? '連線中...' : '即時抓取 FinMind'}
             </button>
           </div>
 
-          <div style="display:flex; gap:4px; flex-wrap:wrap; align-items:center;">
-            ${universe.slice(0, 12).map((s) => `
-              <button class="btn ${s.code === stock.code ? 'btn-primary' : 'btn-ghost'} btn-sm" data-open-stock="${s.code}" style="padding:3px 7px; font-size:11.5px;">
-                ${s.code} ${s.name}
-              </button>
-            `).join('')}
+          <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+            ${hasListNav ? `
+              <div style="display:inline-flex; align-items:center; gap:4px; padding:3px 6px; border-radius:8px; background:var(--bg-subtle); border:1px solid var(--border-color);">
+                <button type="button" class="btn btn-ghost btn-sm" data-gs-step-stock="${prevCode || ''}" ${prevCode ? '' : 'disabled'} style="padding:3px 8px;" title="${prevCode ? `上一檔：${prevCode} ${universeMap.get(prevCode)?.name || ''}` : '已是第一檔'}">
+                  ◀ 上一檔
+                </button>
+                <span class="font-mono text-muted" style="font-size:11.5px; padding:0 4px;">${listIdx + 1} / ${this.lastScreenerCodes.length}</span>
+                <button type="button" class="btn btn-ghost btn-sm" data-gs-step-stock="${nextCode || ''}" ${nextCode ? '' : 'disabled'} style="padding:3px 8px;" title="${nextCode ? `下一檔：${nextCode} ${universeMap.get(nextCode)?.name || ''}` : '已是最後一檔'}">
+                  下一檔 ▶
+                </button>
+              </div>
+            ` : ''}
+            ${recentItems.length ? `
+              <div style="display:flex; gap:4px; flex-wrap:wrap; align-items:center;">
+                <span class="text-muted" style="font-size:11px;">最近：</span>
+                ${recentItems.map((s) => `
+                  <button class="btn ${s.code === stock.code ? 'btn-primary' : 'btn-ghost'} btn-sm" data-gs-step-stock="${s.code}" style="padding:3px 7px; font-size:11.5px;">
+                    ${s.code} ${s.name}
+                  </button>
+                `).join('')}
+              </div>
+            ` : ''}
           </div>
         </div>
 
@@ -949,8 +1066,8 @@ export class GoodStockUI {
             <span class="pill ${landmines.hitCount === 0 ? 'pill-emerald' : 'pill-rose'}">
               地雷 ${landmines.hitCount}/${landmines.totalCount}
             </span>
-            <span class="pill pill-emerald">
-              六大指標 ${sixEval.current.avgScore.toFixed(2)} 分 (${sixEval.current.grade})
+            <span class="pill ${isFiniteNum(sixEval.current.avgScore) ? 'pill-emerald' : ''}">
+              六大指標 ${fmtFixed(sixEval.current.avgScore, 2)} 分 (${sixEval.current.grade})
             </span>
           </div>
           <div style="display:flex; gap:16px; align-items:baseline; flex-wrap:wrap;">
@@ -960,11 +1077,11 @@ export class GoodStockUI {
             </div>
             <div>
               <span class="text-muted" style="font-size:12px;">近四季EPS</span>
-              <span class="font-mono" style="font-weight:700; margin-left:4px;">${stock.ttmEps.toFixed(2)} 元 (PE ${stock.pe ?? '-'})</span>
+              <span class="font-mono" style="font-weight:700; margin-left:4px;">${fmtFixed(stock.ttmEps, 2)} 元 (PE ${stock.pe ?? '-'})</span>
             </div>
             <div>
               <span class="text-muted" style="font-size:12px;">雙箭頭</span>
-              <span class="font-mono" style="font-weight:700; margin-left:4px;">${stock.doubleArrow.toFixed(1)}%</span>
+              <span class="font-mono" style="font-weight:700; margin-left:4px;">${fmtFixed(stock.doubleArrow, 1, '%')}</span>
             </div>
           </div>
         </div>
@@ -991,7 +1108,7 @@ export class GoodStockUI {
           <div class="card-title">財務健診 — ${stock.code} ${stock.name}</div>
           <div class="sub-tabs" style="margin-bottom:0; border-bottom:none;">
             <button class="sub-tab ${this.healthTab === 'landmines' ? 'active' : ''}" data-gs-health-tab="landmines">財務地雷 (${landmines.hitCount}/7)</button>
-            <button class="sub-tab ${this.healthTab === 'six' ? 'active' : ''}" data-gs-health-tab="six">六大指標 (${sixEval.current.avgScore.toFixed(2)}分)</button>
+            <button class="sub-tab ${this.healthTab === 'six' ? 'active' : ''}" data-gs-health-tab="six">六大指標 (${fmtFixed(sixEval.current.avgScore, 2)}分)</button>
             <button class="sub-tab ${this.healthTab === 'growth' ? 'active' : ''}" data-gs-health-tab="growth">成長力分析 (QoQ/YoY)</button>
           </div>
         </div>
@@ -1029,9 +1146,9 @@ export class GoodStockUI {
             <div class="card">
               <div class="kpi-label">
                 <span>當期六大指標總均分 (${sixEval.current.refQuarter})</span>
-                <span class="pill pill-emerald">${sixEval.current.grade} 級</span>
+                <span class="pill ${isFiniteNum(sixEval.current.avgScore) ? 'pill-emerald' : ''}">${sixEval.current.grade}</span>
               </div>
-              <div class="kpi-value">${sixEval.current.avgScore.toFixed(2)} <span style="font-size:13px; font-weight:500;">/ 4.00</span></div>
+              <div class="kpi-value">${fmtFixed(sixEval.current.avgScore, 2)} <span style="font-size:13px; font-weight:500;">/ 4.00</span></div>
               <div class="kpi-sub">總分 ${sixEval.current.totalScore} / ${sixEval.current.maxTotalScore}</div>
             </div>
 
@@ -1040,7 +1157,7 @@ export class GoodStockUI {
                 <span>與前一個月比較 (${sixEval.prevMonth.refMonth})</span>
                 ${this._renderDeltaBadge(sixEval.deltaMoM, 'MoM ')}
               </div>
-              <div class="kpi-value" style="font-size:17px;">前月 ${sixEval.prevMonth.avgScore.toFixed(2)} → 當期 ${sixEval.current.avgScore.toFixed(2)}</div>
+              <div class="kpi-value" style="font-size:17px;">前月 ${fmtFixed(sixEval.prevMonth.avgScore, 2)} → 當期 ${fmtFixed(sixEval.current.avgScore, 2)}</div>
               <div class="kpi-sub">反映最新月營收對營收成長性之拉動</div>
             </div>
 
@@ -1049,7 +1166,7 @@ export class GoodStockUI {
                 <span>與前一季比較 (${sixEval.prevQuarter.refQuarter})</span>
                 ${this._renderDeltaBadge(sixEval.deltaQoQ, 'QoQ ')}
               </div>
-              <div class="kpi-value" style="font-size:17px;">前季 ${sixEval.prevQuarter.avgScore.toFixed(2)} → 當期 ${sixEval.current.avgScore.toFixed(2)}</div>
+              <div class="kpi-value" style="font-size:17px;">前季 ${fmtFixed(sixEval.prevQuarter.avgScore, 2)} → 當期 ${fmtFixed(sixEval.current.avgScore, 2)}</div>
               <div class="kpi-sub">反映最新一季財報整體體質升降</div>
             </div>
           </div>
@@ -1070,13 +1187,13 @@ export class GoodStockUI {
                   <tr>
                     <td style="font-weight:700;">${it.label}</td>
                     <td class="font-mono" style="text-align:right; font-weight:700;">
-                      ${it.score === null ? '<span class="pill">不評分</span>' : `${it.score.toFixed(1)} 分`}
+                      ${!isFiniteNum(it.score) ? '<span class="pill">不評分</span>' : `${Number(it.score).toFixed(1)} 分`}
                     </td>
                     <td class="font-mono" style="text-align:right;">
-                      ${it.prevMonthScore === null ? '-' : `${it.prevMonthScore.toFixed(1)} ${this._renderDeltaBadge(it.deltaMoM)}`}
+                      ${!isFiniteNum(it.prevMonthScore) ? '-' : `${Number(it.prevMonthScore).toFixed(1)} ${this._renderDeltaBadge(it.deltaMoM)}`}
                     </td>
                     <td class="font-mono" style="text-align:right;">
-                      ${it.prevQuarterScore === null ? '-' : `${it.prevQuarterScore.toFixed(1)} ${this._renderDeltaBadge(it.deltaQoQ)}`}
+                      ${!isFiniteNum(it.prevQuarterScore) ? '-' : `${Number(it.prevQuarterScore).toFixed(1)} ${this._renderDeltaBadge(it.deltaQoQ)}`}
                     </td>
                     <td class="text-muted">${it.reason}</td>
                   </tr>
@@ -1662,6 +1779,25 @@ export class GoodStockUI {
       });
     });
 
+    // Toggle data maintenance drawer
+    const maintBtn = container.querySelector('#btn-gs-toggle-maint');
+    if (maintBtn) {
+      maintBtn.addEventListener('click', () => {
+        this.showMaintenancePanel = !this.showMaintenancePanel;
+        const panel = container.querySelector('#gs-maintenance-panel');
+        if (panel) {
+          panel.hidden = !this.showMaintenancePanel;
+          maintBtn.setAttribute('aria-expanded', this.showMaintenancePanel ? 'true' : 'false');
+          maintBtn.className = `btn ${this.showMaintenancePanel || this.isSyncingAllFinancials || this.isSyncingAllPrices ? 'btn-primary' : 'btn-ghost'} btn-sm`;
+          if (!this.isSyncingAllFinancials && !this.isSyncingAllPrices) {
+            maintBtn.textContent = `資料更新 ${this.showMaintenancePanel ? '▴' : '▾'}`;
+          }
+        } else {
+          rerender();
+        }
+      });
+    }
+
     // Toggle advanced filters drawer
     const advBtn = container.querySelector('#btn-toggle-gs-filters');
     if (advBtn) {
@@ -1702,8 +1838,12 @@ export class GoodStockUI {
       const doJump = () => {
         const v = qJumpInp.value.trim();
         if (v) {
+          if (this.mainTab === 'screener' && window.NIC_Nav?.pushIntraView) {
+            window.NIC_Nav.pushIntraView('goodstock', '選股結果', this.getViewSnapshot().state);
+          }
           this.openStockInfo(v, 'all');
           rerender();
+          try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) {}
         }
       };
       qJumpBtn.addEventListener('click', doJump);
@@ -1716,7 +1856,21 @@ export class GoodStockUI {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const code = btn.getAttribute('data-open-stock');
+        if (this.mainTab === 'screener' && window.NIC_Nav?.pushIntraView) {
+          window.NIC_Nav.pushIntraView('goodstock', '選股結果', this.getViewSnapshot().state);
+        }
         this.openStockInfo(code, 'all');
+        rerender();
+        try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) {}
+      });
+    });
+
+    // Sequential Prev/Next & Recent Chips inside Stock Info (keeps back stack pointing to screener)
+    container.querySelectorAll('[data-gs-step-stock]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const code = btn.getAttribute('data-gs-step-stock');
+        if (!code) return;
+        this.openStockInfo(code, this.infoSection);
         rerender();
         try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) {}
       });
@@ -1725,18 +1879,23 @@ export class GoodStockUI {
     container.querySelectorAll('[data-pk-select]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const code = btn.getAttribute('data-pk-select');
+        if (this.mainTab === 'screener' && window.NIC_Nav?.pushIntraView) {
+          window.NIC_Nav.pushIntraView('goodstock', '選股結果', this.getViewSnapshot().state);
+        }
         if (this.pkCodeA !== code) {
           this.pkCodeB = this.pkCodeA;
           this.pkCodeA = code;
         }
         this.mainTab = 'pk';
         rerender();
+        try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) {}
       });
     });
 
     container.querySelectorAll('[data-six-preset]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const p = btn.getAttribute('data-six-preset');
+        this.activeSixPreset = p === 'RESET' ? null : p;
         this.sixFilters = {
           scope: 'ALL', industry: 'ALL', minAvgScore: 0, maxLandmines: '',
           momDeltaMode: 'ALL', qoqDeltaMode: 'ALL', improvedItem: 'ALL',
@@ -1768,30 +1927,32 @@ export class GoodStockUI {
       });
     });
 
-    const bindSelect = (id, targetObj, key) => {
+    const bindSelect = (id, targetObj, key, presetKey = null) => {
       const el = container.querySelector(`#${id}`);
       if (el) {
         el.addEventListener('change', () => {
           targetObj[key] = el.value;
+          if (presetKey === 'six') this.activeSixPreset = null;
+          if (presetKey === 'fin') this.activeFinPreset = null;
           rerender();
         });
       }
     };
 
-    bindSelect('six-scope', this.sixFilters, 'scope');
-    bindSelect('six-industry', this.sixFilters, 'industry');
-    bindSelect('six-min-avg', this.sixFilters, 'minAvgScore');
-    bindSelect('six-max-avg', this.sixFilters, 'maxAvgScore');
-    bindSelect('six-max-landmines', this.sixFilters, 'maxLandmines');
-    bindSelect('six-mom-mode', this.sixFilters, 'momDeltaMode');
-    bindSelect('six-qoq-mode', this.sixFilters, 'qoqDeltaMode');
-    bindSelect('six-improved-item', this.sixFilters, 'improvedItem');
-    bindSelect('six-min-rev', this.sixFilters, 'minRevScore');
-    bindSelect('six-min-op', this.sixFilters, 'minOpScore');
-    bindSelect('six-min-profit', this.sixFilters, 'minProfitScore');
-    bindSelect('six-min-eps', this.sixFilters, 'minEpsScore');
-    bindSelect('six-min-inv', this.sixFilters, 'minInvScore');
-    bindSelect('six-min-fcf', this.sixFilters, 'minFcfScore');
+    bindSelect('six-scope', this.sixFilters, 'scope', 'six');
+    bindSelect('six-industry', this.sixFilters, 'industry', 'six');
+    bindSelect('six-min-avg', this.sixFilters, 'minAvgScore', 'six');
+    bindSelect('six-max-avg', this.sixFilters, 'maxAvgScore', 'six');
+    bindSelect('six-max-landmines', this.sixFilters, 'maxLandmines', 'six');
+    bindSelect('six-mom-mode', this.sixFilters, 'momDeltaMode', 'six');
+    bindSelect('six-qoq-mode', this.sixFilters, 'qoqDeltaMode', 'six');
+    bindSelect('six-improved-item', this.sixFilters, 'improvedItem', 'six');
+    bindSelect('six-min-rev', this.sixFilters, 'minRevScore', 'six');
+    bindSelect('six-min-op', this.sixFilters, 'minOpScore', 'six');
+    bindSelect('six-min-profit', this.sixFilters, 'minProfitScore', 'six');
+    bindSelect('six-min-eps', this.sixFilters, 'minEpsScore', 'six');
+    bindSelect('six-min-inv', this.sixFilters, 'minInvScore', 'six');
+    bindSelect('six-min-fcf', this.sixFilters, 'minFcfScore', 'six');
 
     bindSelect('strong-days', this.strongFilters, 'lookbackDays');
     bindSelect('strong-min-gain', this.strongFilters, 'minGainPct');
@@ -1801,6 +1962,7 @@ export class GoodStockUI {
     container.querySelectorAll('[data-fin-preset]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const p = btn.getAttribute('data-fin-preset');
+        this.activeFinPreset = p === 'CLEAR' ? null : p;
         if (p === 'CLEAR') {
           Object.assign(this.finFilters, {
             minOpMargin: '', maxOpMargin: '', minEps: '', maxEps: '',
@@ -1826,14 +1988,14 @@ export class GoodStockUI {
       });
     });
 
-    bindSelect('fin-min-op', this.finFilters, 'minOpMargin');
-    bindSelect('fin-max-op', this.finFilters, 'maxOpMargin');
-    bindSelect('fin-min-eps', this.finFilters, 'minEps');
-    bindSelect('fin-max-eps', this.finFilters, 'maxEps');
-    bindSelect('fin-min-revyoy', this.finFilters, 'minRevYoY');
-    bindSelect('fin-max-revyoy', this.finFilters, 'maxRevYoY');
-    bindSelect('fin-min-arrow', this.finFilters, 'minDoubleArrow');
-    bindSelect('fin-max-arrow', this.finFilters, 'maxDoubleArrow');
+    bindSelect('fin-min-op', this.finFilters, 'minOpMargin', 'fin');
+    bindSelect('fin-max-op', this.finFilters, 'maxOpMargin', 'fin');
+    bindSelect('fin-min-eps', this.finFilters, 'minEps', 'fin');
+    bindSelect('fin-max-eps', this.finFilters, 'maxEps', 'fin');
+    bindSelect('fin-min-revyoy', this.finFilters, 'minRevYoY', 'fin');
+    bindSelect('fin-max-revyoy', this.finFilters, 'maxRevYoY', 'fin');
+    bindSelect('fin-min-arrow', this.finFilters, 'minDoubleArrow', 'fin');
+    bindSelect('fin-max-arrow', this.finFilters, 'maxDoubleArrow', 'fin');
 
     bindSelect('trend-days', this.trendFilters, 'trendDays');
     bindSelect('trend-move', this.trendFilters, 'minMovePct');
@@ -1942,6 +2104,8 @@ export class GoodStockUI {
             this.syncFinProgress = prog;
             const btn = container.querySelector('#btn-gs-sync-all-financials');
             if (btn) btn.textContent = `同步財報 (${prog.done}/${prog.total})`;
+            const mBtn = container.querySelector('#btn-gs-toggle-maint');
+            if (mBtn) mBtn.textContent = `⏳ 財報 ${prog.done}/${prog.total}`;
           }, { onlyUnsynced });
           if (showToast) {
             showToast(res.successCount > 0

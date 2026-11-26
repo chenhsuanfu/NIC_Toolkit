@@ -1,7 +1,7 @@
 // Single source of truth for App Version and PWA Core Assets
 // Shared by index.html (<script src="./core/app-meta.js">) and sw.js (importScripts('./core/app-meta.js'))
 self.NIC_APP_META = {
-  version: 'v55',
+  version: 'v56',
   coreAssets: [
     './core/app-meta.js',
     './assets/css/main.css',
@@ -9,6 +9,7 @@ self.NIC_APP_META = {
     './core/store.js',
     './core/api-client.js',
     './core/registry.js',
+    './core/nav-history.js',
     './core/agent-bridge.js',
     './tools/hub/ui.js',
     './tools/stock-tracker/core.js',

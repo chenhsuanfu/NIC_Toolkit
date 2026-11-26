@@ -561,3 +561,121 @@ test('GAS Code.gs and copy-paste version stay structurally in sync', () => {
   const stripConfig = (s) => s.replace(/function getConfig_\(\)\s*\{[\s\S]*?\n\}/, 'function getConfig_() { /* normalized */ }');
   assert.equal(stripConfig(codeGs), stripConfig(copyGs));
 });
+
+test('NavHistory manages bounded stack, deduplicates identical top state, and restores scrollY', async () => {
+  const { NavHistory, bindTwoStepConfirm } = await import('../core/nav-history.js');
+  const hist = new NavHistory({ maxDepth: 3 });
+
+  assert.equal(hist.canGoBack(), false);
+  assert.equal(hist.peek(), null);
+
+  assert.equal(hist.push({ toolId: 'hub', label: '總覽', viewState: { tab: 'a' }, scrollY: 120 }), true);
+  // Duplicate top entry should update scrollY without growing stack
+  assert.equal(hist.push({ toolId: 'hub', label: '總覽', viewState: { tab: 'a' }, scrollY: 480 }), false);
+  assert.equal(hist.size(), 1);
+  assert.equal(hist.peek().scrollY, 480);
+
+  hist.push({ toolId: 'stock-tracker', label: '2330 庫存', viewState: { sym: '2330' }, scrollY: 200 });
+  hist.push({ toolId: 'goodstock', label: '選股結果', viewState: { mode: 'six' }, scrollY: 900 });
+  hist.push({ toolId: 'twse-radar', label: '2026 日曆', viewState: { tab: 'calendar' }, scrollY: 300 });
+  // Bounded at maxDepth = 3 (oldest 'hub' evicted)
+  assert.equal(hist.size(), 3);
+  assert.equal(hist.pop().toolId, 'twse-radar');
+  assert.equal(hist.pop().label, '選股結果');
+  assert.equal(hist.pop().toolId, 'stock-tracker');
+  assert.equal(hist.canGoBack(), false);
+
+  // Two-step confirm requires two clicks within timeout
+  let confirmed = 0;
+  const listeners = {};
+  const classes = new Set();
+  const mockBtn = {
+    innerHTML: '刪除',
+    textContent: '刪除',
+    classList: {
+      add: (c) => classes.add(c),
+      remove: (c) => classes.delete(c)
+    },
+    setAttribute: () => {},
+    removeAttribute: () => {},
+    addEventListener: (ev, fn) => { listeners[ev] = fn; }
+  };
+  bindTwoStepConfirm(mockBtn, {
+    confirmText: '再點一次確認',
+    timeoutMs: 5000,
+    onConfirm: () => { confirmed += 1; }
+  });
+  const fakeEvent = { preventDefault: () => {}, stopPropagation: () => {} };
+  listeners.click(fakeEvent);
+  assert.equal(confirmed, 0);
+  assert.equal(mockBtn.textContent, '再點一次確認');
+  assert.equal(classes.has('btn-danger-confirm'), true);
+
+  listeners.click(fakeEvent);
+  assert.equal(confirmed, 1);
+  assert.equal(classes.has('btn-danger-confirm'), false);
+});
+
+test('UX enhancements render contextual controls, sequential prev/next, local-update hooks, and shell nav wiring', async () => {
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  assert.ok(html.includes('id="btn-nav-back"'), 'Topbar contextual back button missing');
+  assert.ok(html.includes('id="topbar-more-menu"'), 'Topbar overflow menu missing');
+  assert.ok(html.includes('id="floating-nav-pill"'), 'Floating quick nav pill missing');
+  assert.ok(html.includes("addEventListener('popstate'"), 'Browser popstate listener missing');
+
+  // GoodStockUI: folded maintenance drawer + sequential prev/next from screener list
+  const { GoodStockUI } = await import('../tools/goodstock/ui.js');
+  const gs = new GoodStockUI();
+  gs._universeTriggered = true;
+  const mockContainer = () => ({ innerHTML: '', querySelector: () => null, querySelectorAll: () => [] });
+  const cGsScreen = mockContainer();
+  gs.render(cGsScreen, { stock: { overview: [], watchlist: [] } }, { getState: () => ({ stock: { overview: [], watchlist: [] } }) });
+  assert.ok(cGsScreen.innerHTML.includes('id="btn-gs-toggle-maint"'));
+  assert.ok(cGsScreen.innerHTML.includes('id="gs-maintenance-panel" hidden'));
+  assert.ok(gs.lastScreenerCodes.length >= 2);
+
+  const secondCode = gs.lastScreenerCodes[1];
+  gs.openStockInfo(secondCode, 'all');
+  const cGsInfo = mockContainer();
+  gs.render(cGsInfo, { stock: { overview: [], watchlist: [] } }, { getState: () => ({ stock: { overview: [], watchlist: [] } }) });
+  assert.ok(cGsInfo.innerHTML.includes('◀ 上一檔'));
+  assert.ok(cGsInfo.innerHTML.includes('下一檔 ▶'));
+  assert.ok(cGsInfo.innerHTML.includes(`2 / ${gs.lastScreenerCodes.length}`));
+
+  // StockTrackerUI: snapshot roundtrip, Escape handling, and in-place rebalance markers
+  const { StockTrackerUI } = await import('../tools/stock-tracker/ui.js');
+  const st = new StockTrackerUI();
+  st.activeTab = 'holdings';
+  st.selectedSymbol = '2330.TW';
+  const stSnap = st.getViewSnapshot();
+  assert.equal(stSnap.label, '2330.TW 庫存');
+  assert.equal(st.handleEscape(), true);
+  assert.equal(st.selectedSymbol, null);
+  st.restoreViewSnapshot(stSnap.state);
+  assert.equal(st.selectedSymbol, '2330.TW');
+
+  // AssetTrackerUI: in-place category selects & simulator IDs
+  const { AssetTrackerUI } = await import('../tools/asset-tracker/ui.js');
+  const at = new AssetTrackerUI();
+  at.activeForm = 'expense';
+  at.activeTab = 'fixed_sim';
+  const cAt = mockContainer();
+  at.render(cAt, { asset: { accounts: [], config: [], expenses: [], recentLogs: [], debts: [] } }, { getState: () => ({}) });
+  assert.ok(cAt.innerHTML.includes('id="select-exp-sub"'));
+  assert.ok(cAt.innerHTML.includes('id="sim-kpi-total"'));
+  assert.ok(cAt.innerHTML.includes('id="asset-sub-tabs"'));
+  assert.equal(at.handleEscape(), true);
+  assert.equal(at.activeForm, null);
+
+  // TwseRadarUI: sticky unsaved changes bar on settings tab & Escape clears focusDate
+  const { TwseRadarUI } = await import('../tools/twse-radar/ui.js');
+  const rd = new TwseRadarUI();
+  rd._csvLoadedAttempted = true;
+  rd.activeTab = 'settings';
+  const cRd = mockContainer();
+  rd.render(cRd, {}, {});
+  assert.ok(cRd.innerHTML.includes('id="radar-dirty-bar" hidden'));
+  rd.focusDate = '2026-01-05';
+  assert.equal(rd.handleEscape(), true);
+  assert.equal(rd.focusDate, null);
+});

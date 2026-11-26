@@ -50,6 +50,119 @@ export class StockTrackerUI {
     };
   }
 
+  getViewSnapshot() {
+    let label = '股票庫存';
+    if (this.activeTab === 'holdings' && this.selectedSymbol) label = `${this.selectedSymbol} 庫存`;
+    else if (this.activeTab === 'rebalance') label = '權重再平衡';
+    else if (this.activeTab === 'watchlist') label = '觀察清單';
+    else if (this.activeTab === 'history') label = '進場紀錄';
+    return {
+      label,
+      state: {
+        activeTab: this.activeTab,
+        filterMarket: this.filterMarket,
+        filterType: this.filterType,
+        searchQuery: this.searchQuery,
+        selectedSymbol: this.selectedSymbol,
+        rebalancePool: this.rebalancePool,
+        rebalanceCalcMode: this.rebalanceCalcMode,
+        rebalanceQuery: this.rebalanceQuery
+      }
+    };
+  }
+
+  restoreViewSnapshot(snap) {
+    if (!snap) return;
+    if (snap.activeTab) this.activeTab = snap.activeTab;
+    if (snap.filterMarket !== undefined) this.filterMarket = snap.filterMarket;
+    if (snap.filterType !== undefined) this.filterType = snap.filterType;
+    if (snap.searchQuery !== undefined) this.searchQuery = snap.searchQuery;
+    if (snap.selectedSymbol !== undefined) this.selectedSymbol = snap.selectedSymbol;
+    if (snap.rebalancePool) this.rebalancePool = snap.rebalancePool;
+    if (snap.rebalanceCalcMode) this.rebalanceCalcMode = snap.rebalanceCalcMode;
+    if (snap.rebalanceQuery !== undefined) this.rebalanceQuery = snap.rebalanceQuery;
+    this.selectedLotId = null;
+    this.showBuyForSelected = false;
+    this.showAddForm = false;
+  }
+
+  handleEscape() {
+    if (this.selectedLotId) {
+      this.selectedLotId = null;
+      return true;
+    }
+    if (this.showBuyForSelected) {
+      this.showBuyForSelected = false;
+      return true;
+    }
+    if (this.showAddForm) {
+      this.showAddForm = false;
+      return true;
+    }
+    if (this.selectedSymbol) {
+      this.selectedSymbol = null;
+      return true;
+    }
+    return false;
+  }
+
+  _sortHoldingsList(rawHoldings) {
+    const holdings = [...(rawHoldings || [])];
+    const sortCfg = this.sortState.holdings || { col: 'market', dir: 'desc' };
+    const dirMul = sortCfg.dir === 'asc' ? 1 : -1;
+    holdings.sort((a, b) => {
+      if (sortCfg.col === 'code') return String(a['代號'] || '').localeCompare(String(b['代號'] || '')) * dirMul;
+      if (sortCfg.col === 'type') return String(a['類型'] || '').localeCompare(String(b['類型'] || '')) * dirMul;
+      if (sortCfg.col === 'shares') return (toNum(a['剩餘股數'], 0) - toNum(b['剩餘股數'], 0)) * dirMul;
+      if (sortCfg.col === 'avgCost') return (toNum(a['平均成本(原幣)'], 0) - toNum(b['平均成本(原幣)'], 0)) * dirMul;
+      if (sortCfg.col === 'price') return (toNum(a['現價(原幣)'], 0) - toNum(b['現價(原幣)'], 0)) * dirMul;
+      if (sortCfg.col === 'pnl') return (toNum(a['未實現(TWD)'], 0) - toNum(b['未實現(TWD)'], 0)) * dirMul;
+      if (sortCfg.col === 'roi') return (toRatio(a['報酬率']) - toRatio(b['報酬率'])) * dirMul;
+      return (toNum(a['市值(TWD)'], 0) - toNum(b['市值(TWD)'], 0)) * dirMul;
+    });
+    return holdings;
+  }
+
+  _sortTier2Rows(tier2Rows) {
+    const sortCfg = this.sortState.rebalance || { col: 'targetPct', dir: 'desc' };
+    const dirMul = sortCfg.dir === 'asc' ? 1 : -1;
+    return [...(tier2Rows || [])].sort((a, b) => {
+      if (sortCfg.col === 'symbol') return String(a.symbol || '').localeCompare(String(b.symbol || '')) * dirMul;
+      if (sortCfg.col === 'costTwd') return (a.costTwd - b.costTwd) * dirMul;
+      if (sortCfg.col === 'costWeightPct') return (a.costWeightPct - b.costWeightPct) * dirMul;
+      if (sortCfg.col === 'marketTwd') return (a.marketTwd - b.marketTwd) * dirMul;
+      if (sortCfg.col === 'marketWeightPct') return (a.marketWeightPct - b.marketWeightPct) * dirMul;
+      return (a.targetPct - b.targetPct) * dirMul;
+    });
+  }
+
+  _renderRebDiffBadge(diffPct, targetPct) {
+    if (targetPct <= 0 && Math.abs(diffPct) < 0.05) return '<span class="text-muted">-</span>';
+    const sign = diffPct > 0 ? '+' : '';
+    if (Math.abs(diffPct) < 0.1) {
+      return '<span class="pill pill-emerald">0.0% 達標</span>';
+    }
+    if (!Number.isFinite(Number(diffPct))) return '<span class="text-muted">—</span>';
+    const d = Number(diffPct);
+    return `<span class="pill">${sign}${d.toFixed(1)}% (${d < 0 ? '不足' : '超標'})</span>`;
+  }
+
+  _renderRebActionCell(actionTwd, actionShares, targetPct, currentTwd) {
+    if (targetPct <= 0 && currentTwd <= 0) return '<span class="text-muted">-</span>';
+    if (Math.abs(actionTwd) < 500) {
+      return '<span class="text-emerald" style="font-size:12px; font-weight:600;">✓ 達標</span>';
+    }
+    const isBuy = actionTwd > 0;
+    const absTwd = Math.abs(actionTwd);
+    const absShares = actionShares !== undefined ? Math.abs(actionShares) : undefined;
+    return `
+      <div class="${isBuy ? 'text-emerald' : 'text-rose'} font-mono" style="font-weight:700;">
+        ${isBuy ? '▲ 買入' : '▼ 賣出'} $${fmtInt(absTwd)}
+      </div>
+      ${absShares !== undefined ? `<div class="text-muted font-mono" style="font-size:11px;">約 ${fmtDec(absShares, 1)} 股</div>` : ''}
+    `;
+  }
+
   _toggleSort(tableKey, col, defaultDir = 'desc') {
     const cur = this.sortState[tableKey] || { col, dir: defaultDir };
     if (cur.col === col) {
@@ -413,22 +526,7 @@ export class StockTrackerUI {
   }
 
   _renderHoldingsTab(rawHoldings, options, state) {
-    const holdings = [...rawHoldings];
-    const sortCfg = this.sortState.holdings || { col: 'market', dir: 'desc' };
-    const dirMul = sortCfg.dir === 'asc' ? 1 : -1;
-
-    holdings.sort((a, b) => {
-      if (sortCfg.col === 'code') return String(a['代號'] || '').localeCompare(String(b['代號'] || '')) * dirMul;
-      if (sortCfg.col === 'type') return String(a['類型'] || '').localeCompare(String(b['類型'] || '')) * dirMul;
-      if (sortCfg.col === 'shares') return (toNum(a['剩餘股數'], 0) - toNum(b['剩餘股數'], 0)) * dirMul;
-      if (sortCfg.col === 'avgCost') return (toNum(a['平均成本(原幣)'], 0) - toNum(b['平均成本(原幣)'], 0)) * dirMul;
-      if (sortCfg.col === 'price') return (toNum(a['現價(原幣)'], 0) - toNum(b['現價(原幣)'], 0)) * dirMul;
-      if (sortCfg.col === 'pnl') return (toNum(a['未實現(TWD)'], 0) - toNum(b['未實現(TWD)'], 0)) * dirMul;
-      if (sortCfg.col === 'roi') return (toRatio(a['報酬率']) - toRatio(b['報酬率'])) * dirMul;
-      return (toNum(a['市值(TWD)'], 0) - toNum(b['市值(TWD)'], 0)) * dirMul;
-    });
-
-    const escapeHtml = (s) => String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const holdings = this._sortHoldingsList(rawHoldings);
     return `
       ${this._renderSelectedSymbolLotsPanel(state, options)}
 
@@ -552,47 +650,13 @@ export class StockTrackerUI {
       query: this.rebalanceQuery
     });
 
-    const renderDiffBadge = (diffPct, targetPct) => {
-      if (targetPct <= 0 && Math.abs(diffPct) < 0.05) return '<span class="text-muted">-</span>';
-      const sign = diffPct > 0 ? '+' : '';
-      if (Math.abs(diffPct) < 0.1) {
-        return `<span class="pill pill-emerald">0.0% 達標</span>`;
-      }
-      if (!Number.isFinite(Number(diffPct))) return '<span class="text-muted">—</span>';
-      const d = Number(diffPct);
-      return `<span class="pill">${sign}${d.toFixed(1)}% (${d < 0 ? '不足' : '超標'})</span>`;
-    };
-
-    const renderActionCell = (actionTwd, actionShares, targetPct, currentTwd) => {
-      if (targetPct <= 0 && currentTwd <= 0) return '<span class="text-muted">-</span>';
-      if (Math.abs(actionTwd) < 500) {
-        return `<span class="text-emerald" style="font-size:12px; font-weight:600;">✓ 達標</span>`;
-      }
-      const isBuy = actionTwd > 0;
-      const absTwd = Math.abs(actionTwd);
-      const absShares = Math.abs(actionShares);
-      return `
-        <div class="${isBuy ? 'text-emerald' : 'text-rose'} font-mono" style="font-weight:700;">
-          ${isBuy ? '▲ 買入' : '▼ 賣出'} $${fmtInt(absTwd)}
-        </div>
-        ${absShares !== undefined ? `<div class="text-muted font-mono" style="font-size:11px;">約 ${fmtDec(absShares, 1)} 股</div>` : ''}
-      `;
-    };
+    const renderDiffBadge = (diffPct, targetPct) => this._renderRebDiffBadge(diffPct, targetPct);
+    const renderActionCell = (actionTwd, actionShares, targetPct, currentTwd) =>
+      this._renderRebActionCell(actionTwd, actionShares, targetPct, currentTwd);
 
     const t1SumOk = Math.abs(reb.tier1TotalTargetPct - 100) < 0.1;
     const t2SumOk = Math.abs(reb.tier2TotalTargetPct - 100) < 0.1;
-
-    // Sort tier2Rows
-    const sortCfg = this.sortState.rebalance || { col: 'targetPct', dir: 'desc' };
-    const dirMul = sortCfg.dir === 'asc' ? 1 : -1;
-    const sortedTier2 = [...reb.tier2Rows].sort((a, b) => {
-      if (sortCfg.col === 'symbol') return String(a.symbol || '').localeCompare(String(b.symbol || '')) * dirMul;
-      if (sortCfg.col === 'costTwd') return (a.costTwd - b.costTwd) * dirMul;
-      if (sortCfg.col === 'costWeightPct') return (a.costWeightPct - b.costWeightPct) * dirMul;
-      if (sortCfg.col === 'marketTwd') return (a.marketTwd - b.marketTwd) * dirMul;
-      if (sortCfg.col === 'marketWeightPct') return (a.marketWeightPct - b.marketWeightPct) * dirMul;
-      return (a.targetPct - b.targetPct) * dirMul;
-    });
+    const sortedTier2 = this._sortTier2Rows(reb.tier2Rows);
 
     return `
       <!-- Tier 1: Strategy Pools Allocation -->
@@ -601,10 +665,10 @@ export class StockTrackerUI {
           <div>
             <div class="card-title">第一層（Tier 1）：三大策略池權重配置（進攻型｜防禦型｜樂透型）</div>
             <div class="text-muted" style="font-size:12px; margin-top:2px;">
-              持倉總成本 <strong class="font-mono">$${fmtInt(reb.portfolioCostTwd)}</strong> ｜ 持倉總現值 <strong class="font-mono">$${fmtInt(reb.portfolioMarketTwd)}</strong>（點擊策略列可切換下方個股池）
+              持倉總成本 <strong class="font-mono">$${fmtInt(reb.portfolioCostTwd)}</strong> ｜ 持倉總現值 <strong class="font-mono">$${fmtInt(reb.portfolioMarketTwd)}</strong>（點擊策略列可切換下方個股池；修改 % 即時局部重算不失焦）
             </div>
           </div>
-          <span class="pill ${t1SumOk ? 'pill-emerald' : ''}">
+          <span id="reb-tier1-sum-badge" class="pill ${t1SumOk ? 'pill-emerald' : ''}">
             第一層目標合計：${reb.tier1TotalTargetPct.toFixed(1)}%
           </span>
         </div>
@@ -629,7 +693,7 @@ export class StockTrackerUI {
               ${reb.tier1Rows.map((r) => {
                 const isSelected = this.rebalancePool === r.type;
                 return `
-                  <tr style="${isSelected ? 'background:var(--accent-blue-soft);' : ''}">
+                  <tr data-reb-t1-row="${r.type}" style="${isSelected ? 'background:var(--accent-blue-soft);' : ''}">
                     <td data-select-pool="${r.type}" style="cursor:pointer; font-weight:700;">
                       ${r.type} (${r.count} 檔) ${isSelected ? '<span style="color:var(--accent-blue); font-size:11px;">●</span>' : ''}
                     </td>
@@ -641,12 +705,12 @@ export class StockTrackerUI {
                     </td>
                     <td class="font-mono mask-amount" style="text-align:right; border-left:1px solid var(--border-color);">$${fmtInt(r.costTwd)}</td>
                     <td class="font-mono" style="text-align:right;">${r.costWeightPct.toFixed(1)}%</td>
-                    <td>${renderDiffBadge(r.costDiffPct, r.targetPct)}</td>
-                    <td class="mask-amount">${renderActionCell(r.costActionTwd, undefined, r.targetPct, r.costTwd)}</td>
+                    <td data-reb-cell="t1-costDiff">${renderDiffBadge(r.costDiffPct, r.targetPct)}</td>
+                    <td class="mask-amount" data-reb-cell="t1-costAct">${renderActionCell(r.costActionTwd, undefined, r.targetPct, r.costTwd)}</td>
                     <td class="font-mono mask-amount" style="text-align:right; border-left:1px solid var(--border-color);">$${fmtInt(r.marketTwd)}</td>
                     <td class="font-mono" style="text-align:right;">${r.marketWeightPct.toFixed(1)}%</td>
-                    <td>${renderDiffBadge(r.marketDiffPct, r.targetPct)}</td>
-                    <td class="mask-amount">${renderActionCell(r.marketActionTwd, undefined, r.targetPct, r.marketTwd)}</td>
+                    <td data-reb-cell="t1-mktDiff">${renderDiffBadge(r.marketDiffPct, r.targetPct)}</td>
+                    <td class="mask-amount" data-reb-cell="t1-mktAct">${renderActionCell(r.marketActionTwd, undefined, r.targetPct, r.marketTwd)}</td>
                   </tr>
                 `;
               }).join('')}
@@ -660,11 +724,11 @@ export class StockTrackerUI {
         <div class="card-header" style="flex-wrap:wrap;">
           <div>
             <div class="card-title">第二層（Tier 2）：【${this.rebalancePool}】池內個股權重與買賣建議</div>
-            <div class="text-muted" style="font-size:12px; margin-top:2px;">
+            <div id="reb-tier2-denom" class="text-muted" style="font-size:12px; margin-top:2px;">
               成本分母 <strong class="font-mono">$${fmtInt(reb.denomCostTwd)}</strong> ｜ 現值分母 <strong class="font-mono">$${fmtInt(reb.denomMarketTwd)}</strong>
             </div>
           </div>
-          <span class="pill ${t2SumOk ? 'pill-emerald' : ''}">
+          <span id="reb-tier2-sum-badge" class="pill ${t2SumOk ? 'pill-emerald' : ''}">
             【${this.rebalancePool}】目標合計：${reb.tier2TotalTargetPct.toFixed(1)}%
           </span>
         </div>
@@ -686,36 +750,13 @@ export class StockTrackerUI {
         </div>
 
         <div id="rebalance-table-container">
-          ${this._renderRebalanceTable(sortedTier2, renderDiffBadge, renderActionCell)}
+          ${this._renderRebalanceTable(sortedTier2)}
         </div>
       </div>
     `;
   }
 
-  _renderRebalanceTable(sortedTier2, renderDiffBadge, renderActionCell) {
-    if (!renderDiffBadge) {
-      renderDiffBadge = (diffPct, targetPct) => {
-        if (targetPct <= 0 && Math.abs(diffPct) < 0.05) return '<span class="text-muted">-</span>';
-        const sign = diffPct > 0 ? '+' : '';
-        const cls = diffPct > 0 ? 'pill-rose' : (diffPct < 0 ? 'pill-emerald' : '');
-        return `<span class="pill ${cls}">${sign}${diffPct.toFixed(1)}%</span>`;
-      };
-    }
-    if (!renderActionCell) {
-      renderActionCell = (actionTwd, actionShares, targetPct, costTwd) => {
-        if (targetPct <= 0 && costTwd <= 0) return '<span class="text-muted">未配置</span>';
-        const absTwd = Math.abs(actionTwd);
-        if (absTwd < 100) return '<span class="text-muted">平衡</span>';
-        if (actionTwd > 0) {
-          const shText = actionShares > 0 ? ` (+${Math.round(actionShares)} 股)` : '';
-          return `<span class="pill pill-rose">加碼 $${fmtInt(actionTwd)}${shText}</span>`;
-        } else {
-          const shText = actionShares > 0 ? ` (-${Math.round(actionShares)} 股)` : '';
-          return `<span class="pill pill-emerald">減碼 $${fmtInt(absTwd)}${shText}</span>`;
-        }
-      };
-    }
-
+  _renderRebalanceTable(sortedTier2) {
     return `
       <div class="table-wrap">
         <table class="data-table">
@@ -735,8 +776,8 @@ export class StockTrackerUI {
           </thead>
           <tbody>
             ${sortedTier2.map((r) => `
-              <tr>
-                <td data-jump-symbol="${r.symbol}" style="cursor:pointer;">
+              <tr data-reb-t2-row="${r.symbol}">
+                <td data-jump-symbol="${r.symbol}" style="cursor:pointer;" title="點擊檢視 ${r.symbol} 分批庫存">
                   <div class="font-mono" style="font-weight:700; color:var(--accent-blue);">${r.symbol}</div>
                   <div class="text-muted font-mono" style="font-size:11px;">${r.shares} 股 @ ${fmtDec(r.currentPriceNative)}</div>
                 </td>
@@ -748,18 +789,71 @@ export class StockTrackerUI {
                 </td>
                 <td class="font-mono mask-amount" style="text-align:right; border-left:1px solid var(--border-color);">$${fmtInt(r.costTwd)}</td>
                 <td class="font-mono" style="text-align:right;">${r.costWeightPct.toFixed(1)}%</td>
-                <td>${renderDiffBadge(r.costDiffPct, r.targetPct)}</td>
-                <td class="mask-amount">${renderActionCell(r.costActionTwd, r.costActionShares, r.targetPct, r.costTwd)}</td>
+                <td data-reb-cell="t2-costDiff">${this._renderRebDiffBadge(r.costDiffPct, r.targetPct)}</td>
+                <td class="mask-amount" data-reb-cell="t2-costAct">${this._renderRebActionCell(r.costActionTwd, r.costActionShares, r.targetPct, r.costTwd)}</td>
                 <td class="font-mono mask-amount" style="text-align:right; border-left:1px solid var(--border-color);">$${fmtInt(r.marketTwd)}</td>
                 <td class="font-mono" style="text-align:right;">${r.marketWeightPct.toFixed(1)}%</td>
-                <td>${renderDiffBadge(r.marketDiffPct, r.targetPct)}</td>
-                <td class="mask-amount">${renderActionCell(r.marketActionTwd, r.marketActionShares, r.targetPct, r.marketTwd)}</td>
+                <td data-reb-cell="t2-mktDiff">${this._renderRebDiffBadge(r.marketDiffPct, r.targetPct)}</td>
+                <td class="mask-amount" data-reb-cell="t2-mktAct">${this._renderRebActionCell(r.marketActionTwd, r.marketActionShares, r.targetPct, r.marketTwd)}</td>
               </tr>
             `).join('')}
           </tbody>
         </table>
       </div>
     `;
+  }
+
+  _updateRebalanceNumbersInPlace(container, store) {
+    const reb = StockCore.getRebalanceComparison(store.getState(), {
+      activePool: this.rebalancePool,
+      calcMode: this.rebalanceCalcMode,
+      query: this.rebalanceQuery
+    });
+
+    const t1SumEl = container.querySelector('#reb-tier1-sum-badge');
+    if (t1SumEl) {
+      const ok = Math.abs(reb.tier1TotalTargetPct - 100) < 0.1;
+      t1SumEl.className = `pill ${ok ? 'pill-emerald' : ''}`;
+      t1SumEl.textContent = `第一層目標合計：${reb.tier1TotalTargetPct.toFixed(1)}%`;
+    }
+    const t2SumEl = container.querySelector('#reb-tier2-sum-badge');
+    if (t2SumEl) {
+      const ok = Math.abs(reb.tier2TotalTargetPct - 100) < 0.1;
+      t2SumEl.className = `pill ${ok ? 'pill-emerald' : ''}`;
+      t2SumEl.textContent = `【${this.rebalancePool}】目標合計：${reb.tier2TotalTargetPct.toFixed(1)}%`;
+    }
+    const denomEl = container.querySelector('#reb-tier2-denom');
+    if (denomEl) {
+      denomEl.innerHTML = `成本分母 <strong class="font-mono">$${fmtInt(reb.denomCostTwd)}</strong> ｜ 現值分母 <strong class="font-mono">$${fmtInt(reb.denomMarketTwd)}</strong>`;
+    }
+
+    const t1Map = new Map(reb.tier1Rows.map((r) => [r.type, r]));
+    container.querySelectorAll('[data-reb-t1-row]').forEach((tr) => {
+      const r = t1Map.get(tr.getAttribute('data-reb-t1-row'));
+      if (!r) return;
+      const cDiff = tr.querySelector('[data-reb-cell="t1-costDiff"]');
+      const cAct = tr.querySelector('[data-reb-cell="t1-costAct"]');
+      const mDiff = tr.querySelector('[data-reb-cell="t1-mktDiff"]');
+      const mAct = tr.querySelector('[data-reb-cell="t1-mktAct"]');
+      if (cDiff) cDiff.innerHTML = this._renderRebDiffBadge(r.costDiffPct, r.targetPct);
+      if (cAct) cAct.innerHTML = this._renderRebActionCell(r.costActionTwd, undefined, r.targetPct, r.costTwd);
+      if (mDiff) mDiff.innerHTML = this._renderRebDiffBadge(r.marketDiffPct, r.targetPct);
+      if (mAct) mAct.innerHTML = this._renderRebActionCell(r.marketActionTwd, undefined, r.targetPct, r.marketTwd);
+    });
+
+    const t2Map = new Map(reb.tier2Rows.map((r) => [r.symbol, r]));
+    container.querySelectorAll('[data-reb-t2-row]').forEach((tr) => {
+      const r = t2Map.get(tr.getAttribute('data-reb-t2-row'));
+      if (!r) return;
+      const cDiff = tr.querySelector('[data-reb-cell="t2-costDiff"]');
+      const cAct = tr.querySelector('[data-reb-cell="t2-costAct"]');
+      const mDiff = tr.querySelector('[data-reb-cell="t2-mktDiff"]');
+      const mAct = tr.querySelector('[data-reb-cell="t2-mktAct"]');
+      if (cDiff) cDiff.innerHTML = this._renderRebDiffBadge(r.costDiffPct, r.targetPct);
+      if (cAct) cAct.innerHTML = this._renderRebActionCell(r.costActionTwd, r.costActionShares, r.targetPct, r.costTwd);
+      if (mDiff) mDiff.innerHTML = this._renderRebDiffBadge(r.marketDiffPct, r.targetPct);
+      if (mAct) mAct.innerHTML = this._renderRebActionCell(r.marketActionTwd, r.marketActionShares, r.targetPct, r.marketTwd);
+    });
   }
 
   _renderWatchlistTab(state) {
@@ -805,9 +899,15 @@ export class StockTrackerUI {
                 const cur = toNum(w['採用價'] || w['自動價'], 0);
                 const diffPct = (fair > 0 && cur > 0) ? ((cur - fair) / fair) : null;
                 const isUndervalued = diffPct !== null && diffPct <= 0;
+                const sym = String(w['代號'] || '').trim();
+                const isTw = (w['市場'] || '').toUpperCase() === 'TW' || /^\d{4}(\.TW)?$/i.test(sym);
                 return `
                   <tr>
-                    <td class="font-mono" style="font-weight:700;">${w['代號']}</td>
+                    <td class="font-mono" style="font-weight:700;">
+                      ${isTw
+                        ? `<button type="button" class="btn btn-ghost btn-sm" data-wl-open-gs="${sym}" style="padding:2px 7px; color:var(--accent-blue); font-weight:700;" title="前往好股價查看 ${sym} 財報與目標價">${sym} ↗</button>`
+                        : sym}
+                    </td>
                     <td><span class="pill">${w['市場'] || 'US'}</span></td>
                     <td class="font-mono" style="text-align:right;">
                       <div style="display:inline-flex; align-items:center; justify-content:flex-end; gap:4px;">
@@ -904,6 +1004,16 @@ export class StockTrackerUI {
   }
 
   _bindHoldingsRowEvents(container, state, store, showToast) {
+    container.querySelectorAll('#holdings-list-container th[data-st-sort-table]').forEach((th) => {
+      th.addEventListener('click', () => {
+        const tbl = th.getAttribute('data-st-sort-table');
+        const col = th.getAttribute('data-st-sort-col');
+        const def = th.getAttribute('data-st-sort-def') || 'desc';
+        this._toggleSort(tbl, col, def);
+        this.render(container, store.getState(), store, showToast);
+      });
+    });
+
     container.querySelectorAll('#holdings-list-container [data-click-symbol]').forEach((tr) => {
       tr.addEventListener('click', () => {
         const sym = tr.getAttribute('data-click-symbol');
@@ -911,19 +1021,37 @@ export class StockTrackerUI {
         this.selectedLotId = null;
         this.showBuyForSelected = false;
         this.render(container, store.getState(), store, showToast);
+        if (this.selectedSymbol) {
+          const panel = container.querySelector('#lot-drilldown-panel');
+          if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
       });
     });
   }
 
   _bindRebalanceRowEvents(container, state, store, showToast) {
+    container.querySelectorAll('#rebalance-table-container th[data-st-sort-table]').forEach((th) => {
+      th.addEventListener('click', () => {
+        const tbl = th.getAttribute('data-st-sort-table');
+        const col = th.getAttribute('data-st-sort-col');
+        const def = th.getAttribute('data-st-sort-def') || 'desc';
+        this._toggleSort(tbl, col, def);
+        this.render(container, store.getState(), store, showToast);
+      });
+    });
+
     container.querySelectorAll('#rebalance-table-container [data-jump-symbol]').forEach((td) => {
       td.addEventListener('click', () => {
         const sym = td.getAttribute('data-jump-symbol');
+        if (window.NIC_Nav?.pushIntraView) {
+          window.NIC_Nav.pushIntraView('stock-tracker', '權重再平衡', this.getViewSnapshot().state);
+        }
         this.activeTab = 'holdings';
         this.selectedSymbol = sym;
         this.selectedLotId = null;
         this.showBuyForSelected = false;
         this.render(container, store.getState(), store, showToast);
+        try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) {}
       });
     });
 
@@ -932,7 +1060,7 @@ export class StockTrackerUI {
         const symbol = input.getAttribute('data-stock-weight');
         const targetPct = e.target.value;
         StockCore.setStockTargetWeight(store.getState(), { symbol, targetPct }, store);
-        this.render(container, store.getState(), store, showToast);
+        this._updateRebalanceNumbersInPlace(container, store);
       });
     });
   }
@@ -1082,13 +1210,11 @@ export class StockTrackerUI {
         const listContainer = container.querySelector('#holdings-list-container');
         if (!listContainer) return;
         const curState = store.getState();
-        const filtered = StockCore.filterHoldings(curState, {
+        const filtered = this._sortHoldingsList(StockCore.filterHoldings(curState, {
           market: this.filterMarket,
           type: this.filterType,
           query: this.searchQuery
-        });
-        const sortCfg = this.sortState.holdings || { col: 'market', dir: 'desc' };
-        StockCore.sortHoldings(filtered, sortCfg.col, sortCfg.dir);
+        }));
         listContainer.innerHTML = this._renderHoldingsTableAndCards(filtered);
         this._bindHoldingsRowEvents(container, curState, store, showToast);
       };
@@ -1193,6 +1319,13 @@ export class StockTrackerUI {
       });
     });
 
+    container.querySelectorAll('[data-wl-open-gs]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const sym = btn.getAttribute('data-wl-open-gs');
+        if (window.NIC_OpenGoodStock) window.NIC_OpenGoodStock(sym, 'all');
+      });
+    });
+
     container.querySelectorAll('[data-select-pool]').forEach((el) => {
       el.addEventListener('click', () => {
         this.rebalancePool = el.getAttribute('data-select-pool');
@@ -1213,7 +1346,7 @@ export class StockTrackerUI {
         const targetPct = e.target.value;
         StockCore.setTypeTargetWeight(store.getState(), { type, targetPct }, store);
         showToast(`已更新【${type}】第一層目標比例為 ${targetPct || 0}%`);
-        this.render(container, store.getState(), store, showToast);
+        this._updateRebalanceNumbersInPlace(container, store);
       });
     });
 
@@ -1222,7 +1355,7 @@ export class StockTrackerUI {
         const symbol = input.getAttribute('data-stock-weight');
         const targetPct = e.target.value;
         StockCore.setStockTargetWeight(store.getState(), { symbol, targetPct }, store);
-        this.render(container, store.getState(), store, showToast);
+        this._updateRebalanceNumbersInPlace(container, store);
       });
     });
 
@@ -1260,14 +1393,12 @@ export class StockTrackerUI {
         const tableContainer = container.querySelector('#rebalance-table-container');
         if (!tableContainer) return;
         const curState = store.getState();
-        const reb = StockCore.getRebalanceAnalysis(curState, {
+        const reb = StockCore.getRebalanceComparison(curState, {
           activePool: this.rebalancePool,
           calcMode: this.rebalanceCalcMode,
           query: this.rebalanceQuery
         });
-        const sortCfg = this.sortState.rebalance || { col: 'costTwd', dir: 'desc' };
-        const sortedTier2 = [...reb.tier2];
-        StockCore.sortRebalanceTier2(sortedTier2, sortCfg.col, sortCfg.dir);
+        const sortedTier2 = this._sortTier2Rows(reb.tier2Rows);
         tableContainer.innerHTML = this._renderRebalanceTable(sortedTier2);
         this._bindRebalanceRowEvents(container, curState, store, showToast);
       };
@@ -1324,10 +1455,14 @@ export class StockTrackerUI {
     container.querySelectorAll('[data-jump-symbol]').forEach((cell) => {
       cell.addEventListener('click', () => {
         const sym = cell.getAttribute('data-jump-symbol');
+        if (window.NIC_Nav?.pushIntraView) {
+          window.NIC_Nav.pushIntraView('stock-tracker', '權重再平衡', this.getViewSnapshot().state);
+        }
         this.activeTab = 'holdings';
         this.selectedSymbol = sym;
         this.selectedLotId = null;
         this.render(container, store.getState(), store, showToast);
+        try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) {}
       });
     });
   }

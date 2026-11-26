@@ -1,5 +1,6 @@
 import { GasApiClient } from '../../core/api-client.js';
 import { agentBridge } from '../../core/agent-bridge.js';
+import { bindTwoStepConfirm } from '../../core/nav-history.js';
 
 export class SettingsUI {
   constructor() {
@@ -57,10 +58,13 @@ export class SettingsUI {
 
           ${this.pairingUrl ? `
             <div style="margin-top:14px; padding:12px; background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.3); border-radius:10px;">
-              <div style="font-size:12px; font-weight:700; color:var(--accent-blue); margin-bottom:6px;">
-                📱 iPhone 免輸入一鍵配對連結（於 iPhone Safari 開啟此連結即自動完成綁定）：
+              <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px; flex-wrap:wrap;">
+                <div style="font-size:12px; font-weight:700; color:var(--accent-blue);">
+                  📱 iPhone 免輸入一鍵配對連結（於 iPhone Safari 開啟即自動綁定）：
+                </div>
+                <button type="button" class="btn btn-primary btn-sm" id="btn-copy-pair-url">📋 複製連結</button>
               </div>
-              <input class="form-control font-mono" style="font-size:12px;" readonly value="${this.pairingUrl}" onclick="this.select()" />
+              <input class="form-control font-mono" id="input-pair-url" style="font-size:12px;" readonly value="${this.pairingUrl}" onclick="this.select()" />
             </div>
           ` : ''}
         </div>
@@ -168,14 +172,38 @@ export class SettingsUI {
       });
     }
 
+    const copyPairBtn = container.querySelector('#btn-copy-pair-url');
+    if (copyPairBtn) {
+      copyPairBtn.addEventListener('click', async () => {
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(this.pairingUrl);
+          } else {
+            const inp = container.querySelector('#input-pair-url');
+            if (inp) {
+              inp.select();
+              document.execCommand('copy');
+            }
+          }
+          showToast('📋 已複製 iPhone 一鍵配對連結！');
+        } catch (_) {
+          showToast('請長按連結欄位手動複製');
+        }
+      });
+    }
+
     const pushBtn = container.querySelector('#btn-push-queue');
     const pwaUpdateBtn = container.querySelector('#btn-settings-pwa-update');
     if (pwaUpdateBtn) {
-      pwaUpdateBtn.addEventListener('click', (e) => {
-        if (window.NIC_ForceUpdatePWA) {
-          window.NIC_ForceUpdatePWA(e.currentTarget);
-        } else {
-          window.location.reload();
+      bindTwoStepConfirm(pwaUpdateBtn, {
+        confirmText: '再點一次確認強制更新',
+        timeoutMs: 3000,
+        onConfirm: (e) => {
+          if (window.NIC_ForceUpdatePWA) {
+            window.NIC_ForceUpdatePWA(e.currentTarget);
+          } else {
+            window.location.reload();
+          }
         }
       });
     }
@@ -234,10 +262,14 @@ export class SettingsUI {
 
     const resetBtn = container.querySelector('#btn-reset-snapshot');
     if (resetBtn) {
-      resetBtn.addEventListener('click', async () => {
-        await store.resetToInitialSnapshot();
-        showToast('♻️ 已重設回試算表初始快照並清空待同步佇列');
-        this.render(container, store.getState(), store, showToast);
+      bindTwoStepConfirm(resetBtn, {
+        confirmText: '再點一次確認重設（將清空佇列）',
+        timeoutMs: 3000,
+        onConfirm: async () => {
+          await store.resetToInitialSnapshot();
+          showToast('♻️ 已重設回試算表初始快照並清空待同步佇列');
+          this.render(container, store.getState(), store, showToast);
+        }
       });
     }
 

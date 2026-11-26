@@ -1,6 +1,7 @@
 import { StockCore } from '../stock-tracker/core.js';
 import { AssetCore, FS_SHEET_URL } from '../asset-tracker/core.js';
 import { TwseRadarCore } from '../twse-radar/core.js';
+import { bindTwoStepConfirm } from '../../core/nav-history.js';
 
 const toNum = (v, fallback = 0) => {
   if (v === null || v === undefined || v === '') return fallback;
@@ -24,6 +25,26 @@ export class HubUI {
     this.navigate = navigateFn;
     this.showAddExternal = false;
     this.topSort = { col: 'market', dir: 'desc' };
+  }
+
+  getViewSnapshot() {
+    return {
+      label: '總覽',
+      state: { topSort: { ...this.topSort } }
+    };
+  }
+
+  restoreViewSnapshot(snap) {
+    if (snap?.topSort) this.topSort = { ...snap.topSort };
+    this.showAddExternal = false;
+  }
+
+  handleEscape() {
+    if (this.showAddExternal) {
+      this.showAddExternal = false;
+      return true;
+    }
+    return false;
   }
 
   render(container, state, store, showToast) {
@@ -69,21 +90,21 @@ export class HubUI {
         </div>
       ` : ''}
 
-      <!-- Clean Minimalist Executive KPI Banner -->
+      <!-- Clean Minimalist Executive KPI Banner (Clickable direct jumps) -->
       <div class="grid-kpi">
-        <div class="card">
+        <div class="card kpi-clickable" data-kpi-jump="asset:accounts:ALL" title="點擊進入家庭資產總覽">
           <div class="kpi-label">
             <span>個人總淨值 (F&S 含不動產扣負債)</span>
-            <span class="pill">淨值</span>
+            <span class="pill">淨值 ↗</span>
           </div>
           <div class="kpi-value mask-amount">$${fmtInt(assetSum.netWorthTwd)}</div>
           <div class="kpi-sub mask-amount">金融資產 $${fmtInt(assetSum.totalFinancialAssetsTwd)} ｜ 目標 ${Number.isFinite(Number(assetSum.goalProgress)) ? (Number(assetSum.goalProgress) * 100).toFixed(1) + '%' : '—'}</div>
         </div>
 
-        <div class="card">
+        <div class="card kpi-clickable" data-kpi-jump="stock:holdings" title="點擊進入股票庫存持倉總覽">
           <div class="kpi-label">
             <span>N_BD_C 股票持倉總市值</span>
-            <span class="pill">${stockSum.holdingCount} 檔</span>
+            <span class="pill">${stockSum.holdingCount} 檔 ↗</span>
           </div>
           <div class="kpi-value mask-amount">$${fmtInt(stockSum.totalMarketTwd)}</div>
           <div class="kpi-sub mask-amount ${stockSum.unrealizedTwd >= 0 ? 'text-emerald' : 'text-rose'}">
@@ -91,19 +112,19 @@ export class HubUI {
           </div>
         </div>
 
-        <div class="card">
+        <div class="card kpi-clickable" data-kpi-jump="asset:accounts:流動資金" title="點擊檢視流動資金與儲蓄帳戶">
           <div class="kpi-label">
             <span>流動儲蓄 + 保障預備金</span>
-            <span class="pill">${assetSum.accountCount} 帳戶</span>
+            <span class="pill">${assetSum.accountCount} 帳戶 ↗</span>
           </div>
           <div class="kpi-value mask-amount">$${fmtInt(assetSum.liquidSavingsTwd + assetSum.protectionTwd)}</div>
           <div class="kpi-sub mask-amount">可動用儲蓄 $${fmtInt(assetSum.liquidSavingsTwd)}</div>
         </div>
 
-        <div class="card">
+        <div class="card kpi-clickable" data-kpi-jump="asset:salary" title="點擊進入歷年薪資與獎金追蹤">
           <div class="kpi-label">
             <span>${salData.latestAnnual?.year || 2026} 年度累計實領薪資 (N_薪資)</span>
-            <span class="pill pill-emerald">▲ ${Number.isFinite(Number(salData.totalGrowthMultiple)) ? Number(salData.totalGrowthMultiple).toFixed(2) + 'x' : '—'}</span>
+            <span class="pill pill-emerald">▲ ${Number.isFinite(Number(salData.totalGrowthMultiple)) ? Number(salData.totalGrowthMultiple).toFixed(2) + 'x' : '—'} ↗</span>
           </div>
           <div class="kpi-value mask-amount">$${fmtInt(salData.latestAnnual?.annualSalary || 0)}</div>
           <div class="kpi-sub mask-amount">
@@ -198,14 +219,17 @@ export class HubUI {
           ${externalTools.map((ext) => `
             <div class="tool-card" data-ext-url="${ext.url}">
               <div>
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; gap:6px;">
                   <span style="font-weight:700; font-size:15px;">${ext.name}</span>
-                  <span class="pill">${ext.badge || '外部系統'}</span>
+                  <div style="display:flex; align-items:center; gap:6px;">
+                    <span class="pill">${ext.badge || '外部系統'}</span>
+                    <button type="button" class="btn btn-ghost btn-sm" data-del-ext-id="${ext.id}" title="刪除此自訂連結（點擊兩次確認）" style="padding:2px 6px; font-size:11px;">✕</button>
+                  </div>
                 </div>
                 <div class="text-muted" style="font-size:12.5px;">${ext.subtitle}</div>
               </div>
               <div style="display:flex; justify-content:space-between; align-items:center; padding-top:8px; border-top:1px solid var(--border-color); font-size:12px; color:var(--text-secondary);">
-                <span class="font-mono" style="font-size:11px;">${ext.url}</span>
+                <span class="font-mono" style="font-size:11px; overflow:hidden; text-overflow:ellipsis;">${ext.url}</span>
                 <span>↗ 開啟</span>
               </div>
             </div>
@@ -236,8 +260,8 @@ export class HubUI {
                   const pnl = toNum(r['未實現(TWD)'], 0);
                   const roi = toRatio(r['報酬率']);
                   return `
-                    <tr>
-                      <td class="font-mono" style="font-weight:700;">${r['代號']}</td>
+                    <tr data-hub-stock="${r['代號']}" style="cursor:pointer;" title="點擊查看 ${r['代號']} 分批庫存明細">
+                      <td class="font-mono" style="font-weight:700; color:var(--accent-blue);">${r['代號']}</td>
                       <td><span class="pill">${r['類型']}</span></td>
                       <td class="font-mono mask-amount" style="text-align:right;">$${fmtInt(r['市值(TWD)'])}</td>
                       <td class="font-mono mask-amount ${pnl >= 0 ? 'text-emerald' : 'text-rose'}" style="text-align:right; font-weight:600;">
@@ -301,8 +325,50 @@ export class HubUI {
       });
     });
 
+    container.querySelectorAll('[data-kpi-jump]').forEach((card) => {
+      card.addEventListener('click', () => {
+        const spec = card.getAttribute('data-kpi-jump') || '';
+        const [kind, tab, attr] = spec.split(':');
+        if (kind === 'stock') {
+          if (window.NIC_Nav?.openStockDetail) window.NIC_Nav.openStockDetail(null, tab || 'holdings');
+          else if (typeof this.navigate === 'function') this.navigate('stock-tracker');
+        } else if (kind === 'asset') {
+          if (window.NIC_Nav?.openAssetTab) window.NIC_Nav.openAssetTab(tab || 'accounts', attr ?? null);
+          else if (typeof this.navigate === 'function') this.navigate('asset-tracker');
+        }
+      });
+    });
+
+    container.querySelectorAll('[data-hub-stock]').forEach((tr) => {
+      tr.addEventListener('click', () => {
+        const sym = tr.getAttribute('data-hub-stock');
+        if (window.NIC_Nav?.openStockDetail) {
+          window.NIC_Nav.openStockDetail(sym, 'holdings');
+        } else if (typeof this.navigate === 'function') {
+          this.navigate('stock-tracker');
+        }
+      });
+    });
+
+    container.querySelectorAll('[data-del-ext-id]').forEach((btn) => {
+      bindTwoStepConfirm(btn, {
+        confirmText: '確認刪除？',
+        timeoutMs: 3000,
+        onConfirm: (e) => {
+          e.stopPropagation();
+          const delId = btn.getAttribute('data-del-ext-id');
+          const cfg = store.getConfig();
+          const nextList = (cfg.externalTools || []).filter((x) => String(x.id) !== String(delId));
+          store.saveConfig({ externalTools: nextList });
+          showToast('已刪除自訂外部連結');
+          this.render(container, store.getState(), store, showToast);
+        }
+      });
+    });
+
     container.querySelectorAll('[data-ext-url]').forEach((el) => {
-      el.addEventListener('click', () => {
+      el.addEventListener('click', (e) => {
+        if (e.target && e.target.closest && e.target.closest('[data-del-ext-id]')) return;
         const url = el.getAttribute('data-ext-url');
         window.open(url, '_blank', 'noopener');
       });

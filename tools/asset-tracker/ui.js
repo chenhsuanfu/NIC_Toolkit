@@ -1,4 +1,5 @@
 import { AssetCore, FS_SHEET_URL } from './core.js';
+import { bindTwoStepConfirm } from '../../core/nav-history.js';
 
 const toNum = (v, fallback = 0) => {
   if (v === null || v === undefined || v === '') return fallback;
@@ -63,6 +64,52 @@ export class AssetTrackerUI {
       logs: { col: 'date', dir: 'desc' },
       debts: { col: 'remain', dir: 'desc' }
     };
+  }
+
+  getViewSnapshot() {
+    const tabLabels = {
+      accounts: '家庭帳戶',
+      monthly: '每月收支',
+      analytics: '資產分析',
+      fs_shared: 'FS共同資產',
+      fixed_sim: '固定開銷模擬',
+      salary: '薪資追蹤',
+      logs: '開銷與流水',
+      debts: '負債總覽'
+    };
+    return {
+      label: tabLabels[this.activeTab] || '家庭資產',
+      state: {
+        activeTab: this.activeTab,
+        filterAttr: this.filterAttr,
+        salaryYearFilter: this.salaryYearFilter,
+        salaryTypeFilter: this.salaryTypeFilter,
+        expenseAnalysisYear: this.expenseAnalysisYear
+      }
+    };
+  }
+
+  restoreViewSnapshot(snap) {
+    if (!snap) return;
+    if (snap.activeTab) this.activeTab = snap.activeTab;
+    if (snap.filterAttr !== undefined) this.filterAttr = snap.filterAttr;
+    if (snap.salaryYearFilter !== undefined) this.salaryYearFilter = snap.salaryYearFilter;
+    if (snap.salaryTypeFilter !== undefined) this.salaryTypeFilter = snap.salaryTypeFilter;
+    if (snap.expenseAnalysisYear !== undefined) this.expenseAnalysisYear = snap.expenseAnalysisYear;
+    this.reconcilingKey = null;
+    this.activeForm = null;
+  }
+
+  handleEscape() {
+    if (this.reconcilingKey) {
+      this.reconcilingKey = null;
+      return true;
+    }
+    if (this.activeForm) {
+      this.activeForm = null;
+      return true;
+    }
+    return false;
   }
 
   _toggleSort(key, col, def = 'desc') {
@@ -183,7 +230,7 @@ export class AssetTrackerUI {
       ${this.activeForm === 'account_log' ? this._renderLogForm(opts, today) : ''}
       ${this.activeForm === 'salary' ? this._renderSalaryForm(today) : ''}
 
-      <div class="sub-tabs">
+      <div class="sub-tabs" id="asset-sub-tabs" style="scroll-margin-top:64px;">
         <button class="sub-tab ${this.activeTab === 'accounts' ? 'active' : ''}" data-tab="accounts">帳戶與對帳</button>
         <button class="sub-tab ${this.activeTab === 'monthly' ? 'active' : ''}" data-tab="monthly">每月收支</button>
         <button class="sub-tab ${this.activeTab === 'analytics' ? 'active' : ''}" data-tab="analytics">分析圖</button>
@@ -220,7 +267,7 @@ export class AssetTrackerUI {
                 ${opts.expenseMainCategories.map((c) => `<option value="${c}" ${c === this.selectedMainCat ? 'selected' : ''}>${c}</option>`).join('')}
               </select></div>
             <div class="form-group"><label class="form-label">子類別</label>
-              <select class="form-control" name="subCategory">
+              <select class="form-control" name="subCategory" id="select-exp-sub">
                 <option value="">(一般)</option>
                 ${subCats.map((s) => `<option value="${s}">${s}</option>`).join('')}
               </select></div>
@@ -257,7 +304,7 @@ export class AssetTrackerUI {
                 ${opts.natures.filter((n) => n !== '校正').map((n) => `<option value="${n}" ${n === this.selectedNature ? 'selected' : ''}>${n}</option>`).join('')}
               </select></div>
             <div class="form-group"><label class="form-label">類別</label>
-              <select class="form-control" name="category">${(cats.length ? cats : ['其他']).map((c) => `<option value="${c}">${c}</option>`).join('')}</select></div>
+              <select class="form-control" name="category" id="select-log-cat">${(cats.length ? cats : ['其他']).map((c) => `<option value="${c}">${c}</option>`).join('')}</select></div>
             <div class="form-group"><label class="form-label">帳戶</label>
               <select class="form-control" name="account">${opts.accountNames.map((a) => `<option value="${a}">${a}</option>`).join('')}</select></div>
             <div class="form-group"><label class="form-label">幣別</label>
@@ -796,34 +843,74 @@ export class AssetTrackerUI {
       });
     }
 
-    // Fixed Expense Simulator bindings
+    // Fixed Expense Simulator bindings (in-place DOM updates so typing never loses focus)
+    const updateFixedSimInPlace = () => {
+      const items = this.fixedSim.items || [];
+      const activeItems = items.filter((x) => x.enabled !== false);
+      const totalP1 = activeItems.reduce((s, x) => s + toNum(x.p1, 0), 0);
+      const totalP2 = activeItems.reduce((s, x) => s + toNum(x.p2, 0), 0);
+      const totalFixed = totalP1 + totalP2;
+      const income = toNum(this.fixedSim.monthlyIncome, 0);
+      const gap = income - totalFixed;
+
+      const totalEl = container.querySelector('#sim-kpi-total');
+      const splitEl = container.querySelector('#sim-kpi-split');
+      const gapEl = container.querySelector('#sim-kpi-gap');
+      const gapSubEl = container.querySelector('#sim-kpi-gap-sub');
+      if (totalEl) totalEl.textContent = `$${fmtInt(totalFixed)}`;
+      if (splitEl) splitEl.textContent = `炫甫 $${fmtInt(totalP1)} ｜ 垠宣 $${fmtInt(totalP2)}`;
+      if (gapEl) {
+        gapEl.textContent = `${gap >= 0 ? '+' : ''}$${fmtInt(gap)}`;
+        gapEl.className = `kpi-value mask-amount ${gap >= 0 ? 'text-emerald' : 'text-rose'}`;
+      }
+      if (gapSubEl) gapSubEl.textContent = gap >= 0 ? '每月結餘空間' : '⚠️ 固定開銷超出月收入';
+
+      for (const it of items) {
+        const tr = container.querySelector(`[data-sim-row="${it.id}"]`);
+        if (tr) tr.style.opacity = it.enabled === false ? '0.45' : '';
+        const sumTd = container.querySelector(`[data-sim-row-sum="${it.id}"]`);
+        if (sumTd) sumTd.textContent = `$${fmtInt(toNum(it.p1, 0) + toNum(it.p2, 0))}`;
+      }
+    };
+
     const simIncomeInp = container.querySelector('#input-sim-income');
     if (simIncomeInp) {
-      simIncomeInp.addEventListener('change', () => {
+      const onIncomeUpdate = () => {
         this.fixedSim.monthlyIncome = Math.max(0, toNum(simIncomeInp.value, 0));
         this._saveFixedSim();
-        this.render(container, store.getState(), store, showToast);
-      });
+        updateFixedSimInPlace();
+      };
+      simIncomeInp.addEventListener('input', onIncomeUpdate);
+      simIncomeInp.addEventListener('change', onIncomeUpdate);
     }
     container.querySelectorAll('[data-sim-field]').forEach((el) => {
-      el.addEventListener('change', () => {
+      const field = el.getAttribute('data-sim-field');
+      const onFieldUpdate = () => {
         const id = el.getAttribute('data-sim-id');
-        const field = el.getAttribute('data-sim-field');
         const item = this.fixedSim.items.find((x) => x.id === id);
         if (!item) return;
         if (field === 'enabled') item.enabled = el.checked;
         else if (field === 'p1' || field === 'p2') item[field] = Math.max(0, toNum(el.value, 0));
         else item[field] = el.value;
         this._saveFixedSim();
-        this.render(container, store.getState(), store, showToast);
-      });
+        updateFixedSimInPlace();
+      };
+      el.addEventListener('change', onFieldUpdate);
+      if (field === 'p1' || field === 'p2') {
+        el.addEventListener('input', onFieldUpdate);
+      }
     });
     container.querySelectorAll('[data-sim-del]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const id = btn.getAttribute('data-sim-del');
-        this.fixedSim.items = this.fixedSim.items.filter((x) => x.id !== id);
-        this._saveFixedSim();
-        this.render(container, store.getState(), store, showToast);
+      bindTwoStepConfirm(btn, {
+        confirmText: '刪?',
+        timeoutMs: 3000,
+        onConfirm: () => {
+          const id = btn.getAttribute('data-sim-del');
+          this.fixedSim.items = this.fixedSim.items.filter((x) => x.id !== id);
+          this._saveFixedSim();
+          showToast('已刪除模擬項目');
+          this.render(container, store.getState(), store, showToast);
+        }
       });
     });
     const simAddForm = container.querySelector('#form-sim-add');
@@ -849,11 +936,15 @@ export class AssetTrackerUI {
     }
     const simResetBtn = container.querySelector('#btn-sim-reset');
     if (simResetBtn) {
-      simResetBtn.addEventListener('click', () => {
-        this.fixedSim = structuredClone(DEFAULT_FIXED_SIM);
-        this._saveFixedSim();
-        showToast('已重設為預設固定開銷模擬表');
-        this.render(container, store.getState(), store, showToast);
+      bindTwoStepConfirm(simResetBtn, {
+        confirmText: '再點一次確認重設',
+        timeoutMs: 3000,
+        onConfirm: () => {
+          this.fixedSim = structuredClone(DEFAULT_FIXED_SIM);
+          this._saveFixedSim();
+          showToast('已重設為預設固定開銷模擬表');
+          this.render(container, store.getState(), store, showToast);
+        }
       });
     }
     const simApplyEfBtn = container.querySelector('#btn-sim-apply-ef');
@@ -875,7 +966,19 @@ export class AssetTrackerUI {
     const on = (sel, ev, fn) => container.querySelectorAll(sel).forEach((el) => el.addEventListener(ev, (e) => fn(el, e)));
 
     on('[data-toggle-form]', 'click', (el) => { const f = el.getAttribute('data-toggle-form'); this.activeForm = this.activeForm === f ? null : f; rerender(); });
-    on('[data-tab]', 'click', (el) => { this.activeTab = el.getAttribute('data-tab'); this.reconcilingKey = null; rerender(); });
+    on('[data-tab]', 'click', (el) => {
+      this.activeTab = el.getAttribute('data-tab');
+      this.reconcilingKey = null;
+      rerender();
+      if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+        requestAnimationFrame(() => {
+          const tabsEl = container.querySelector('#asset-sub-tabs');
+          if (tabsEl && typeof tabsEl.scrollIntoView === 'function') {
+            try { tabsEl.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (_) {}
+          }
+        });
+      }
+    });
     on('[data-card-attr]', 'click', (el) => {
       const attr = el.getAttribute('data-card-attr');
       this.filterAttr = (this.activeTab === 'accounts' && this.filterAttr === attr) ? 'ALL' : attr;
@@ -885,8 +988,33 @@ export class AssetTrackerUI {
     });
     on('[data-attr]', 'click', (el) => { this.filterAttr = el.getAttribute('data-attr'); rerender(); });
     on('th[data-sort-table]', 'click', (el) => { this._toggleSort(el.getAttribute('data-sort-table'), el.getAttribute('data-sort-col'), el.getAttribute('data-sort-default')); rerender(); });
-    on('#select-exp-main', 'change', (el) => { this.selectedMainCat = el.value; rerender(); });
-    on('#select-log-nature', 'change', (el) => { this.selectedNature = el.value; rerender(); });
+
+    // Preserve user-entered fields when switching category/nature by updating only the dependent <select>
+    const expMainSel = container.querySelector('#select-exp-main');
+    if (expMainSel) {
+      expMainSel.addEventListener('change', () => {
+        this.selectedMainCat = expMainSel.value;
+        const subSel = container.querySelector('#select-exp-sub');
+        if (subSel) {
+          const opts = AssetCore.getConfigOptions(store.getState());
+          const subCats = opts.expenseSubCategories[this.selectedMainCat] || [];
+          subSel.innerHTML = `<option value="">(一般)</option>${subCats.map((s) => `<option value="${s}">${s}</option>`).join('')}`;
+        }
+      });
+    }
+    const logNatSel = container.querySelector('#select-log-nature');
+    if (logNatSel) {
+      logNatSel.addEventListener('change', () => {
+        this.selectedNature = logNatSel.value;
+        const catSel = container.querySelector('#select-log-cat');
+        if (catSel) {
+          const opts = AssetCore.getConfigOptions(store.getState());
+          const cats = opts.ledgerCategories[this.selectedNature] || [];
+          catSel.innerHTML = (cats.length ? cats : ['其他']).map((c) => `<option value="${c}">${c}</option>`).join('');
+        }
+      });
+    }
+
     on('#salary-filter-year', 'change', (el) => { this.salaryYearFilter = el.value; rerender(); });
     on('#salary-filter-type', 'change', (el) => { this.salaryTypeFilter = el.value; rerender(); });
 
@@ -924,8 +1052,8 @@ export class AssetTrackerUI {
       if (inp) { inp.focus(); inp.select(); }
     });
     on('[data-cancel-reconcile]', 'click', () => { this.reconcilingKey = null; rerender(); });
-    on('[data-confirm-reconcile]', 'click', (el) => {
-      const [account, currency] = el.getAttribute('data-confirm-reconcile').split('|');
+    const confirmReconcile = (key) => {
+      const [account, currency] = key.split('|');
       const inp = container.querySelector('#reconcile-input');
       try {
         const res = AssetCore.reconcileAccountBalance(store.getState(), { account, currency, actualBalance: inp ? inp.value : '' }, store);
@@ -933,7 +1061,24 @@ export class AssetTrackerUI {
         this.reconcilingKey = null;
         rerender();
       } catch (err) { showToast(`錯誤：${err.message}`); }
+    };
+    on('[data-confirm-reconcile]', 'click', (el) => {
+      confirmReconcile(el.getAttribute('data-confirm-reconcile'));
     });
+    const reconcileInp = container.querySelector('#reconcile-input');
+    if (reconcileInp && this.reconcilingKey) {
+      reconcileInp.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          confirmReconcile(this.reconcilingKey);
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.reconcilingKey = null;
+          rerender();
+        }
+      });
+    }
   }
 
   _renderMonthlyTab(state) {
@@ -1215,8 +1360,8 @@ export class AssetTrackerUI {
       <div class="grid-kpi" style="margin-bottom:14px;">
         <div class="card">
           <div class="kpi-label"><span>每月固定開銷</span></div>
-          <div class="kpi-value mask-amount">$${fmtInt(totalFixed)}</div>
-          <div class="kpi-sub mask-amount">炫甫 $${fmtInt(totalP1)} ｜ 垠宣 $${fmtInt(totalP2)}</div>
+          <div id="sim-kpi-total" class="kpi-value mask-amount">$${fmtInt(totalFixed)}</div>
+          <div id="sim-kpi-split" class="kpi-sub mask-amount">炫甫 $${fmtInt(totalP1)} ｜ 垠宣 $${fmtInt(totalP2)}</div>
         </div>
         <div class="card">
           <div class="kpi-label"><span>每月收入 (可編輯)</span></div>
@@ -1227,8 +1372,8 @@ export class AssetTrackerUI {
         </div>
         <div class="card">
           <div class="kpi-label"><span>GAP (收入 - 固定開銷)</span></div>
-          <div class="kpi-value mask-amount ${gap >= 0 ? 'text-emerald' : 'text-rose'}">${gap >= 0 ? '+' : ''}$${fmtInt(gap)}</div>
-          <div class="kpi-sub">${gap >= 0 ? '每月結餘空間' : '⚠️ 固定開銷超出月收入'}</div>
+          <div id="sim-kpi-gap" class="kpi-value mask-amount ${gap >= 0 ? 'text-emerald' : 'text-rose'}">${gap >= 0 ? '+' : ''}$${fmtInt(gap)}</div>
+          <div id="sim-kpi-gap-sub" class="kpi-sub">${gap >= 0 ? '每月結餘空間' : '⚠️ 固定開銷超出月收入'}</div>
         </div>
       </div>
 
@@ -1259,15 +1404,15 @@ export class AssetTrackerUI {
                 const rowSum = toNum(it.p1, 0) + toNum(it.p2, 0);
                 const muted = it.enabled === false ? 'opacity:0.45;' : '';
                 return `
-                  <tr style="${muted}">
+                  <tr data-sim-row="${it.id}" style="${muted}">
                     <td><input type="checkbox" data-sim-id="${it.id}" data-sim-field="enabled" ${it.enabled !== false ? 'checked' : ''} /></td>
                     <td><span class="pill" style="font-size:10.5px;">${it.group}</span></td>
                     <td style="font-weight:600;">${it.name}</td>
                     <td class="text-muted">${it.type || '-'}</td>
                     <td style="text-align:right;"><input class="form-control font-mono" type="number" step="1" data-sim-id="${it.id}" data-sim-field="p1" value="${toNum(it.p1, 0)}" style="width:88px; text-align:right; padding:3px 6px; font-size:12.5px;" /></td>
                     <td style="text-align:right;"><input class="form-control font-mono" type="number" step="1" data-sim-id="${it.id}" data-sim-field="p2" value="${toNum(it.p2, 0)}" style="width:88px; text-align:right; padding:3px 6px; font-size:12.5px;" /></td>
-                    <td class="font-mono mask-amount" style="text-align:right; font-weight:700;">$${fmtInt(rowSum)}</td>
-                    <td><button type="button" class="btn btn-ghost btn-sm" data-sim-del="${it.id}" title="刪除" style="padding:2px 6px;">✕</button></td>
+                    <td data-sim-row-sum="${it.id}" class="font-mono mask-amount" style="text-align:right; font-weight:700;">$${fmtInt(rowSum)}</td>
+                    <td><button type="button" class="btn btn-ghost btn-sm" data-sim-del="${it.id}" title="刪除（點擊兩次確認）" style="padding:2px 6px;">✕</button></td>
                   </tr>
                 `;
               }).join('')}

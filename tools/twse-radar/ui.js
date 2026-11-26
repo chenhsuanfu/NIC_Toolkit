@@ -54,6 +54,46 @@ export class TwseRadarUI {
     this._csvLoadedAttempted = false;
   }
 
+  getViewSnapshot() {
+    const labels = {
+      action: '明日指令',
+      radar: '雷達圖',
+      calendar: `${this.selectedYear || ''} 日曆`.trim(),
+      audit: '回測複盤',
+      settings: '雷達設定'
+    };
+    return {
+      label: labels[this.activeTab] || 'TWSE 雷達',
+      state: {
+        activeTab: this.activeTab,
+        chartRange: this.chartRange,
+        viewStartIdx: this.viewStartIdx,
+        viewEndIdx: this.viewEndIdx,
+        focusDate: this.focusDate,
+        selectedYear: this.selectedYear
+      }
+    };
+  }
+
+  restoreViewSnapshot(snap) {
+    if (!snap) return;
+    if (snap.activeTab) this.activeTab = snap.activeTab;
+    if (snap.chartRange) this.chartRange = snap.chartRange;
+    if (snap.viewStartIdx !== undefined) this.viewStartIdx = snap.viewStartIdx;
+    if (snap.viewEndIdx !== undefined) this.viewEndIdx = snap.viewEndIdx;
+    if (snap.focusDate !== undefined) this.focusDate = snap.focusDate;
+    if (snap.selectedYear !== undefined) this.selectedYear = snap.selectedYear;
+    this._shouldScrollToday = false;
+  }
+
+  handleEscape() {
+    if (this.focusDate) {
+      this.focusDate = null;
+      return true;
+    }
+    return false;
+  }
+
   _ensureBundledCsv(container, state, store, showToast) {
     if (this._csvLoadedAttempted) return;
     this._csvLoadedAttempted = true;
@@ -912,6 +952,16 @@ export class TwseRadarUI {
             </div>
           </div>
         </div>
+
+        <div class="sticky-dirty-bar" id="radar-dirty-bar" hidden>
+          <span style="font-size:12.5px; font-weight:700; color:var(--accent-blue);">
+            ⚠️ 參數已修改，尚未套用重算
+          </span>
+          <div style="display:flex; gap:8px;">
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-radar-discard-dirty">↺ 取消修改</button>
+            <button type="submit" class="btn btn-primary btn-sm">💾 立即套用設定</button>
+          </div>
+        </div>
       </form>
     `;
   }
@@ -1201,13 +1251,17 @@ export class TwseRadarUI {
       });
     });
 
-    // Calendar day click -> jump to Radar chart focused on that date
+    // Calendar day click -> push back context & jump to Radar chart focused on that date
     container.querySelectorAll('[data-cal-date]').forEach((cell) => {
       cell.addEventListener('click', () => {
         const dt = cell.getAttribute('data-cal-date');
         if (!dt) return;
+        if (window.NIC_Nav?.pushIntraView) {
+          window.NIC_Nav.pushIntraView('twse-radar', `${this.selectedYear} 日曆`, this.getViewSnapshot().state);
+        }
         this._jumpToDate(dt, rawData);
         this.render(container, state, store, showToast);
+        try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) {}
       });
     });
 
@@ -1216,8 +1270,12 @@ export class TwseRadarUI {
       row.addEventListener('click', () => {
         const dt = row.getAttribute('data-jump-date');
         if (!dt) return;
+        if (this.activeTab !== 'radar' && window.NIC_Nav?.pushIntraView) {
+          window.NIC_Nav.pushIntraView('twse-radar', '回測複盤', this.getViewSnapshot().state);
+        }
         this._jumpToDate(dt, rawData);
         this.render(container, state, store, showToast);
+        try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) {}
       });
     });
 
@@ -1316,9 +1374,38 @@ export class TwseRadarUI {
       });
     }
 
-    // Full v4.0 Parameter Form (Tab 5)
+    // Full v4.0 Parameter Form (Tab 5) + Sticky Unsaved Changes Bar
     const paramsForm = container.querySelector('#form-radar-params');
     if (paramsForm) {
+      const dirtyBar = container.querySelector('#radar-dirty-bar');
+      const discardBtn = container.querySelector('#btn-radar-discard-dirty');
+      const initialToken = String(TwseRadarCore.getWorkingData().finmindToken || '');
+      const checkDirty = () => {
+        if (!dirtyBar) return;
+        const fd = new FormData(paramsForm);
+        let dirty = false;
+        for (const bk of BOOL_PARAM_KEYS) {
+          if (fd.has(bk) !== Boolean(params[bk])) { dirty = true; break; }
+        }
+        if (!dirty) {
+          for (const [k, v] of fd.entries()) {
+            if (k === 'finmindToken') {
+              if (String(v || '').trim() !== initialToken.trim()) { dirty = true; break; }
+            } else if (!BOOL_PARAM_KEYS.includes(k)) {
+              if (Number(v) !== Number(params[k])) { dirty = true; break; }
+            }
+          }
+        }
+        dirtyBar.hidden = !dirty;
+      };
+      paramsForm.addEventListener('input', checkDirty);
+      paramsForm.addEventListener('change', checkDirty);
+      if (discardBtn) {
+        discardBtn.addEventListener('click', () => {
+          this.render(container, state, store, showToast);
+        });
+      }
+
       paramsForm.addEventListener('submit', (e) => {
         e.preventDefault();
         const fd = new FormData(paramsForm);
