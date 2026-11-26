@@ -58,7 +58,7 @@
             </button>
             <div class="topbar-more-menu" id="topbar-more-menu" hidden>
               <button type="button" class="btn btn-ghost topbar-more-item" id="btn-pwa-update" title="清除快取並更新版本（需點擊兩次確認）">
-                🔄 強制更新 PWA (<span id="more-version-label">v56</span>)
+                🔄 強制更新 PWA (<span id="more-version-label">v57</span>)
               </button>
               <button type="button" class="btn btn-ghost topbar-more-item" id="btn-more-settings">
                 ⚙ 設定與同步中心
@@ -90,7 +90,7 @@
   <div class="toast-container" id="toast-container"></div>
 
   <script type="module">
-    const APP_VERSION = window.NIC_APP_META?.version || 'v56';
+    const APP_VERSION = window.NIC_APP_META?.version || 'v57';
     window.NIC_APP_VERSION = APP_VERSION;
     const versionLabelEl = document.getElementById('app-version-label');
     if (versionLabelEl) versionLabelEl.textContent = APP_VERSION;

@@ -143,6 +143,12 @@ export const GoodStockCore = {
           if (u.marketCap != null && existing.marketCap == null) {
             existing.marketCap = u.marketCap;
           }
+          if (u.yield != null && existing.yield == null) {
+            existing.yield = u.yield;
+          }
+          if (u.pb != null && existing.pb == null) {
+            existing.pb = u.pb;
+          }
           if (u.finSyncedAt && existing.dataSource !== 'finmind-live') {
             if (Array.isArray(u.quarters) && u.quarters.length >= 4) existing.quarters = u.quarters;
             if (Array.isArray(u.monthlyRevenues) && u.monthlyRevenues.length > 0) existing.monthlyRevenues = u.monthlyRevenues;
@@ -192,6 +198,9 @@ export const GoodStockCore = {
 
       const sixEval = this.evaluateSixIndicatorsWithHistory(s);
       const landmines = this.checkSevenLandmines(s);
+      const prevQAvg = sixEval.prevQuarter?.avgScore;
+      const curAvg = sixEval.current?.avgScore;
+      const isInflection = curAvg !== null && prevQAvg !== null && prevQAvg < 3.0 && curAvg >= 3.0;
 
       return {
         ...s,
@@ -199,6 +208,7 @@ export const GoodStockCore = {
         latestMonth: m0.ym || '2026/08',
         latestOpMargin: toNum(q0.opMargin),
         latestNetMargin: toNum(q0.netMargin),
+        latestNetIncomeYoY: toNum(q0.netIncomeYoY ?? q0.netProfitYoY),
         latestEps: toNum(q0.eps),
         latestInvTurnover: s.noInventory ? null : toNum(q0.invTurnover),
         latestFcfM: toNum(q0.fcfM),
@@ -210,6 +220,7 @@ export const GoodStockCore = {
         pe,
         doubleArrow,
         volRatioPct,
+        isInflection,
         sixEval,
         landmines
       };
@@ -224,7 +235,7 @@ export const GoodStockCore = {
    * - qOffset = 0 (latest quarter Q0), qOffset = 1 (previous quarter Q-1)
    * - mOffset = 0 (latest month M0), mOffset = 1 (previous month M-1), mOffset = 3 (3 months ago M-3)
    */
-  scoreSixIndicatorsAtWindow(stock, qOffset = 0, mOffset = 0) {
+  scoreSixIndicatorsAtWindow(stock, qOffset = 0, mOffset = 0, opts = {}) {
     const allQ = stock.quarters || [];
     const allM = stock.monthlyRevenues || [];
 
@@ -308,7 +319,8 @@ export const GoodStockCore = {
     }
 
     // 3. 獲利成長性評分標準 (以稅後淨利年增率 YoY% 為標準) - Sheet Rows A14:C19
-    const g = qWin4.map((q) => toNum(q.netIncomeYoY));
+    // 相容 finmind-live / seed (netIncomeYoY) 與 finmind-batch (netProfitYoY)
+    const g = qWin4.map((q) => toNum(q.netIncomeYoY ?? q.netProfitYoY));
     const g1 = g[0] ?? 0, g2 = g[1] ?? 0, g3 = g[2] ?? 0, g4 = g[3] ?? 0;
     const negCount4 = g.filter((v) => v < 0).length;
     const dec3Profit = g4 < g3 && g3 < g2;
@@ -428,7 +440,9 @@ export const GoodStockCore = {
       fcfReason = `近6季累積 (${sum6.toLocaleString()}) 與近4季累積 (${sum4.toLocaleString()}) 皆為負數`;
     }
 
-    const hasRealFinancials = (stock.dataSource === 'finmind-live' || stock.dataSource === 'finmind-batch') && allQ.length >= 4;
+    const isSyncedSource = stock.dataSource === 'finmind-live' || stock.dataSource === 'finmind-batch';
+    const isSeedFallback = Boolean(opts?.allowSeedFallback) && !stock.dataSource && allQ.length >= 6;
+    const hasRealFinancials = (isSyncedSource && allQ.length >= 4) || isSeedFallback;
     if (!hasRealFinancials) {
       opScore = null; opReason = '待同步完整財報';
       profitScore = null; profitReason = '待同步完整財報';
@@ -479,10 +493,10 @@ export const GoodStockCore = {
    * Evaluate Current (T0), Previous Month (M-1), and Previous Quarter (Q-1) Six-Indicator Scores
    * for MoM and QoQ score comparison screening and health check display.
    */
-  evaluateSixIndicatorsWithHistory(stock) {
-    const current = this.scoreSixIndicatorsAtWindow(stock, 0, 0);
-    const prevMonth = this.scoreSixIndicatorsAtWindow(stock, 0, 1);
-    const prevQuarter = this.scoreSixIndicatorsAtWindow(stock, 1, 3);
+  evaluateSixIndicatorsWithHistory(stock, opts = {}) {
+    const current = this.scoreSixIndicatorsAtWindow(stock, 0, 0, opts);
+    const prevMonth = this.scoreSixIndicatorsAtWindow(stock, 0, 1, opts);
+    const prevQuarter = this.scoreSixIndicatorsAtWindow(stock, 1, 3, opts);
 
     const deltaMoM = current.avgScore !== null && prevMonth.avgScore !== null ? round2(current.avgScore - prevMonth.avgScore) : null;
     const deltaQoQ = current.avgScore !== null && prevQuarter.avgScore !== null ? round2(current.avgScore - prevQuarter.avgScore) : null;
@@ -503,7 +517,7 @@ export const GoodStockCore = {
     const monthlySeries = [];
     for (let mOffset = 11; mOffset >= 0; mOffset--) {
       const qOffset = Math.floor(mOffset / 3);
-      const win = this.scoreSixIndicatorsAtWindow(stock, qOffset, mOffset);
+      const win = this.scoreSixIndicatorsAtWindow(stock, qOffset, mOffset, opts);
       const mRec = mList[mList.length - 1 - mOffset];
       let label = mRec?.month || mRec?.date || `M-${mOffset}`;
       if (label.length >= 7) label = label.slice(0, 7);
@@ -655,6 +669,8 @@ export const GoodStockCore = {
     const pctDiff = (cur, base) => (Math.abs(base) > 0 ? round2(((cur - base) / Math.abs(base)) * 100) : 0);
     const ppDiff = (cur, base) => round2(cur - base);
 
+    const qRev = (q) => toNum(q?.revenueM ?? q?.revM);
+
     return {
       latestQ: q0.q || '2026Q2',
       prevQ: q1.q || '2026Q1',
@@ -662,9 +678,9 @@ export const GoodStockCore = {
       rows: [
         {
           label: '營收(季,百萬)',
-          latestVal: toNum(q0.revenueM).toLocaleString(),
-          qoq: pctDiff(toNum(q0.revenueM), toNum(q1.revenueM)),
-          yoy: pctDiff(toNum(q0.revenueM), toNum(q4.revenueM)),
+          latestVal: qRev(q0).toLocaleString(),
+          qoq: pctDiff(qRev(q0), qRev(q1)),
+          yoy: pctDiff(qRev(q0), qRev(q4)),
           unit: '%'
         },
         {
@@ -899,18 +915,34 @@ export const GoodStockCore = {
       const momMode = filters.momDeltaMode || 'ALL'; // ALL | UP | UP_015 | NON_DEC | DOWN
       const qoqMode = filters.qoqDeltaMode || 'ALL'; // ALL | UP | UP_030 | UP_050 | NON_DEC | DOWN
       const improvedItem = filters.improvedItem || 'ALL';
+      const onlyInflection = Boolean(filters.onlyInflection);
+      const needsScore =
+        minAvg > 0 ||
+        maxAvg < 4 ||
+        onlyInflection ||
+        momMode !== 'ALL' ||
+        qoqMode !== 'ALL' ||
+        improvedItem !== 'ALL' ||
+        minRev > 0 ||
+        minOp > 0 ||
+        minProfit > 0 ||
+        minEps > 0 ||
+        minInv > 0 ||
+        minFcf > 0;
 
       list = list.filter((s) => {
         const cur = s.sixEval.current;
         const byKey = cur.byKey;
-        if (cur.avgScore < minAvg || cur.avgScore > maxAvg) return false;
+        if (needsScore && cur.avgScore === null) return false;
+        if (cur.avgScore !== null && (cur.avgScore < minAvg || cur.avgScore > maxAvg)) return false;
+        if (onlyInflection && !s.isInflection) return false;
         if (s.landmines.hitCount > maxLandmines) return false;
-        if (byKey.revGrowth < minRev) return false;
-        if (byKey.opMargin < minOp) return false;
-        if (byKey.profitGrowth < minProfit) return false;
-        if (byKey.eps < minEps) return false;
-        if (byKey.invTurnover !== null && byKey.invTurnover < minInv) return false;
-        if (byKey.fcf < minFcf) return false;
+        if (minRev > 0 && (byKey.revGrowth === null || byKey.revGrowth < minRev)) return false;
+        if (minOp > 0 && (byKey.opMargin === null || byKey.opMargin < minOp)) return false;
+        if (minProfit > 0 && (byKey.profitGrowth === null || byKey.profitGrowth < minProfit)) return false;
+        if (minEps > 0 && (byKey.eps === null || byKey.eps < minEps)) return false;
+        if (minInv > 0 && byKey.invTurnover !== null && byKey.invTurnover < minInv) return false;
+        if (minFcf > 0 && (byKey.fcf === null || byKey.fcf < minFcf)) return false;
 
         // MoM comparison filter (與前一個月評分比較)
         const dMoM = s.sixEval.deltaMoM;
@@ -1022,6 +1054,322 @@ export const GoodStockCore = {
     }
 
     return list;
+  },
+
+  /**
+   * 系統自動「最值得投資排行」風格設定與致命地雷定義
+   */
+  RANK_STYLES: {
+    balanced: {
+      key: 'balanced',
+      label: '平衡精選',
+      desc: '兼顧體質、拐點動能、估值安全邊際與現金流品質',
+      minAvgScore: 2.8,
+      weights: { quality: 0.35, momentum: 0.30, valuation: 0.25, safety: 0.10 }
+    },
+    growth: {
+      key: 'growth',
+      label: '轉機成長',
+      desc: '側重剛翻紅拐點、季增動能與財務雙箭頭爆發力',
+      minAvgScore: 2.8,
+      weights: { quality: 0.25, momentum: 0.45, valuation: 0.20, safety: 0.10 }
+    },
+    value: {
+      key: 'value',
+      label: '穩健價值',
+      desc: '嚴守 3.0 分體質底線，加重同業折價估值與現金流殖利率',
+      minAvgScore: 3.0,
+      weights: { quality: 0.35, momentum: 0.15, valuation: 0.30, safety: 0.20 }
+    }
+  },
+
+  FATAL_LANDMINE_IDS: ['op_loss', 'net_loss', 'consec_loss', 'non_op_rely'],
+
+  /**
+   * Compute median of a pre-filtered numeric array (returns null if empty)
+   */
+  _calcMedian(nums) {
+    if (!Array.isArray(nums) || nums.length === 0) return null;
+    const sorted = [...nums].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 0
+      ? round2((sorted[mid - 1] + sorted[mid]) / 2)
+      : round2(sorted[mid]);
+  },
+
+  /**
+   * System Auto-Ranking Engine: 最值得投資標的綜合排行 (0 ~ 100 分四維透明模型)
+   * Single-pass O(n log n) industry PE median precomputation + gatekeepers + 4D scoring + explainable tags & risks.
+   */
+  rankTopPicks(state, options = {}) {
+    const styleKey = this.RANK_STYLES[options.style] ? options.style : 'balanced';
+    const styleCfg = this.RANK_STYLES[styleKey];
+    const scope = options.scope || 'SYNCED_FIN'; // SYNCED_FIN | ALL | ETF_0050 | HOLDINGS | WATCHLIST
+    const industry = options.industry || 'ALL';
+    const minAvgScore = options.minAvgScore !== undefined && options.minAvgScore !== ''
+      ? toNum(options.minAvgScore, styleCfg.minAvgScore)
+      : styleCfg.minAvgScore;
+    const maxLandmines = options.maxLandmines !== undefined && options.maxLandmines !== ''
+      ? toNum(options.maxLandmines, 1)
+      : 1;
+    const minMarketCap = options.minMarketCap !== undefined && options.minMarketCap !== ''
+      ? toNum(options.minMarketCap, 50)
+      : 50;
+    const limit = options.limit !== undefined && options.limit !== null
+      ? Math.max(1, toNum(options.limit, 20))
+      : 500;
+
+    const universe = this.getEnrichedUniverse(state);
+    const syncedCount = universe.filter(
+      (s) => (s.dataSource === 'finmind-live' || s.dataSource === 'finmind-batch') && (s.quarters?.length || 0) >= 4
+    ).length;
+    const hasSynced = syncedCount > 0;
+    const fatalSet = new Set(this.FATAL_LANDMINE_IDS);
+
+    // 1. Single-pass industry & market median PE precomputation (exclude negative or extreme outlier PE >= 120)
+    // Normalize trailing '業' so seed ('半導體') and TWSE OpenAPI ('半導體業') share the same peer bucket
+    const normInd = (ind) => String(ind || '其他').trim().replace(/業$/, '') || '其他';
+    const indPeBuckets = new Map();
+    const allValidPes = [];
+    for (const s of universe) {
+      const p = toNum(s.pe, 0);
+      if (p > 0 && p < 120) {
+        allValidPes.push(p);
+        const ind = normInd(s.industry);
+        let arr = indPeBuckets.get(ind);
+        if (!arr) {
+          arr = [];
+          indPeBuckets.set(ind, arr);
+        }
+        arr.push(p);
+      }
+    }
+    const marketMedianPe = this._calcMedian(allValidPes) || 18.0;
+    const industryMedianPeMap = new Map();
+    for (const [ind, arr] of indPeBuckets.entries()) {
+      if (arr.length >= 3) {
+        industryMedianPeMap.set(ind, { median: this._calcMedian(arr), sampleSize: arr.length });
+      }
+    }
+
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const lerpPiecewise = (x, pts) => {
+      if (x <= pts[0][0]) return pts[0][1];
+      for (let i = 1; i < pts.length; i++) {
+        if (x <= pts[i][0]) {
+          const [x0, y0] = pts[i - 1];
+          const [x1, y1] = pts[i];
+          const t = (x - x0) / (x1 - x0);
+          return y0 + t * (y1 - y0);
+        }
+      }
+      return pts[pts.length - 1][1];
+    };
+
+    const w = styleCfg.weights;
+    const ranked = [];
+
+    for (const s of universe) {
+      // Scope & industry filter
+      if (scope === 'ETF_0050' && !s.is0050) continue;
+      if (scope === 'HOLDINGS' && !s.isHolding) continue;
+      if (scope === 'WATCHLIST' && !s.isWatchlist) continue;
+      if (industry !== 'ALL' && s.industry !== industry) continue;
+
+      // Gatekeeper 1: Complete financials
+      const isSyncedStock = (s.dataSource === 'finmind-live' || s.dataSource === 'finmind-batch') && (s.quarters?.length || 0) >= 4;
+      const isSeedEligible = !hasSynced && !s.dataSource && (s.quarters?.length || 0) >= 6;
+      if (hasSynced) {
+        if (!isSyncedStock) continue;
+      } else {
+        if (!isSeedEligible) continue;
+      }
+
+      // Compute or reuse six-indicator evaluation
+      const sixEval = isSyncedStock
+        ? s.sixEval
+        : this.evaluateSixIndicatorsWithHistory(s, { allowSeedFallback: true });
+      const cur = sixEval.current;
+      const avgScore = cur.avgScore;
+      if (avgScore === null || avgScore < minAvgScore) continue;
+
+      // Gatekeeper 2: Zero tolerance on fatal 4 landmines + cap non-fatal landmines
+      const lm = s.landmines;
+      const hitItems = (lm?.items || []).filter((it) => it.hit);
+      if (hitItems.some((it) => fatalSet.has(it.id))) continue;
+      if (lm.hitCount > maxLandmines) continue;
+
+      // Gatekeeper 3: Positive TTM EPS & valid PE
+      if (!(s.ttmEps > 0)) continue;
+      const pe = toNum(s.pe, 0);
+      if (!(pe > 0)) continue;
+
+      // Gatekeeper 4: Market cap floor (skip only when seed fallback lacks marketCap field)
+      if (minMarketCap > 0) {
+        if (hasSynced) {
+          if (s.marketCap === null || s.marketCap === undefined || toNum(s.marketCap, 0) < minMarketCap) continue;
+        } else if (s.marketCap !== null && s.marketCap !== undefined && toNum(s.marketCap, 0) < minMarketCap) {
+          continue;
+        }
+      }
+
+      // --- Dimension 1: Fundamental Quality (0 ~ 100) ---
+      const qualityBase = clamp(((avgScore - 2.0) / 2.0) * 85, 0, 85);
+      const landmineBonus = lm.hitCount === 0 ? 15 : 0;
+      const qualityScore = round2(clamp(qualityBase + landmineBonus, 0, 100));
+
+      // --- Dimension 2: Momentum & Inflection (0 ~ 100) ---
+      const dQoQ = toNum(sixEval.deltaQoQ, 0);
+      const dMoM = toNum(sixEval.deltaMoM, 0);
+      const prevQAvg = sixEval.prevQuarter?.avgScore;
+      const isInflection = prevQAvg !== null && prevQAvg < 3.0 && avgScore >= 3.0;
+
+      const qoqPts = clamp(((dQoQ + 0.5) / 1.0) * 35, 0, 35);
+      const momPts = clamp(((dMoM + 0.3) / 0.6) * 20, 0, 20);
+      let inflectionPts = 0;
+      if (isInflection) inflectionPts = 20;
+      else if (avgScore >= 3.0 && dQoQ >= 0 && dMoM >= 0) inflectionPts = 12;
+      else if (avgScore >= 2.8 && dQoQ > 0) inflectionPts = 10;
+      const daPts = clamp((toNum(s.doubleArrow, 0) / 60) * 25, 0, 25);
+      const momentumScore = round2(clamp(qoqPts + momPts + inflectionPts + daPts, 0, 100));
+
+      // --- Dimension 3: Valuation Margin of Safety (PEG + Industry-Relative PE, 0 ~ 100) ---
+      const revG = toNum(s.latestRevYoY, 0);
+      const netG = toNum(s.latestNetIncomeYoY, 0);
+      const blendedG = netG !== 0 ? (revG * 0.5 + netG * 0.5) : revG;
+      const effGrowthPct = clamp(blendedG, 3, 75);
+      const peg = round2(pe / effGrowthPct);
+      const pegPts = lerpPiecewise(peg, [
+        [0.4, 55],
+        [0.8, 48],
+        [1.2, 36],
+        [1.8, 22],
+        [2.5, 10],
+        [3.5, 0]
+      ]);
+
+      const peerInfo = industryMedianPeMap.get(normInd(s.industry));
+      const peerPe = peerInfo ? peerInfo.median : marketMedianPe;
+      const peerPeSource = peerInfo ? 'industry' : 'market';
+      const peRatio = round2(pe / peerPe);
+      const relPePts = lerpPiecewise(peRatio, [
+        [0.65, 45],
+        [0.85, 38],
+        [1.0, 30],
+        [1.25, 18],
+        [1.6, 7],
+        [2.0, 0]
+      ]);
+      const valuationScore = round2(clamp(pegPts + relPePts, 0, 100));
+
+      // --- Dimension 4: Cash Flow Quality & Downside Safety (0 ~ 100) ---
+      const fcfRaw = toNum(cur.byKey?.fcf, 0);
+      const invRaw = cur.byKey?.invTurnover;
+      const divYield = toNum(s.yield, 0);
+      let safetyScore;
+      if (invRaw === null || invRaw === undefined) {
+        const fcfPts = (fcfRaw / 4) * 65;
+        const yieldPts = clamp((divYield / 6.0) * 35, 0, 35);
+        safetyScore = round2(clamp(fcfPts + yieldPts, 0, 100));
+      } else {
+        const fcfPts = (fcfRaw / 4) * 45;
+        const invPts = (toNum(invRaw, 0) / 4) * 30;
+        const yieldPts = clamp((divYield / 6.0) * 25, 0, 25);
+        safetyScore = round2(clamp(fcfPts + invPts + yieldPts, 0, 100));
+      }
+
+      // Composite Weighted Score (0 ~ 100)
+      const totalScore = round2(
+        qualityScore * w.quality +
+        momentumScore * w.momentum +
+        valuationScore * w.valuation +
+        safetyScore * w.safety
+      );
+
+      // Positioning Tag
+      let tag;
+      if (isInflection || (dQoQ >= 0.30 && momentumScore >= 68)) {
+        tag = { id: 'inflection', label: '🚀 轉機拐點', tone: 'emerald' };
+      } else if (valuationScore >= 68 && (peRatio <= 1.0 || peg <= 1.0)) {
+        tag = { id: 'value', label: '💰 低估價值', tone: 'blue' };
+      } else {
+        tag = { id: 'steady', label: '💎 穩健成長', tone: 'gold' };
+      }
+
+      // Concise Explainable Reason
+      const qoqStr = `${dQoQ >= 0 ? '+' : ''}${dQoQ.toFixed(2)}`;
+      const peerLbl = peerPeSource === 'industry' ? '同業中位' : '市場中位';
+      const reason = `六大 ${avgScore.toFixed(2)}（前季 ${qoqStr}${isInflection ? ' 剛翻紅' : ''}），${lm.hitCount === 0 ? '0 地雷' : '1 非致命雷'}，PE ${pe.toFixed(1)}（${peerLbl} ${peerPe.toFixed(1)}，PEG ${peg.toFixed(2)}）`;
+
+      // Concise Risk Alerts
+      const risks = [];
+      for (const h of hitItems) {
+        if (h.id === 'fcf_neg') risks.push('自由現金流為負');
+        else if (h.id === 'rev_decline') risks.push('營收動能衰退');
+        else if (h.id === 'inv_slowdown') risks.push('存貨去化變慢');
+        else risks.push(h.label);
+      }
+      if (peRatio > 1.35) {
+        risks.push(`PE 高於${peerLbl} ${Math.round((peRatio - 1) * 100)}%`);
+      }
+      if (dMoM < 0) {
+        risks.push(`近月評分微降 (${dMoM.toFixed(2)})`);
+      }
+
+      ranked.push({
+        ...s,
+        sixEval,
+        isInflection,
+        rankInfo: {
+          rank: 0,
+          totalScore,
+          dimensions: {
+            quality: qualityScore,
+            momentum: momentumScore,
+            valuation: valuationScore,
+            safety: safetyScore
+          },
+          metrics: {
+            pe,
+            peerPe,
+            peerPeSource,
+            peRatio,
+            peg,
+            effGrowthPct: round2(effGrowthPct),
+            yield: s.yield ?? null
+          },
+          tag,
+          reason,
+          risks
+        }
+      });
+    }
+
+    ranked.sort((a, b) =>
+      b.rankInfo.totalScore - a.rankInfo.totalScore ||
+      (b.sixEval.current.avgScore || 0) - (a.sixEval.current.avgScore || 0) ||
+      (b.sixEval.deltaQoQ || 0) - (a.sixEval.deltaQoQ || 0) ||
+      (toNum(b.marketCap, 0) - toNum(a.marketCap, 0))
+    );
+
+    ranked.forEach((item, idx) => {
+      item.rankInfo.rank = idx + 1;
+    });
+
+    return {
+      style: styleCfg.key,
+      styleLabel: styleCfg.label,
+      styleDesc: styleCfg.desc,
+      weights: styleCfg.weights,
+      thresholds: { minAvgScore, maxLandmines, minMarketCap, scope, industry },
+      usingSeedFallback: !hasSynced,
+      universeCount: universe.length,
+      syncedCount,
+      eligibleCount: ranked.length,
+      marketMedianPe,
+      items: ranked.slice(0, limit),
+      allItems: ranked
+    };
   }
 };
 
@@ -1071,9 +1419,63 @@ agentBridge.registerModule('goodstock', {
     },
     compareDualStocks: (state, params) => {
       return GoodStockCore.compareDualStocks(state, params?.codeA || '5274', params?.codeB || '2059');
+    },
+    rankTopPicks: (state, params) => {
+      const res = GoodStockCore.rankTopPicks(state, params || {});
+      return {
+        style: res.style,
+        styleLabel: res.styleLabel,
+        weights: res.weights,
+        thresholds: res.thresholds,
+        usingSeedFallback: res.usingSeedFallback,
+        universeCount: res.universeCount,
+        syncedCount: res.syncedCount,
+        eligibleCount: res.eligibleCount,
+        marketMedianPe: res.marketMedianPe,
+        items: res.items.map((s) => ({
+          rank: s.rankInfo.rank,
+          code: s.code,
+          name: s.name,
+          industry: s.industry,
+          marketCap: s.marketCap,
+          price: s.price,
+          pe: s.rankInfo.metrics.pe,
+          peerPe: s.rankInfo.metrics.peerPe,
+          peg: s.rankInfo.metrics.peg,
+          yield: s.rankInfo.metrics.yield,
+          totalScore: s.rankInfo.totalScore,
+          dimensions: s.rankInfo.dimensions,
+          avgScore: s.sixEval.current.avgScore,
+          grade: s.sixEval.current.grade,
+          deltaMoM: s.sixEval.deltaMoM,
+          deltaQoQ: s.sixEval.deltaQoQ,
+          isInflection: s.isInflection,
+          doubleArrow: s.doubleArrow,
+          landmineHits: s.landmines.hitCount,
+          tag: s.rankInfo.tag.label,
+          reason: s.rankInfo.reason,
+          risks: s.rankInfo.risks
+        }))
+      };
     }
   },
   schemas: [
+    {
+      name: 'rankTopPicks',
+      description: '系統自動四維綜合評分排行（體質/動能拐點/PEG與同業相對估值/現金流品質），自動排除致命地雷並產出白話入選理由與風險提醒',
+      parameters: {
+        type: 'object',
+        properties: {
+          style: { type: 'string', enum: ['balanced', 'growth', 'value'], description: '風格：balanced(平衡精選) / growth(轉機成長) / value(穩健價值)' },
+          scope: { type: 'string', enum: ['SYNCED_FIN', 'ALL', 'ETF_0050', 'HOLDINGS', 'WATCHLIST'] },
+          industry: { type: 'string' },
+          minMarketCap: { type: 'number', description: '最低市值門檻(億)，預設 50，0 為不限' },
+          minAvgScore: { type: 'number' },
+          maxLandmines: { type: 'number' },
+          limit: { type: 'number', description: '回傳筆數，預設 20' }
+        }
+      }
+    },
     {
       name: 'inspectStock',
       description: '查詢單一股票的近8季財報、36個月營收、7大財務地雷、六大指標評分(含較前月MoM與較前季QoQ變化)、成長力分析與目標價區間',

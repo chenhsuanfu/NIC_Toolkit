@@ -35,7 +35,7 @@ const fmtInt = (n) => {
 export class GoodStockUI {
   constructor() {
     this.mainTab = 'screener'; // 'screener' | 'stock_info' | 'pk'
-    this.screenerMode = 'six_indicators'; // 'six_indicators' | 'strong' | 'financial' | 'trend' | 'newhigh'
+    this.screenerMode = 'top_picks'; // 'top_picks' | 'six_indicators' | 'strong' | 'financial' | 'trend' | 'newhigh'
     this.selectedCode = '2330';
     this.infoSection = 'all'; // 'all' | 'report' | 'health' | 'target1y' | 'target3y'
     this.healthTab = 'six'; // 'landmines' | 'six' | 'growth'
@@ -53,8 +53,9 @@ export class GoodStockUI {
     this.lastScreenerCodes = [];
     this.recentCodes = this._loadRecentCodes();
 
-    // Universal table sort state across all 5 screeners
+    // Universal table sort state across all screeners
     this.tableSort = {
+      top_picks: { col: 'totalScore', dir: 'desc' },
       six_indicators: { col: 'marketCap', dir: 'desc' },
       strong: { col: 'gain', dir: 'desc' },
       financial: { col: 'doubleArrow', dir: 'desc' },
@@ -64,6 +65,7 @@ export class GoodStockUI {
 
     // Pagination limit per screener to keep mobile DOM fast & responsive
     this.pageLimit = {
+      top_picks: 20,
       six_indicators: 50,
       strong: 50,
       financial: 50,
@@ -71,11 +73,20 @@ export class GoodStockUI {
       newhigh: 50
     };
 
+    this.topPickFilters = {
+      style: 'balanced',
+      scope: 'SYNCED_FIN',
+      industry: 'ALL',
+      minMarketCap: 50,
+      maxLandmines: 1
+    };
+
     this.sixFilters = {
       scope: 'ALL',
       industry: 'ALL',
       minAvgScore: 0,
       maxLandmines: '',
+      onlyInflection: false,
       momDeltaMode: 'ALL',
       qoqDeltaMode: 'ALL',
       improvedItem: 'ALL',
@@ -239,6 +250,13 @@ export class GoodStockUI {
     return [...list].sort((a, b) => {
       if (col === 'code') return String(a.code || '').localeCompare(String(b.code || '')) * mul;
       if (col === 'industry') return String(a.industry || '').localeCompare(String(b.industry || '')) * mul;
+      if (col === 'totalScore') return cmpNullableNum(a.rankInfo?.totalScore, b.rankInfo?.totalScore, mul);
+      if (col === 'dimQuality') return cmpNullableNum(a.rankInfo?.dimensions?.quality, b.rankInfo?.dimensions?.quality, mul);
+      if (col === 'dimMomentum') return cmpNullableNum(a.rankInfo?.dimensions?.momentum, b.rankInfo?.dimensions?.momentum, mul);
+      if (col === 'dimValuation') return cmpNullableNum(a.rankInfo?.dimensions?.valuation, b.rankInfo?.dimensions?.valuation, mul);
+      if (col === 'dimSafety') return cmpNullableNum(a.rankInfo?.dimensions?.safety, b.rankInfo?.dimensions?.safety, mul);
+      if (col === 'peg') return cmpNullableNum(a.rankInfo?.metrics?.peg, b.rankInfo?.metrics?.peg, mul);
+      if (col === 'yield') return cmpNullableNum(a.rankInfo?.metrics?.yield ?? a.yield, b.rankInfo?.metrics?.yield ?? b.yield, mul);
       if (col === 'price') return cmpNullableNum(a.price, b.price, mul);
       if (col === 'marketCap') return cmpNullableNum(a.marketCap, b.marketCap, mul);
       if (col === 'pe') return cmpNullableNum(a.pe, b.pe, mul);
@@ -346,6 +364,9 @@ export class GoodStockUI {
   _renderScreenerMain(state, universe, industries) {
     return `
       <div class="sub-tabs">
+        <button class="sub-tab ${this.screenerMode === 'top_picks' ? 'active' : ''}" data-gs-screen="top_picks">
+          ★ 系統精選排行
+        </button>
         <button class="sub-tab ${this.screenerMode === 'six_indicators' ? 'active' : ''}" data-gs-screen="six_indicators">
           六大指標選股 (含前月/前季比較)
         </button>
@@ -363,6 +384,7 @@ export class GoodStockUI {
         </button>
       </div>
 
+      ${this.screenerMode === 'top_picks' ? this._renderTopPicksScreener(state, industries, universe) : ''}
       ${this.screenerMode === 'six_indicators' ? this._renderSixIndicatorsScreener(state, industries, universe) : ''}
       ${this.screenerMode === 'strong' ? this._renderStrongScreener(state) : ''}
       ${this.screenerMode === 'financial' ? this._renderFinancialScreener(state, industries) : ''}
@@ -406,10 +428,249 @@ export class GoodStockUI {
 
   _renderLoadMoreBar(mode, shown, total) {
     if (shown >= total) return '';
+    const step = mode === 'top_picks' ? 20 : 50;
     return `
       <div style="display:flex; justify-content:center; align-items:center; gap:10px; padding:12px 0 4px;">
         <span class="text-muted" style="font-size:12px;">已顯示 ${shown} / 共 ${total} 檔</span>
-        <button class="btn btn-ghost btn-sm" data-gs-load-more="${mode}">顯示更多 (+50 檔)</button>
+        <button class="btn btn-ghost btn-sm" data-gs-load-more="${mode}">顯示更多 (+${step} 檔)</button>
+      </div>
+    `;
+  }
+
+  _renderDimMiniBars(dims) {
+    if (!dims) return '<span class="text-muted">—</span>';
+    const items = [
+      { lbl: '體', val: dims.quality, title: '基本面體質' },
+      { lbl: '動', val: dims.momentum, title: '動能與拐點' },
+      { lbl: '估', val: dims.valuation, title: '估值安全邊際' },
+      { lbl: '質', val: dims.safety, title: '現金流與下檔品質' }
+    ];
+    return `
+      <div style="display:grid; grid-template-columns:repeat(2, minmax(56px, 1fr)); gap:3px 6px; font-size:10.5px;">
+        ${items.map((it) => {
+          const v = Math.round(Number(it.val) || 0);
+          const tone = v >= 75 ? '#10b981' : v >= 55 ? '#f59e0b' : '#94a3b8';
+          return `
+            <div title="${it.title}：${v} 分" style="display:flex; align-items:center; gap:3px;">
+              <span class="text-muted">${it.lbl}</span>
+              <span class="font-mono" style="font-weight:700; min-width:20px; text-align:right; color:${tone};">${v}</span>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  _renderTopPicksScreener(state, industries, universe = []) {
+    const f = this.topPickFilters;
+    const rankRes = GoodStockCore.rankTopPicks(state, {
+      style: f.style,
+      scope: f.scope,
+      industry: f.industry,
+      minMarketCap: f.minMarketCap,
+      maxLandmines: f.maxLandmines,
+      limit: 500
+    });
+    const results = this._sortResults('top_picks', rankRes.allItems);
+    this.lastScreenerCodes = results.map((s) => s.code);
+    const limit = this.pageLimit.top_picks || 20;
+    const visible = results.slice(0, limit);
+
+    const styleBtns = [
+      { key: 'balanced', label: '平衡精選 (35/30/25/10)' },
+      { key: 'growth', label: '轉機成長 (25/45/20/10)' },
+      { key: 'value', label: '穩健價值 (35/15/30/20)' }
+    ];
+
+    const tagClass = (tone) => (tone === 'emerald' ? 'pill-emerald' : tone === 'rose' ? 'pill-rose' : '');
+
+    return `
+      <div class="card" style="margin-bottom:14px;">
+        <div class="action-toolbar" style="margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+          <div class="action-toolbar-group" style="flex-wrap:wrap;">
+            ${styleBtns.map((b) => `
+              <button class="btn ${f.style === b.key ? 'btn-primary' : 'btn-ghost'} btn-sm" data-top-style="${b.key}">
+                ${b.label}
+              </button>
+            `).join('')}
+          </div>
+          <div class="text-muted" style="font-size:12px;">
+            ${rankRes.styleDesc}
+          </div>
+        </div>
+
+        <div class="form-grid" style="grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); margin-bottom:10px;">
+          <div class="form-group">
+            <label class="form-label">評比範圍</label>
+            <select class="form-select" id="top-scope">
+              <option value="SYNCED_FIN" ${f.scope === 'SYNCED_FIN' ? 'selected' : ''}>全市場已同步財報 (${rankRes.syncedCount} 檔)</option>
+              <option value="ETF_0050" ${f.scope === 'ETF_0050' ? 'selected' : ''}>0050 台灣50成分股</option>
+              <option value="HOLDINGS" ${f.scope === 'HOLDINGS' ? 'selected' : ''}>我的庫存持股</option>
+              <option value="WATCHLIST" ${f.scope === 'WATCHLIST' ? 'selected' : ''}>我的觀察清單</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">產業別</label>
+            <select class="form-select" id="top-industry">
+              <option value="ALL">全部產業</option>
+              ${industries.map((ind) => `<option value="${ind}" ${f.industry === ind ? 'selected' : ''}>${ind}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">最低市值門檻</label>
+            <select class="form-select" id="top-min-mcap">
+              <option value="0" ${Number(f.minMarketCap) === 0 ? 'selected' : ''}>不限市值</option>
+              <option value="30" ${Number(f.minMarketCap) === 30 ? 'selected' : ''}>≥ 30 億元</option>
+              <option value="50" ${Number(f.minMarketCap) === 50 ? 'selected' : ''}>≥ 50 億元 (預設)</option>
+              <option value="100" ${Number(f.minMarketCap) === 100 ? 'selected' : ''}>≥ 100 億元</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">非致命地雷上限</label>
+            <select class="form-select" id="top-max-landmines">
+              <option value="0" ${Number(f.maxLandmines) === 0 ? 'selected' : ''}>0 項 (純淨零雷)</option>
+              <option value="1" ${Number(f.maxLandmines) === 1 ? 'selected' : ''}>≤ 1 項 (預設，致命4雷零容忍)</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; font-size:12px; padding:8px 10px; border-radius:8px; background:var(--bg-elevated, rgba(255,255,255,0.03));">
+          <span class="pill pill-emerald">合格入榜 ${rankRes.eligibleCount} 檔</span>
+          <span class="text-muted">六大底線 ≥ ${rankRes.thresholds.minAvgScore.toFixed(1)} · 致命 4 雷零容忍 · 市場中位 PE ${fmtFixed(rankRes.marketMedianPe, 1)}</span>
+          ${rankRes.usingSeedFallback ? '<span class="pill">載入全市場索引中，暫顯示內建 0050 範本排行</span>' : ''}
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header" style="flex-wrap:wrap;">
+          <div class="card-title">★ 系統精選排行 — ${rankRes.styleLabel}（共 ${results.length} 檔合格，預設顯示 Top ${Math.min(limit, results.length)}）</div>
+          <div class="text-muted" style="font-size:12px;">
+            點進任一標的健診後，可直接按「◀ 上一檔 / 下一檔 ▶」順著排行巡檢
+          </div>
+        </div>
+
+        <div class="table-wrap desktop-table-only">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th style="width:42px; text-align:center;">#</th>
+                ${this._sortTh('top_picks', 'code', '代號 / 名稱', 'asc', 'left')}
+                <th>策略定位</th>
+                ${this._sortTh('top_picks', 'totalScore', '綜合分', 'desc', 'right')}
+                <th>四維拆解 (體/動/估/質)</th>
+                ${this._sortTh('top_picks', 'avgScore', '六大 (前季)', 'desc', 'right')}
+                ${this._sortTh('top_picks', 'pe', '股價 / PE', 'asc', 'right')}
+                ${this._sortTh('top_picks', 'peg', 'PEG', 'asc', 'right')}
+                ${this._sortTh('top_picks', 'doubleArrow', '雙箭頭', 'desc', 'right')}
+                <th>入選理由與風險提醒</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${visible.map((s) => {
+                const ri = s.rankInfo;
+                const cur = s.sixEval.current;
+                const d = ri.dimensions;
+                const m = ri.metrics;
+                return `
+                  <tr>
+                    <td class="font-mono" style="text-align:center; font-weight:800; color:${ri.rank <= 3 ? 'var(--accent-emerald, #10b981)' : 'var(--text-muted)'};">
+                      ${ri.rank}
+                    </td>
+                    <td>
+                      <div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
+                        <a href="javascript:void(0)" data-open-stock="${s.code}" class="font-mono" style="font-weight:700; color:var(--accent-blue); text-decoration:none;">
+                          ${s.code} ${s.name}
+                        </a>
+                        ${s.isHolding ? '<span class="pill" style="font-size:10px;">庫存</span>' : ''}
+                      </div>
+                      <div class="text-muted" style="font-size:11px;">${s.industry}${s.marketCap ? ` · 市值 ${fmtNum(s.marketCap, 0)}億` : ''}</div>
+                    </td>
+                    <td>
+                      <span class="pill ${tagClass(ri.tag.tone)}" style="font-size:11px; white-space:nowrap;">${ri.tag.label}</span>
+                    </td>
+                    <td class="font-mono" style="text-align:right;">
+                      <div style="font-size:16px; font-weight:800;" class="${ri.totalScore >= 75 ? 'text-emerald' : ''}">${fmtFixed(ri.totalScore, 1)}</div>
+                      <div class="text-muted" style="font-size:10px;">/ 100</div>
+                    </td>
+                    <td>${this._renderDimMiniBars(d)}</td>
+                    <td class="font-mono" style="text-align:right;">
+                      <div style="font-weight:700;">${fmtFixed(cur.avgScore, 2)} <span class="pill" style="font-size:9.5px;">${cur.grade}</span></div>
+                      <div style="margin-top:2px;">${this._renderDeltaBadge(s.sixEval.deltaQoQ, '季 ')}</div>
+                    </td>
+                    <td class="font-mono" style="text-align:right;">
+                      <div style="font-weight:700;">${fmtNum(s.price, 1)}</div>
+                      <div class="text-muted" style="font-size:11px;">PE ${fmtFixed(m.pe, 1)} / ${fmtFixed(m.peerPe, 1)}</div>
+                    </td>
+                    <td class="font-mono ${m.peg <= 1.0 ? 'text-emerald' : ''}" style="text-align:right; font-weight:700;">
+                      ${fmtFixed(m.peg, 2)}
+                    </td>
+                    <td class="font-mono" style="text-align:right; font-weight:700;">${fmtFixed(s.doubleArrow, 1, '%')}</td>
+                    <td style="min-width:210px; max-width:300px; font-size:11.5px; line-height:1.45;">
+                      <div>${ri.reason}</div>
+                      <div style="margin-top:3px; display:flex; gap:4px; flex-wrap:wrap;">
+                        ${ri.risks.length
+                          ? ri.risks.map((rk) => `<span class="pill pill-rose" style="font-size:10px;">⚠ ${rk}</span>`).join('')
+                          : '<span class="pill pill-emerald" style="font-size:10px;">✓ 無明顯警訊</span>'}
+                      </div>
+                    </td>
+                    <td>
+                      <div style="display:flex; gap:4px;">
+                        <button class="btn btn-ghost btn-sm" data-open-stock="${s.code}">健診</button>
+                        <button class="btn btn-ghost btn-sm" data-pk-select="${s.code}">PK</button>
+                      </div>
+                    </td>
+                  </tr>
+                `;
+              }).join('')}
+              ${visible.length === 0 ? `<tr><td colspan="11" class="text-muted" style="text-align:center; padding:22px;">目前條件下無符合資格的個股，建議放寬市值門檻或切換風格</td></tr>` : ''}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="mobile-card-list">
+          ${visible.length ? visible.map((s) => {
+            const ri = s.rankInfo;
+            const cur = s.sixEval.current;
+            const d = ri.dimensions;
+            const m = ri.metrics;
+            return `
+              <details class="m-stock-card">
+                <summary>
+                  <div class="m-stock-row1">
+                    <div style="display:flex; align-items:center; gap:5px; min-width:0; flex-wrap:wrap;">
+                      <span class="pill" style="font-size:10px; font-weight:800;">#${ri.rank}</span>
+                      <span class="font-mono" style="font-weight:700; font-size:14px; color:var(--accent-blue);">${s.code} ${s.name}</span>
+                      <span class="pill ${tagClass(ri.tag.tone)}" style="font-size:9.5px;">${ri.tag.label}</span>
+                    </div>
+                    <span class="pill ${ri.totalScore >= 75 ? 'pill-emerald' : ''}" style="font-weight:800;">${fmtFixed(ri.totalScore, 1)} 分</span>
+                  </div>
+                  <div class="m-stock-row2">
+                    <span class="font-mono" style="font-weight:600;">$${fmtNum(s.price, 1)} <span class="text-muted">PE ${fmtFixed(m.pe, 1)} · PEG ${fmtFixed(m.peg, 2)}</span></span>
+                    <span class="font-mono">六大 <b>${fmtFixed(cur.avgScore, 2)}</b> · 雙箭頭 ${fmtFixed(s.doubleArrow, 1, '%')}</span>
+                  </div>
+                </summary>
+                <div class="m-stock-detail">
+                  <div style="grid-column: span 2; font-size:12px;">${ri.reason}</div>
+                  <div><span class="text-muted">基本面體質：</span><b class="font-mono">${Math.round(d.quality)}</b></div>
+                  <div><span class="text-muted">動能與拐點：</span><b class="font-mono">${Math.round(d.momentum)}</b></div>
+                  <div><span class="text-muted">估值安全：</span><b class="font-mono">${Math.round(d.valuation)}</b></div>
+                  <div><span class="text-muted">品質與下檔：</span><b class="font-mono">${Math.round(d.safety)}</b></div>
+                  <div style="grid-column: span 2; display:flex; gap:4px; flex-wrap:wrap;">
+                    ${ri.risks.length
+                      ? ri.risks.map((rk) => `<span class="pill pill-rose" style="font-size:10.5px;">⚠ ${rk}</span>`).join('')
+                      : '<span class="pill pill-emerald" style="font-size:10.5px;">✓ 無明顯警訊</span>'}
+                  </div>
+                  <div style="grid-column: span 2; display:flex; gap:6px; margin-top:4px;">
+                    <button type="button" class="btn btn-primary btn-sm" data-open-stock="${s.code}" style="flex:1;">詳細健診</button>
+                    <button type="button" class="btn btn-ghost btn-sm" data-pk-select="${s.code}" style="flex:1;">加入 PK</button>
+                  </div>
+                </div>
+              </details>
+            `;
+          }).join('') : `<div class="text-muted" style="text-align:center; padding:18px;">目前條件下無符合資格的個股</div>`}
+        </div>
+        ${this._renderLoadMoreBar('top_picks', visible.length, results.length)}
       </div>
     `;
   }
@@ -430,6 +691,7 @@ export class GoodStockUI {
         <div class="action-toolbar" style="margin-bottom:0;">
           <div class="action-toolbar-group">
             ${pBtn('ETF_0050', '0050 成分股 (50檔)')}
+            ${pBtn('INFLECTION', '🚀 剛翻紅拐點 (<3→≥3)')}
             ${pBtn('ALL_HIGH', '資優高分 (≥3.0分)')}
             ${pBtn('MOM_UP', '較前月轉強 (MoM ▲)')}
             ${pBtn('QOQ_UP', '較前季躍進 (QoQ ▲)')}
@@ -1814,7 +2076,21 @@ export class GoodStockUI {
       btn.addEventListener('click', () => {
         const mode = btn.getAttribute('data-gs-load-more');
         if (mode) {
-          this.pageLimit[mode] = (this.pageLimit[mode] || 50) + 50;
+          const step = mode === 'top_picks' ? 20 : 50;
+          this.pageLimit[mode] = (this.pageLimit[mode] || step) + step;
+          rerender();
+        }
+      });
+    });
+
+    // Top Picks style switcher
+    container.querySelectorAll('[data-top-style]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const style = btn.getAttribute('data-top-style');
+        if (style) {
+          this.topPickFilters.style = style;
+          this.pageLimit.top_picks = 20;
+          this.tableSort.top_picks = { col: 'totalScore', dir: 'desc' };
           rerender();
         }
       });
@@ -1898,12 +2174,18 @@ export class GoodStockUI {
         this.activeSixPreset = p === 'RESET' ? null : p;
         this.sixFilters = {
           scope: 'ALL', industry: 'ALL', minAvgScore: 0, maxLandmines: '',
+          onlyInflection: false,
           momDeltaMode: 'ALL', qoqDeltaMode: 'ALL', improvedItem: 'ALL',
           minRevScore: 0, minOpScore: 0, minProfitScore: 0, minEpsScore: 0, minInvScore: 0, minFcfScore: 0,
           sortBy: 'avgScore'
         };
         if (p === 'ETF_0050') {
           this.sixFilters.scope = 'ETF_0050';
+        } else if (p === 'INFLECTION') {
+          this.sixFilters.scope = 'SYNCED_FIN';
+          this.sixFilters.onlyInflection = true;
+          this.sixFilters.maxLandmines = '1';
+          this.tableSort.six_indicators = { col: 'deltaQoQ', dir: 'desc' };
         } else if (p === 'ALL_HIGH') {
           this.sixFilters.minAvgScore = 3.0;
           this.sixFilters.maxLandmines = '1';
@@ -1938,6 +2220,11 @@ export class GoodStockUI {
         });
       }
     };
+
+    bindSelect('top-scope', this.topPickFilters, 'scope');
+    bindSelect('top-industry', this.topPickFilters, 'industry');
+    bindSelect('top-min-mcap', this.topPickFilters, 'minMarketCap');
+    bindSelect('top-max-landmines', this.topPickFilters, 'maxLandmines');
 
     bindSelect('six-scope', this.sixFilters, 'scope', 'six');
     bindSelect('six-industry', this.sixFilters, 'industry', 'six');

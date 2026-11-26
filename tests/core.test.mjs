@@ -679,3 +679,120 @@ test('UX enhancements render contextual controls, sequential prev/next, local-up
   assert.equal(rd.handleEscape(), true);
   assert.equal(rd.focusDate, null);
 });
+
+test('GoodStockCore aligns finmind-batch netProfitYoY/revM fields and evaluates inflection points', async () => {
+  const { GoodStockCore } = await import('../tools/goodstock/core.js');
+  const batchStock = {
+    code: '9988',
+    name: '批次財報對齊測試',
+    industry: '半導體業',
+    marketCap: 200,
+    price: 150,
+    pe: 15,
+    yield: 4.5,
+    dataSource: 'finmind-batch',
+    monthlyRevenues: [
+      { ym: '2026-05', revM: 100, yoy: 28 },
+      { ym: '2026-06', revM: 110, yoy: 30 },
+      { ym: '2026-07', revM: 115, yoy: 32 },
+      { ym: '2026-08', revM: 120, yoy: 35 },
+      { ym: '2026-09', revM: 125, yoy: 38 },
+      { ym: '2026-10', revM: 130, yoy: 42 }
+    ],
+    quarters: [
+      { q: '2025Q2', revM: 250, opMargin: 16, netMargin: 13, eps: 1.5, revYoY: 10, netProfitYoY: 15, invTurnover: 1.8, fcfM: 30 },
+      { q: '2025Q3', revM: 280, opMargin: 17, netMargin: 14, eps: 1.8, revYoY: 20, netProfitYoY: 25, invTurnover: 1.9, fcfM: 35 },
+      { q: '2025Q4', revM: 300, opMargin: 18, netMargin: 15, eps: 2.0, revYoY: 25, netProfitYoY: 55, invTurnover: 2.0, fcfM: 40 },
+      { q: '2026Q1', revM: 320, opMargin: 19, netMargin: 16, eps: 2.2, revYoY: 30, netProfitYoY: 62, invTurnover: 2.1, fcfM: 45 },
+      { q: '2026Q2', revM: 360, opMargin: 20, netMargin: 17, eps: 2.5, revYoY: 36, netProfitYoY: 75, invTurnover: 2.2, fcfM: 50 },
+      { q: '2026Q3', revM: 400, opMargin: 21, netMargin: 18, eps: 3.0, revYoY: 42, netProfitYoY: 88, invTurnover: 2.3, fcfM: 60 }
+    ]
+  };
+
+  const score = GoodStockCore.scoreSixIndicatorsAtWindow(batchStock, 0, 0);
+  // netProfitYoY 62%, 75%, 88% (all >= 50%) MUST score 4.0, not fallback 2.0
+  assert.equal(score.byKey.profitGrowth, 4.0);
+  assert.equal(score.avgScore, 4.0);
+
+  const growth = GoodStockCore.computeGrowthAnalysis(batchStock);
+  assert.equal(growth.rows[0].latestVal, '400');
+  assert.ok(growth.rows[0].qoq > 0, 'Quarterly revenue QoQ should read revM accurately');
+});
+
+test('GoodStockCore.rankTopPicks enforces gatekeepers, scores real universe cleanly, and renders Top Picks UI', async () => {
+  const { GoodStockCore } = await import('../tools/goodstock/core.js');
+  const { GoodStockUI } = await import('../tools/goodstock/ui.js');
+
+  const uniJson = JSON.parse(fs.readFileSync(path.join(ROOT, 'tools/goodstock/tw-universe-index.json'), 'utf8'));
+  const prevUni = GoodStockCore._universeIndex;
+  try {
+    GoodStockCore._universeIndex = uniJson;
+    GoodStockCore.invalidateCache();
+
+    const state = { stock: { overview: [], watchlist: [] } };
+    const balanced = GoodStockCore.rankTopPicks(state, { style: 'balanced', limit: 20 });
+    const growth = GoodStockCore.rankTopPicks(state, { style: 'growth', limit: 20 });
+    const value = GoodStockCore.rankTopPicks(state, { style: 'value', limit: 20 });
+
+    assert.equal(balanced.usingSeedFallback, false);
+    assert.ok(balanced.syncedCount >= 300, `Expected >= 300 synced stocks, got ${balanced.syncedCount}`);
+    assert.ok(balanced.eligibleCount > 0, 'Expected eligible stocks in real universe');
+    assert.ok(balanced.items.length > 0 && balanced.items.length <= 20);
+    assert.ok(balanced.marketMedianPe > 5 && balanced.marketMedianPe < 60);
+
+    const fatalIds = new Set(GoodStockCore.FATAL_LANDMINE_IDS);
+    for (let i = 0; i < balanced.items.length; i++) {
+      const s = balanced.items[i];
+      assert.equal(s.rankInfo.rank, i + 1);
+      assert.ok(s.dataSource === 'finmind-batch' || s.dataSource === 'finmind-live');
+      assert.ok(s.sixEval.current.avgScore >= 2.8);
+      assert.ok(s.ttmEps > 0 && s.pe > 0 && s.marketCap >= 50);
+      assert.ok(s.landmines.hitCount <= 1);
+      assert.ok(!s.landmines.items.some((lm) => lm.hit && fatalIds.has(lm.id)), `Fatal landmine leaked on ${s.code}`);
+      assert.ok(s.rankInfo.totalScore >= 0 && s.rankInfo.totalScore <= 100);
+      assert.ok(s.rankInfo.reason.length > 10);
+      assert.ok(s.rankInfo.tag.label.length > 0);
+      assert.ok(Array.isArray(s.rankInfo.risks));
+      if (i > 0) {
+        assert.ok(balanced.items[i - 1].rankInfo.totalScore >= s.rankInfo.totalScore);
+      }
+    }
+
+    // Value style must strictly enforce avgScore >= 3.0
+    for (const s of value.items) {
+      assert.ok(s.sixEval.current.avgScore >= 3.0, `Value pick ${s.code} had avgScore ${s.sixEval.current.avgScore} < 3.0`);
+    }
+
+    // Growth vs Value style should produce distinct weighted scores
+    assert.ok(growth.weights.momentum > value.weights.momentum);
+    assert.ok(value.weights.valuation > growth.weights.valuation);
+
+    // Inflection filter in six_indicators mode
+    const inflections = GoodStockCore.screenStocks(state, 'six_indicators', { scope: 'SYNCED_FIN', onlyInflection: true });
+    for (const s of inflections) {
+      assert.equal(s.isInflection, true);
+      assert.ok(s.sixEval.prevQuarter.avgScore < 3.0 && s.sixEval.current.avgScore >= 3.0);
+    }
+
+    // UI renders Top Picks as default screener tab and wires inflection preset in six_indicators
+    const ui = new GoodStockUI();
+    ui._universeTriggered = true;
+    assert.equal(ui.screenerMode, 'top_picks');
+    const mockC = () => ({ innerHTML: '', querySelector: () => null, querySelectorAll: () => [] });
+    const cTop = mockC();
+    ui.render(cTop, state, { getState: () => state });
+    assert.ok(cTop.innerHTML.includes('★ 系統精選排行'));
+    assert.ok(cTop.innerHTML.includes('data-top-style="balanced"'));
+    assert.ok(cTop.innerHTML.includes('data-top-style="growth"'));
+    assert.ok(cTop.innerHTML.includes('data-top-style="value"'));
+    assert.equal(ui.lastScreenerCodes.length, balanced.eligibleCount);
+
+    ui.screenerMode = 'six_indicators';
+    const cSix = mockC();
+    ui.render(cSix, state, { getState: () => state });
+    assert.ok(cSix.innerHTML.includes('data-six-preset="INFLECTION"'));
+  } finally {
+    GoodStockCore._universeIndex = prevUni;
+    GoodStockCore.invalidateCache();
+  }
+});

@@ -452,11 +452,26 @@ try {
     $nodeBin = Get-Command node -ErrorAction SilentlyContinue
     if ($nodeBin) {
       $jsRunner = @"
-import { GoodStockCore } from './tools/goodstock/core.js';
+import { GoodStockCore } from '../tools/goodstock/core.js';
 import fs from 'fs';
-const state = JSON.parse(fs.readFileSync('./data/local-snapshot.json', 'utf8'));
+import path from 'path';
+import { fileURLToPath } from 'url';
+const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const readJsonSafe = (p) => JSON.parse(fs.readFileSync(p, 'utf8').replace(/^\uFEFF/, ''));
+const state = readJsonSafe(path.join(rootDir, 'data/local-snapshot.json'));
+const uniPath = path.join(rootDir, 'tools/goodstock/tw-universe-index.json');
+if (fs.existsSync(uniPath)) {
+  try {
+    const uniJson = readJsonSafe(uniPath);
+    if (uniJson && Array.isArray(uniJson.stocks) && uniJson.stocks.length > 0) {
+      GoodStockCore._universeIndex = uniJson;
+      GoodStockCore.invalidateCache();
+    }
+  } catch (_) {}
+}
 const action = process.argv[2];
-const params = JSON.parse(process.argv[3] || '{}');
+const rawParams = process.argv[3] ? Buffer.from(process.argv[3], 'base64').toString('utf8') : '{}';
+const params = JSON.parse(rawParams || '{}');
 let data;
 if (action === 'inspectStock') {
   const code = String(params.code || '2330').replace(/\.TW$/i, '').trim();
@@ -467,6 +482,7 @@ if (action === 'inspectStock') {
     avgScore: s.sixEval.current.avgScore, grade: s.sixEval.current.grade,
     prevMonthAvg: s.sixEval.prevMonth.avgScore, deltaMoM: s.sixEval.deltaMoM,
     prevQuarterAvg: s.sixEval.prevQuarter.avgScore, deltaQoQ: s.sixEval.deltaQoQ,
+    isInflection: s.isInflection,
     landmineHits: s.landmines.hitCount,
     growth: GoodStockCore.computeGrowthAnalysis(s)
   };
@@ -479,8 +495,48 @@ if (action === 'inspectStock') {
       avgScore: s.sixEval.current.avgScore, grade: s.sixEval.current.grade,
       prevMonthAvg: s.sixEval.prevMonth.avgScore, deltaMoM: s.sixEval.deltaMoM,
       prevQuarterAvg: s.sixEval.prevQuarter.avgScore, deltaQoQ: s.sixEval.deltaQoQ,
+      isInflection: s.isInflection,
       landmineHits: s.landmines.hitCount
     }))
+  };
+} else if (action === 'rankTopPicks') {
+  const res = GoodStockCore.rankTopPicks(state, params);
+  const items = res.items.map(s => ({
+    rank: s.rankInfo.rank,
+    code: s.code,
+    name: s.name,
+    industry: s.industry,
+    marketCap: s.marketCap,
+    price: s.price,
+    pe: s.rankInfo.metrics.pe,
+    peerPe: s.rankInfo.metrics.peerPe,
+    peg: s.rankInfo.metrics.peg,
+    yield: s.rankInfo.metrics.yield,
+    totalScore: s.rankInfo.totalScore,
+    dimensions: s.rankInfo.dimensions,
+    avgScore: s.sixEval.current.avgScore,
+    grade: s.sixEval.current.grade,
+    deltaMoM: s.sixEval.deltaMoM,
+    deltaQoQ: s.sixEval.deltaQoQ,
+    isInflection: s.isInflection,
+    doubleArrow: s.doubleArrow,
+    landmineHits: s.landmines.hitCount,
+    tag: s.rankInfo.tag.label,
+    reason: s.rankInfo.reason,
+    risks: s.rankInfo.risks
+  }));
+  data = {
+    dryRun: Boolean(params.dryRun),
+    style: res.style,
+    styleLabel: res.styleLabel,
+    weights: res.weights,
+    thresholds: res.thresholds,
+    usingSeedFallback: res.usingSeedFallback,
+    universeCount: res.universeCount,
+    syncedCount: res.syncedCount,
+    eligibleCount: res.eligibleCount,
+    marketMedianPe: res.marketMedianPe,
+    items: params.dryRun ? items.slice(0, 5) : items
   };
 } else if (action === 'compareDualStocks') {
   const pk = GoodStockCore.compareDualStocks(state, params.codeA || '5274', params.codeB || '2059');
@@ -497,11 +553,15 @@ console.log(JSON.stringify({ ok: true, exitCode: 0, module: 'goodstock', action,
 "@
       $tmpFile = Join-Path $RootDir "scripts\_tmp_gs_cli.mjs"
       Set-Content -Path $tmpFile -Value $jsRunner -Encoding UTF8
+      $paramsB64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($ParamsJson))
       try {
-        $out = & node $tmpFile $Action $ParamsJson
+        $out = & node $tmpFile $Action $paramsB64
+        $nodeExit = $LASTEXITCODE
         Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
-        [Console]::Out.WriteLine($out)
-        exit 0
+        if ($null -ne $out) {
+          [Console]::Out.WriteLine(($out -join "`n"))
+        }
+        exit $nodeExit
       } catch {
         Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
         throw $_
