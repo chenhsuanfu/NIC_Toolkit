@@ -7,16 +7,16 @@ export const DEFAULT_PARAMS = {
   fwdDays: 15,
   crashPct: -6.5,
   window: 252,
-  // 5 因子門檻 (100% 對齊 v4.0)
-  futQ: 18,
+  // 5 因子門檻 (2020-2026 即時資料實測最佳化預設 - 推薦組 A 均衡首選)
+  futQ: 12,
   futDelta5d: -6000,   // 外資期貨 5 日淨空單急增門檻
-  spotQ: 18,
-  maLen: 20,
-  confirmDays: 2,
+  spotQ: 12,
+  maLen: 15,
+  confirmDays: 1,
   dropPct: -1.4,
   volMult: 1.15,
   volQ: 80,
-  maintTh: 159,        // 估算融資維持率警戒線 (%)
+  maintTh: 157,        // 估算融資維持率警戒線 (%)
   retDays: 10,
   // 6 大強化濾網開關
   useFutDelta: true,
@@ -26,12 +26,31 @@ export const DEFAULT_PARAMS = {
   useMa240Protect: true,
   useOversoldProtect: true,
   // 風險溫度計門檻與階梯倉位
-  yellowScore: 55,     // >=55 黃燈減碼
-  redScore: 80,        // >=80 紅燈重砍
+  yellowScore: 70,     // >=70 黃燈減碼
+  redScore: 85,        // >=85 紅燈重砍
   yellowPos: 55,
   redPos: 15,
-  reentryDays: 2,
+  reentryDays: 3,
   feePct: 0.20
+};
+
+export const STRATEGY_PRESETS = {
+  presetA: {
+    id: 'presetA',
+    name: '推薦組 A（均衡首選・預設）',
+    desc: '樣本外最穩（訓練 44.4% / 盲測 37.5% · 捕捉 66.7% · 行動 28 次 · 報酬 +252.6%）',
+    params: { ...DEFAULT_PARAMS }
+  },
+  presetB: {
+    id: 'presetB',
+    name: '推薦組 B（極致報酬・少出手）',
+    desc: '高勝率少雜訊（訓練 57.1% / 盲測 28.6% · 捕捉 60.0% · 行動 24 次 · 報酬 +270.2%）',
+    params: {
+      ...DEFAULT_PARAMS,
+      confirmDays: 2,
+      volQ: 85
+    }
+  }
 };
 
 export const BOOL_PARAM_KEYS = new Set([

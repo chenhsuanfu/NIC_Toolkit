@@ -439,7 +439,7 @@ test('StockTrackerUI search inputs render with type search and isolated list con
 });
 
 test('TwseRadarCore v4.0 engine parses real_twse_v4.csv and computes 0-100 risk thermometer', async () => {
-  const { parseCsvText, generateDemoData, inferDataMeta, runQuantEngine, buildLatestSummary, DEFAULT_PARAMS } = await import('../tools/twse-radar/core.js');
+  const { parseCsvText, generateDemoData, inferDataMeta, runQuantEngine, buildLatestSummary, DEFAULT_PARAMS, STRATEGY_PRESETS } = await import('../tools/twse-radar/core.js');
   const csvText = fs.readFileSync(path.join(ROOT, 'tools/twse-radar/real_twse_v4.csv'), 'utf8');
   const parsed = parseCsvText(csvText, 'real_twse_v4.csv');
   assert.ok(parsed && parsed.rawData.length >= 1000);
@@ -452,9 +452,16 @@ test('TwseRadarCore v4.0 engine parses real_twse_v4.csv and computes 0-100 risk 
   assert.equal(summary.maxScore, 100);
   assert.ok(summary.score >= 0 && summary.score <= 100);
   assert.equal(summary.activeFactorCount, parsed.dataMeta.hasOtc ? 5 : 4);
-  assert.equal(DEFAULT_PARAMS.futQ, 18);
-  assert.equal(DEFAULT_PARAMS.yellowScore, 55);
-  assert.equal(DEFAULT_PARAMS.redScore, 80);
+  assert.equal(DEFAULT_PARAMS.futQ, 12);
+  assert.equal(DEFAULT_PARAMS.spotQ, 12);
+  assert.equal(DEFAULT_PARAMS.maLen, 15);
+  assert.equal(DEFAULT_PARAMS.confirmDays, 1);
+  assert.equal(DEFAULT_PARAMS.maintTh, 157);
+  assert.equal(DEFAULT_PARAMS.yellowScore, 70);
+  assert.equal(DEFAULT_PARAMS.redScore, 85);
+  assert.equal(DEFAULT_PARAMS.reentryDays, 3);
+  assert.equal(STRATEGY_PRESETS.presetB.params.confirmDays, 2);
+  assert.equal(STRATEGY_PRESETS.presetB.params.volQ, 85);
 
   // Full 5-factor dataset (with OTC populated) activates all 5 factors
   const demo = generateDemoData();
@@ -518,10 +525,12 @@ test('TwseRadarUI renders native 5-tab v4.0 responsive views with zoom, calendar
   assert.ok(cAudit.innerHTML.includes('歷次大跌波段複盤'));
   assert.ok(!cAudit.innerHTML.includes('id="form-radar-params"'));
 
-  // Tab 5: Full v4.0 parameter settings tab + OOS grid search scanner
+  // Tab 5: Full v4.0 parameter settings tab + OOS grid search scanner + Preset A/B buttons
   ui.activeTab = 'settings';
   const cSettings = makeMockContainer();
   ui.render(cSettings, {}, {});
+  assert.ok(cSettings.innerHTML.includes('id="btn-radar-preset-a"'));
+  assert.ok(cSettings.innerHTML.includes('id="btn-radar-preset-b"'));
   assert.ok(cSettings.innerHTML.includes('id="btn-radar-scan-apply"'));
   assert.ok(cSettings.innerHTML.includes('id="btn-radar-scan-only"'));
   assert.ok(cSettings.innerHTML.includes('id="form-radar-params"'));

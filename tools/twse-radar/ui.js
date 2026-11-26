@@ -1,6 +1,7 @@
 import {
   TwseRadarCore,
   DEFAULT_PARAMS,
+  STRATEGY_PRESETS,
   BOOL_PARAM_KEYS,
   runQuantEngine,
   buildLatestSummary,
@@ -756,6 +757,21 @@ export class TwseRadarUI {
       <div class="card" style="margin-bottom:14px;">
         <div class="card-header">
           <div>
+            <div class="card-title">🎯 實測最佳策略一鍵套用（2020–2026 即時資料驗證）</div>
+            <div class="text-muted" style="font-size:12px; margin-top:2px;">
+              推薦組 A（預設）：均衡首選（盲測 37.5% · 報酬 +252.6%）｜ 推薦組 B：極致報酬少出手（24 次 · 報酬 +270.2%）
+            </div>
+          </div>
+          <div class="action-toolbar-group">
+            <button type="button" class="btn btn-primary btn-sm" id="btn-radar-preset-a" data-radar-preset="presetA">🛡️ 套用推薦組 A（預設）</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-radar-preset-b" data-radar-preset="presetB">🚀 套用推薦組 B（極致報酬）</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:14px;">
+        <div class="card-header">
+          <div>
             <div class="card-title">🧪 樣本外防過度擬合・最佳化掃描（81 組網格）</div>
             <div class="text-muted" style="font-size:12px; margin-top:2px;">
               僅依前 70% 訓練集評分排序（空單急增 × 維持率 × 破線天數 × 黃燈分），同時揭露後 30% 樣本外盲測命中率
@@ -1336,6 +1352,20 @@ export class TwseRadarUI {
         this.render(container, state, store, showToast);
       });
     }
+
+    container.querySelectorAll('[data-radar-preset]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const key = btn.getAttribute('data-radar-preset');
+        const preset = STRATEGY_PRESETS[key];
+        if (!preset) return;
+        const out = TwseRadarCore.updateParams(preset.params);
+        if (typeof window !== 'undefined' && typeof window.NIC_OnRadarUpdated === 'function') {
+          window.NIC_OnRadarUpdated(out.latestSummary);
+        }
+        if (showToast) showToast(`✅ 已套用【${preset.name}】並重算明日行動指令`);
+        this.render(container, state, store, showToast);
+      });
+    });
 
     // OOS Grid Search buttons (Tab 5)
     const runScan = (applyBest) => {
