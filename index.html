@@ -710,6 +710,9 @@
         const isEditingInView = Boolean(
           view && active && view.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)
         );
+        const hasOpenTradeForm = Boolean(
+          view && view.querySelector('#form-add-trade, #form-lot-exit, #form-lot-edit')
+        );
         const shouldRefreshView =
           reason === 'cloud-pull' ||
           reason === 'config' ||
@@ -718,6 +721,11 @@
           currentToolId === 'settings';
 
         if (!shouldRefreshView) return;
+        // Skip background auto-rerender while user is typing or has an open trade/edit form
+        // so mobile keyboard "Done/Checkmark" (blur) never wipes unsaved form input.
+        if ((isEditingInView || hasOpenTradeForm) && reason === 'cloud-pull') {
+          return;
+        }
         if (isEditingInView) {
           active.addEventListener('blur', () => renderShell(), { once: true });
           return;

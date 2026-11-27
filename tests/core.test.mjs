@@ -796,3 +796,140 @@ test('GoodStockCore.rankTopPicks enforces gatekeepers, scores real universe clea
     GoodStockCore.invalidateCache();
   }
 });
+
+test('StockCore.addTrade defaults TW broker to B and StockCore.updateTrade edits lots safely', async () => {
+  const { StockCore } = await import('../tools/stock-tracker/core.js');
+  const state = {
+    stock: {
+      settings: [],
+      fx: [{ '採用': '32.5' }],
+      overview: [],
+      recentTrades: [],
+      recentExits: []
+    }
+  };
+  const mutations = [];
+  const mockStore = {
+    mutate(type, payload, updater) {
+      mutations.push({ type, payload });
+      updater(state);
+    }
+  };
+
+  // TW stock without explicit broker should default to 'B'
+  const twTrade = StockCore.addTrade(state, {
+    symbol: '2330.TW',
+    date: '2026-11-20',
+    price: 1000,
+    shares: 1000,
+    type: '進攻型'
+  }, mockStore);
+  assert.equal(twTrade['市場'], 'TW');
+  assert.equal(twTrade['券商'], 'B');
+
+  // US stock without explicit broker should default to 'F'
+  const usTrade = StockCore.addTrade(state, {
+    symbol: 'NVDA',
+    date: '2026-11-21',
+    price: 140,
+    shares: 10
+  }, mockStore);
+  assert.equal(usTrade['市場'], 'US');
+  assert.equal(usTrade['券商'], 'F');
+
+  // Add a partial exit of 400 shares on 2330.TW
+  state.stock.recentExits.push({
+    id: 'ex-1',
+    '交易id': twTrade.id,
+    '出場日': '2026-11-22',
+    '出場價': '1050',
+    '出場股數': '400'
+  });
+
+  // Attempting to reduce entry shares below exited shares (400) must throw
+  assert.throws(() => {
+    StockCore.updateTrade(state, {
+      id: twTrade.id,
+      price: 980,
+      shares: 300
+    }, mockStore);
+  }, /不可小於此批次已出場股數/);
+
+  // Valid update recalculates overview remaining shares, avg cost, and broker distribution
+  const updated = StockCore.updateTrade(state, {
+    id: twTrade.id,
+    date: '2026-11-19',
+    broker: 'B',
+    type: '防禦型',
+    price: 950,
+    shares: 1200,
+    note: '修正成交價'
+  }, mockStore);
+
+  assert.equal(updated['進場日'], '2026-11-19');
+  assert.equal(updated['進場價'], '950');
+  assert.equal(updated['進場股數'], '1200');
+  assert.equal(updated['類型'], '防禦型');
+  assert.equal(updated['備註'], '修正成交價');
+  assert.equal(mutations.at(-1).type, 'stock.updateTrade');
+
+  const ov = state.stock.overview.find((r) => r['代號'] === '2330.TW');
+  assert.equal(ov['剩餘股數'], '800'); // 1200 - 400 exited
+  assert.equal(ov['平均成本(原幣)'], '950');
+  assert.equal(ov['類型'], '防禦型');
+  assert.equal(ov['券商分佈'], 'B:800');
+});
+
+test('GAS doPost stock.updateTrade updates matching row in 交易明細 sheet', () => {
+  const rows = [
+    ['id', '建立時間', '類型', '市場', '券商', '代號', '進場日', '進場價', '進場股數', '備註'],
+    ['tr-001', '2026-11-01 10:00', '進攻型', 'TW', 'B', '2330.TW', '2026-11-01', 1000, 1000, '原備註']
+  ];
+  let writtenRange = null;
+  let writtenValues = null;
+  const mockSheet = {
+    getDataRange: () => ({ getValues: () => rows }),
+    getRange: (r, c, numR, numC) => {
+      writtenRange = { r, c, numR, numC };
+      return {
+        setValues: (vals) => { writtenValues = vals; }
+      };
+    }
+  };
+  const { ctx } = loadGasContext({
+    SpreadsheetApp: {
+      openById: () => ({
+        getSheetByName: (name) => (name === '交易明細' ? mockSheet : null)
+      })
+    }
+  });
+
+  const res = JSON.parse(ctx.doPost({
+    postData: {
+      contents: JSON.stringify({
+        action: 'batchMutate',
+        token: 'TEST_SECRET_TOKEN',
+        mutations: [{
+          id: 'mut-edit-1',
+          type: 'stock.updateTrade',
+          payload: {
+            id: 'tr-001',
+            '類型': '防禦型',
+            '市場': 'TW',
+            '券商': 'B',
+            '代號': '2330.TW',
+            '進場日': '2026-11-02',
+            '進場價': '980',
+            '進場股數': '1500',
+            '備註': '已編輯'
+          }
+        }]
+      })
+    }
+  })._text);
+
+  assert.equal(res.ok, true);
+  assert.deepEqual(res.syncedIds, ['mut-edit-1']);
+  assert.deepEqual(writtenRange, { r: 2, c: 3, numR: 1, numC: 8 });
+  assert.deepEqual(JSON.parse(JSON.stringify(writtenValues)), [['防禦型', 'TW', 'B', '2330.TW', '2026-11-02', 980, 1500, '已編輯']]);
+});

@@ -37,6 +37,7 @@ export class StockTrackerUI {
     // Lot-level drilldown state
     this.selectedSymbol = null;
     this.selectedLotId = null;
+    this.editingLotId = null;
     this.showBuyForSelected = false;
     this.showClosedLots = false;
 
@@ -82,11 +83,16 @@ export class StockTrackerUI {
     if (snap.rebalanceCalcMode) this.rebalanceCalcMode = snap.rebalanceCalcMode;
     if (snap.rebalanceQuery !== undefined) this.rebalanceQuery = snap.rebalanceQuery;
     this.selectedLotId = null;
+    this.editingLotId = null;
     this.showBuyForSelected = false;
     this.showAddForm = false;
   }
 
   handleEscape() {
+    if (this.editingLotId) {
+      this.editingLotId = null;
+      return true;
+    }
     if (this.selectedLotId) {
       this.selectedLotId = null;
       return true;
@@ -285,6 +291,9 @@ export class StockTrackerUI {
 
   _renderAddTradeModal(options, prefillSymbol = '', prefillType = '進攻型', prefillBroker = '') {
     const today = new Date().toISOString().slice(0, 10);
+    const isTwPrefill = /\.(TW|TWO)$/i.test(prefillSymbol) || /^\d{4,6}[A-Z]?$/i.test(prefillSymbol);
+    const resolvedBroker = prefillBroker || (isTwPrefill ? 'B' : '');
+    const brokerOptions = options.brokers.includes('B') ? options.brokers : ['B', ...options.brokers];
     return `
       <div class="card" style="margin-bottom:16px; border-color:var(--accent-blue);">
         <div class="card-header">
@@ -297,7 +306,7 @@ export class StockTrackerUI {
           <div class="form-grid">
             <div class="form-group">
               <label class="form-label">股票代號</label>
-              <input class="form-control font-mono" name="symbol" list="dl-symbols" placeholder="如 AAPL 或 2330.TW" value="${prefillSymbol}" required />
+              <input class="form-control font-mono" name="symbol" id="trade-input-symbol" list="dl-symbols" placeholder="如 AAPL 或 2330.TW" value="${prefillSymbol}" required />
               <datalist id="dl-symbols">
                 ${options.symbols.map((s) => `<option value="${s}"></option>`).join('')}
               </datalist>
@@ -314,25 +323,25 @@ export class StockTrackerUI {
             </div>
             <div class="form-group">
               <label class="form-label">交易券商</label>
-              <select class="form-control" name="broker">
-                ${options.brokers.map((b) => `<option value="${b}" ${b === prefillBroker ? 'selected' : ''}>${b}</option>`).join('')}
+              <select class="form-control" name="broker" id="trade-input-broker">
+                ${brokerOptions.map((b) => `<option value="${b}" ${b === resolvedBroker ? 'selected' : ''}>${b}</option>`).join('')}
               </select>
             </div>
             <div class="form-group">
               <label class="form-label">進場成交單價 (原幣)</label>
-              <input class="form-control font-mono" type="number" step="any" min="0.0001" name="price" id="trade-input-price" placeholder="如 185.5" required />
+              <input class="form-control font-mono" type="number" inputmode="decimal" enterkeyhint="next" step="any" min="0.0001" name="price" id="trade-input-price" placeholder="如 185.5" required />
             </div>
             <div class="form-group">
               <label class="form-label">買進股數</label>
-              <input class="form-control font-mono" type="number" step="any" min="0.0001" name="shares" id="trade-input-shares" placeholder="如 100 或 1000" required />
+              <input class="form-control font-mono" type="number" inputmode="decimal" enterkeyhint="next" step="any" min="0.0001" name="shares" id="trade-input-shares" placeholder="如 100 或 1000" required />
             </div>
             <div class="form-group">
               <label class="form-label">手續費 (原幣，自動併入進場價)</label>
-              <input class="form-control font-mono" type="number" step="any" min="0" name="fee" id="trade-input-fee" placeholder="0 (選填)" value="0" />
+              <input class="form-control font-mono" type="number" inputmode="decimal" enterkeyhint="done" step="any" min="0" name="fee" id="trade-input-fee" placeholder="0 (選填)" value="0" />
             </div>
             <div class="form-group">
               <label class="form-label">進場理由 / 備註</label>
-              <input class="form-control" name="note" placeholder="選填" />
+              <input class="form-control" name="note" enterkeyhint="done" placeholder="選填" />
             </div>
           </div>
           <div style="margin-top:12px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
@@ -357,10 +366,12 @@ export class StockTrackerUI {
     const openLots = detail.openLots || [];
     const closedLots = detail.closedLots || [];
     const selectedLot = openLots.find((l) => l.id === this.selectedLotId) || null;
+    const editingLot = openLots.find((l) => l.id === this.editingLotId) || null;
     const today = new Date().toISOString().slice(0, 10);
     const curLabel = detail.market === 'TW' ? 'TWD' : 'USD';
     const defaultType = openLots[0]?.type || '進攻型';
-    const defaultBroker = openLots[0]?.broker || options.brokers[0] || 'F';
+    const defaultBroker = detail.market === 'TW' ? 'B' : (openLots[0]?.broker || options.brokers[0] || 'F');
+    const brokerOptions = options.brokers.includes('B') ? options.brokers : ['B', ...options.brokers];
     const isDateSort = lotSort.col === 'date';
     const isAmtSort = lotSort.col === 'amount';
 
@@ -397,6 +408,51 @@ export class StockTrackerUI {
         </div>
 
         ${this.showBuyForSelected ? this._renderAddTradeModal(options, detail.symbol, defaultType, defaultBroker) : ''}
+
+        ${editingLot ? `
+          <div style="margin-bottom:12px; padding:12px; background:var(--bg-subtle); border:1px solid var(--accent-blue); border-radius:8px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
+              <div style="font-weight:700; font-size:13px;">
+                編輯庫存批次：【${detail.symbol}】${editingLot.exitedShares > 0 ? `｜ 已出場 <span class="font-mono">${editingLot.exitedShares}</span> 股（股數不可低於此值）` : ''}
+              </div>
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-cancel-lot-edit">✕ 取消編輯</button>
+            </div>
+            <form id="form-lot-edit" class="form-grid" style="align-items:end;">
+              <input type="hidden" name="id" value="${escapeHtml(editingLot.id)}" />
+              <div class="form-group">
+                <label class="form-label">進場日期</label>
+                <input class="form-control" type="date" name="date" value="${escapeHtml(editingLot.hasEntryDate ? editingLot.entryDate : (editingLot.rawEntryDate || today))}" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">交易券商</label>
+                <select class="form-control" name="broker">
+                  ${(brokerOptions.includes(editingLot.broker) ? brokerOptions : [editingLot.broker, ...brokerOptions]).map((b) => `<option value="${escapeHtml(b)}" ${b === editingLot.broker ? 'selected' : ''}>${escapeHtml(b)}</option>`).join('')}
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">策略類型</label>
+                <select class="form-control" name="type">
+                  ${(options.types.includes(editingLot.type) ? options.types : [editingLot.type, ...options.types]).map((t) => `<option value="${escapeHtml(t)}" ${t === editingLot.type ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">進場單價 (${curLabel})</label>
+                <input class="form-control font-mono" type="number" inputmode="decimal" step="any" min="0.0001" name="price" value="${editingLot.entryPrice}" required />
+              </div>
+              <div class="form-group">
+                <label class="form-label">進場股數${editingLot.exitedShares > 0 ? ` (下限 ${editingLot.exitedShares})` : ''}</label>
+                <input class="form-control font-mono" type="number" inputmode="decimal" step="any" min="${Math.max(0.0001, editingLot.exitedShares)}" name="shares" value="${editingLot.entryShares}" required />
+              </div>
+              <div class="form-group">
+                <label class="form-label">備註</label>
+                <input class="form-control" name="note" value="${escapeHtml(editingLot.note)}" placeholder="選填" />
+              </div>
+              <div class="form-group">
+                <button type="submit" class="btn btn-primary" style="width:100%;">儲存變更並重算均價</button>
+              </div>
+            </form>
+          </div>
+        ` : ''}
 
         ${selectedLot ? `
           <div style="margin-bottom:12px; padding:12px; background:var(--bg-subtle); border:1px solid var(--accent-blue); border-radius:8px;">
@@ -454,14 +510,20 @@ export class StockTrackerUI {
                 <tr><td colspan="10" class="text-muted" style="text-align:center; padding:16px;">無未出場批次明細</td></tr>
               ` : openLots.map((lot) => {
                 const isSelected = lot.id === this.selectedLotId;
+                const isEditing = lot.id === this.editingLotId;
                 const pnlCls = lot.unrealizedNative >= 0 ? 'text-emerald' : 'text-rose';
                 const sign = lot.unrealizedNative >= 0 ? '+' : '';
                 return `
-                  <tr style="${isSelected ? 'background:var(--accent-blue-soft);' : ''}">
+                  <tr style="${isSelected || isEditing ? 'background:var(--accent-blue-soft);' : ''}">
                     <td>
-                      <button type="button" class="btn ${isSelected ? 'btn-primary' : 'btn-ghost'} btn-sm" data-select-lot="${lot.id}">
-                        ${isSelected ? '✓ 已指定' : '指定賣出'}
-                      </button>
+                      <div style="display:flex; gap:4px; flex-wrap:nowrap;">
+                        <button type="button" class="btn ${isSelected ? 'btn-primary' : 'btn-ghost'} btn-sm" data-select-lot="${lot.id}">
+                          ${isSelected ? '✓ 已指定' : '指定賣出'}
+                        </button>
+                        <button type="button" class="btn ${isEditing ? 'btn-primary' : 'btn-ghost'} btn-sm" data-edit-lot="${lot.id}">
+                          ${isEditing ? '編輯中' : '編輯'}
+                        </button>
+                      </div>
                     </td>
                     <td class="font-mono ${lot.hasEntryDate ? '' : 'text-muted'}">${lot.entryDate}</td>
                     <td class="font-mono">${lot.broker}</td>
@@ -1159,9 +1221,45 @@ export class StockTrackerUI {
         e.stopPropagation();
         const lotId = btn.getAttribute('data-select-lot');
         this.selectedLotId = this.selectedLotId === lotId ? null : lotId;
+        this.editingLotId = null;
         this.render(container, store.getState(), store, showToast);
       });
     });
+
+    container.querySelectorAll('[data-edit-lot]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const lotId = btn.getAttribute('data-edit-lot');
+        this.editingLotId = this.editingLotId === lotId ? null : lotId;
+        this.selectedLotId = null;
+        this.showBuyForSelected = false;
+        this.render(container, store.getState(), store, showToast);
+      });
+    });
+
+    const cancelLotEditBtn = container.querySelector('#btn-cancel-lot-edit');
+    if (cancelLotEditBtn) {
+      cancelLotEditBtn.addEventListener('click', () => {
+        this.editingLotId = null;
+        this.render(container, store.getState(), store, showToast);
+      });
+    }
+
+    const lotEditForm = container.querySelector('#form-lot-edit');
+    if (lotEditForm) {
+      lotEditForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        try {
+          const fd = new FormData(lotEditForm);
+          const rec = StockCore.updateTrade(store.getState(), Object.fromEntries(fd.entries()), store);
+          showToast(`✅ 已更新 ${rec['代號']} 庫存明細（${rec['進場股數']} 股 @ ${rec['進場價']}，券商 ${rec['券商']}）`);
+          this.editingLotId = null;
+          this.render(container, store.getState(), store, showToast);
+        } catch (err) {
+          showToast(`錯誤：${err.message}`);
+        }
+      });
+    }
 
     const cancelLotBtn = container.querySelector('#btn-cancel-lot-exit');
     if (cancelLotBtn) {
@@ -1235,10 +1333,27 @@ export class StockTrackerUI {
 
     const addTradeForm = container.querySelector('#form-add-trade');
     if (addTradeForm) {
+      const symbolInp = addTradeForm.querySelector('#trade-input-symbol');
+      const brokerSel = addTradeForm.querySelector('#trade-input-broker');
       const priceInp = addTradeForm.querySelector('#trade-input-price');
       const sharesInp = addTradeForm.querySelector('#trade-input-shares');
       const feeInp = addTradeForm.querySelector('#trade-input-fee');
       const previewEl = addTradeForm.querySelector('#trade-fee-preview');
+
+      // Auto-select broker 'B' for TW stocks unless the user manually changed broker
+      if (symbolInp && brokerSel) {
+        let userChangedBroker = false;
+        brokerSel.addEventListener('change', () => { userChangedBroker = true; });
+        const syncTwBroker = () => {
+          if (userChangedBroker) return;
+          const symVal = String(symbolInp.value || '').trim().toUpperCase();
+          if (/\.(TW|TWO)$/.test(symVal) || /^\d{4,6}[A-Z]?$/.test(symVal)) {
+            brokerSel.value = 'B';
+          }
+        };
+        symbolInp.addEventListener('input', syncTwBroker);
+        symbolInp.addEventListener('change', syncTwBroker);
+      }
 
       const updateFeePreview = () => {
         if (!previewEl) return;

@@ -197,13 +197,43 @@ function doPost(e) {
             p['建立時間'] || new Date(),
             p['類型'] || '進攻型',
             p['市場'] || 'US',
-            p['券商'] || 'F',
+            p['券商'] || (String(p['市場'] || '').toUpperCase() === 'TW' ? 'B' : 'F'),
             p['代號'] || '',
             p['進場日'] || '',
             Number(p['進場價'] || 0),
             Number(p['進場股數'] || 0),
             p['備註'] || ''
           ]);
+          syncedIds.push(mut.id);
+          break;
+        }
+        case 'stock.updateTrade': {
+          const sh = stockSS.getSheetByName('交易明細');
+          if (!sh) throw new Error('N_BD_C 試算表找不到「交易明細」分頁');
+          const targetId = String(p.id || '').trim();
+          if (!targetId) throw new Error('stock.updateTrade 缺少交易 id');
+          const data = sh.getDataRange().getValues();
+          let updated = false;
+          for (let i = 1; i < data.length; i++) {
+            if (String(data[i][0] || '').trim() === targetId) {
+              const rowNum = i + 1;
+              sh.getRange(rowNum, 3, 1, 8).setValues([[
+                p['類型'] || data[i][2] || '進攻型',
+                p['市場'] || data[i][3] || 'US',
+                p['券商'] || data[i][4] || (String(p['市場'] || data[i][3] || '').toUpperCase() === 'TW' ? 'B' : 'F'),
+                p['代號'] || data[i][5] || '',
+                p['進場日'] !== undefined ? p['進場日'] : data[i][6],
+                Number(p['進場價'] || 0),
+                Number(p['進場股數'] || 0),
+                p['備註'] !== undefined ? p['備註'] : (data[i][9] || '')
+              ]]);
+              updated = true;
+              break;
+            }
+          }
+          if (!updated) {
+            throw new Error('交易明細中找不到指定批次 id：' + targetId);
+          }
           syncedIds.push(mut.id);
           break;
         }

@@ -369,7 +369,8 @@ export const StockCore = {
     const symbol = String(params.symbol || params['代號'] || '').trim().toUpperCase();
     const market = String(params.market || params['市場'] || (symbol.endsWith('.TW') || symbol.endsWith('.TWO') ? 'TW' : 'US')).toUpperCase();
     const type = String(params.type || params['類型'] || '進攻型');
-    const broker = String(params.broker || params['券商'] || 'F').toUpperCase();
+    const defaultBroker = market === 'TW' ? 'B' : 'F';
+    const broker = String(params.broker || params['券商'] || defaultBroker).trim().toUpperCase();
     const date = String(params.date || params['進場日'] || new Date().toISOString().slice(0, 10));
     const rawPrice = toNum(params.price ?? params['進場價'], 0);
     const shares = toNum(params.shares ?? params['進場股數'], 0);
@@ -457,6 +458,100 @@ export const StockCore = {
       effectivePrice: price,
       totalCostNative: Math.round(totalCostNative * 100) / 100
     };
+  },
+
+  updateTrade(state, params, storeInstance) {
+    const id = String(params.id || params.tradeId || params.lotId || '').trim();
+    if (!id) throw new Error('缺少要編輯的批次 ID');
+
+    const targetTrade = (state?.stock?.recentTrades || []).find((t) => String(t.id || '').trim() === id);
+    if (!targetTrade) throw new Error(`找不到批次紀錄 (${id})`);
+
+    const sym = String(targetTrade['代號'] || '').trim().toUpperCase();
+    const market = String(targetTrade['市場'] || (sym.endsWith('.TW') || sym.endsWith('.TWO') ? 'TW' : 'US')).toUpperCase();
+    const defaultBroker = market === 'TW' ? 'B' : 'F';
+
+    const date = String(params.date ?? params['進場日'] ?? targetTrade['進場日'] ?? '').trim();
+    const type = String(params.type ?? params['類型'] ?? targetTrade['類型'] ?? '進攻型').trim();
+    const broker = String(params.broker ?? params['券商'] ?? targetTrade['券商'] ?? defaultBroker).trim().toUpperCase();
+    const price = toNum(params.price ?? params['進場價'], toNum(targetTrade['進場價'], 0));
+    const shares = toNum(params.shares ?? params['進場股數'], toNum(targetTrade['進場股數'], 0));
+    const note = String(params.note ?? params['備註'] ?? targetTrade['備註'] ?? '').trim();
+
+    if (price <= 0 || shares <= 0) throw new Error('進場價與進場股數必須大於 0');
+
+    // Prevent reducing entry shares below already-exited shares for this lot
+    const exits = state?.stock?.recentExits || [];
+    let exitedShares = 0;
+    for (const ex of exits) {
+      if (String(ex['交易id'] || '').trim() === id) {
+        exitedShares += toNum(ex['出場股數'], 0);
+      }
+    }
+    if (shares + 0.0001 < exitedShares) {
+      throw new Error(`進場股數 (${shares}) 不可小於此批次已出場股數 (${exitedShares})`);
+    }
+
+    const updatedTrade = {
+      ...targetTrade,
+      id,
+      '類型': type,
+      '市場': market,
+      '券商': broker,
+      '代號': sym,
+      '進場日': date,
+      '進場價': String(price),
+      '進場股數': String(shares),
+      '備註': note
+    };
+
+    storeInstance.mutate('stock.updateTrade', updatedTrade, (s) => {
+      const idx = (s.stock.recentTrades || []).findIndex((t) => String(t.id || '').trim() === id);
+      if (idx >= 0) {
+        s.stock.recentTrades[idx] = { ...s.stock.recentTrades[idx], ...updatedTrade };
+      }
+
+      // Recompute overview holding stats from remaining open lots
+      const existing = (s.stock.overview || []).find((r) => String(r['代號'] || '').trim().toUpperCase() === sym);
+      if (existing) {
+        const { usdTwd } = this.getOptions(s);
+        const curPrice = toNum(existing['現價(原幣)'], price);
+        const updatedLots = this.getLotsBySymbol(s, sym).openLots || [];
+
+        let newShares = 0;
+        let newCostNative = 0;
+        const brokerMap = {};
+        for (const lot of updatedLots) {
+          newShares += lot.remainingShares;
+          newCostNative += lot.remainingShares * lot.entryPrice;
+          const br = String(lot.broker || defaultBroker).trim().toUpperCase();
+          brokerMap[br] = (brokerMap[br] || 0) + lot.remainingShares;
+        }
+        newShares = Math.round(newShares * 10000) / 10000;
+        const avgCost = newShares > 0 ? (newCostNative / newShares) : 0;
+        const newMktNative = newShares * curPrice;
+        const newCostUsd = market === 'US' ? newCostNative : newCostNative / usdTwd;
+        const newCostTwd = market === 'TW' ? newCostNative : newCostNative * usdTwd;
+        const newMktUsd = market === 'US' ? newMktNative : newMktNative / usdTwd;
+        const newMktTwd = market === 'TW' ? newMktNative : newMktNative * usdTwd;
+
+        existing['類型'] = updatedLots[0]?.type || type;
+        existing['剩餘股數'] = String(newShares);
+        existing['平均成本(原幣)'] = String(Math.round(avgCost * 100) / 100);
+        existing['成本(USD)'] = String(Math.round(newCostUsd * 100) / 100);
+        existing['成本(TWD)'] = String(Math.round(newCostTwd));
+        existing['市值(USD)'] = String(Math.round(newMktUsd * 100) / 100);
+        existing['市值(TWD)'] = String(Math.round(newMktTwd));
+        existing['未實現(USD)'] = String(Math.round((newMktUsd - newCostUsd) * 100) / 100);
+        existing['未實現(TWD)'] = String(Math.round(newMktTwd - newCostTwd));
+        existing['報酬率'] = String(newCostTwd > 0 ? (newMktTwd - newCostTwd) / newCostTwd : 0);
+        existing['券商分佈'] = Object.entries(brokerMap)
+          .map(([b, sh]) => `${b}:${Math.round(sh * 10000) / 10000}`)
+          .join(' / ');
+      }
+    });
+
+    return updatedTrade;
   },
 
   addExit(state, params, storeInstance) {
