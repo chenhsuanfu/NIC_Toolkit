@@ -933,3 +933,31 @@ test('GAS doPost stock.updateTrade updates matching row in 交易明細 sheet', 
   assert.deepEqual(writtenRange, { r: 2, c: 3, numR: 1, numC: 8 });
   assert.deepEqual(JSON.parse(JSON.stringify(writtenValues)), [['防禦型', 'TW', 'B', '2330.TW', '2026-11-02', 980, 1500, '已編輯']]);
 });
+
+test('TwseRadarUI renders clickable 5 factor cards and expands inline detail panel with normal standards', async () => {
+  const { TwseRadarUI } = await import('../tools/twse-radar/ui.js');
+  const ui = new TwseRadarUI();
+  ui._csvLoadedAttempted = true;
+  const mockContainer = () => ({ innerHTML: '', querySelector: () => null, querySelectorAll: () => [] });
+
+  // Initial render: all 5 factor cards are clickable, detail panel closed
+  const c0 = mockContainer();
+  ui.render(c0, {}, null, () => {});
+  for (const k of ['f1', 'f2', 'f3', 'f4', 'f5']) {
+    assert.ok(c0.innerHTML.includes(`data-radar-factor="${k}"`), `Missing factor card ${k}`);
+  }
+  assert.ok(!c0.innerHTML.includes('id="radar-factor-detail-panel"'));
+
+  // Select factor 1 -> inline detail panel renders normal standard & alert rule
+  ui.selectedFactorKey = 'f1';
+  const c1 = mockContainer();
+  ui.render(c1, {}, null, () => {});
+  assert.ok(c1.innerHTML.includes('id="radar-factor-detail-panel"'));
+  assert.ok(c1.innerHTML.includes('正常標準'));
+  assert.ok(c1.innerHTML.includes('觸發警戒條件'));
+  assert.ok(c1.innerHTML.includes('外資空單+匯率'));
+
+  // Escape key closes detail panel
+  assert.equal(ui.handleEscape(), true);
+  assert.equal(ui.selectedFactorKey, null);
+});

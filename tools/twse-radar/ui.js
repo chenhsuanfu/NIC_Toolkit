@@ -51,6 +51,7 @@ export class TwseRadarUI {
     this.refreshStatus = '';
     this.whatIfResult = null;
     this.gridScanResult = null;
+    this.selectedFactorKey = null;
     this._csvLoadedAttempted = false;
   }
 
@@ -87,6 +88,10 @@ export class TwseRadarUI {
   }
 
   handleEscape() {
+    if (this.selectedFactorKey) {
+      this.selectedFactorKey = null;
+      return true;
+    }
     if (this.focusDate) {
       this.focusDate = null;
       return true;
@@ -238,60 +243,194 @@ export class TwseRadarUI {
     const futDelta = pre.futDelta5d[last];
     const spot5d = pre.spot5d[last];
     const spotTh = spotThArr[last];
+    const futTh = res.futThArr ? res.futThArr[last] : NaN;
     const fxVal = row.USD_TWD;
+    const fxMa20 = pre.fxMa20 ? pre.fxMa20[last] : NaN;
     const maVal = pre.ma20[last];
+    const maPrev = last > 0 ? pre.ma20[last - 1] : NaN;
     const consecBelow = pre.consecBelowMA[last] || 0;
     const volVal = row.Volatility;
     const volTh = volThArr[last];
     const maintVal = pre.estMaint[last];
     const otcVal = row.OTC_Close;
     const otcMa = pre.otcMa20[last];
+    const otcMaPrev = last > 0 ? pre.otcMa20[last - 1] : NaN;
+    const otcRatio = pre.otcRatio ? pre.otcRatio[last] : NaN;
+    const otcRatioMa = pre.otcRatioMa20 ? pre.otcRatioMa20[last] : NaN;
     const soxVal = row.SOX_Close;
+    const soxMa = pre.soxMa20 ? pre.soxMa20[last] : NaN;
+    const soxMaPrev = last > 0 && pre.soxMa20 ? pre.soxMa20[last - 1] : NaN;
     const vixVal = row.VIX;
+    const vixRetVal = pre.vixRet ? pre.vixRet[last] : NaN;
+    const futOIVal = row.Foreign_Fut_OI;
+    const retKdVal = (last >= params.retDays && rawData[last - params.retDays]?.Close > 0)
+      ? ((row.Close - rawData[last - params.retDays].Close) / rawData[last - params.retDays].Close) * 100
+      : NaN;
+    const dropThPct = -Math.abs(params.dropTh);
 
     const factors = [
       {
+        key: 'f1',
         title: '1. 外資空單+匯率',
+        weight: meta.hasChip ? 30 : 0,
         enabled: meta.hasChip,
         alert: res.sig1[last] === 1,
         val: meta.hasChip && Number.isFinite(futDelta) ? `5日 ${fmtSign(futDelta, 0)} 口` : '--',
         sub: meta.hasChip
           ? `現貨5日 ${fmtSign(spot5d, 0)} 億${Number.isFinite(fxVal) ? ` · 匯 ${fmtDec(fxVal, 2)}` : ''}`
-          : '未載入籌碼'
+          : '未載入籌碼',
+        summaryDesc: '偵測外資是否同步在「期貨急增空單 + 現貨大舉賣超 + 新台幣貶值匯出」，屬於最核心的法人資金撤退訊號。',
+        normalStd: `5 日期貨淨變化 > ${fmtInt(params.futDelta5d)} 口、5 日現貨買賣超 ≥ ${Number.isFinite(spotTh) ? `${fmtDec(spotTh, 0)} 億` : '歷史下分位'}，或新台幣維持升值（低於 20MA）。`,
+        alertRule: '須「同時」滿足：現貨 5 日賣超達極端下分位 + 期貨空單急增（或達極端空單） + 新台幣貶破 20 日均線（若啟用匯率確認）。',
+        checks: [
+          {
+            label: params.useFutDelta ? '外資期貨 5 日淨變化' : '外資期貨淨未平倉',
+            current: params.useFutDelta
+              ? (Number.isFinite(futDelta) ? `${fmtSign(futDelta, 0)} 口` : '--')
+              : (Number.isFinite(futOIVal) ? `${fmtSign(futOIVal, 0)} 口` : '--'),
+            standard: params.useFutDelta
+              ? `正常：> ${fmtInt(params.futDelta5d)} 口（警戒 ≤ ${fmtInt(params.futDelta5d)} 口）`
+              : `正常：≥ ${Number.isFinite(futTh) ? fmtInt(futTh) : '--'} 口`,
+            triggered: params.useFutDelta
+              ? (Number.isFinite(futDelta) && futDelta <= params.futDelta5d)
+              : (Number.isFinite(futOIVal) && Number.isFinite(futTh) && futOIVal < futTh)
+          },
+          {
+            label: '外資現貨 5 日累計買賣超',
+            current: Number.isFinite(spot5d) ? `${fmtSign(spot5d, 0)} 億` : '--',
+            standard: `正常：≥ ${Number.isFinite(spotTh) ? `${fmtDec(spotTh, 0)} 億` : '--'}（動態歷史下分位）`,
+            triggered: Number.isFinite(spot5d) && Number.isFinite(spotTh) && spot5d < spotTh
+          },
+          {
+            label: '新台幣匯率確認 (USD/TWD)',
+            current: Number.isFinite(fxVal) ? `${fmtDec(fxVal, 2)}（20MA ${Number.isFinite(fxMa20) ? fmtDec(fxMa20, 2) : '--'}）` : '--',
+            standard: params.useFxConfirm ? '正常：匯率 ≤ 20MA（資金未外流）' : '匯率確認已關閉（預設通過）',
+            triggered: params.useFxConfirm && Number.isFinite(fxVal) && Number.isFinite(fxMa20) && fxVal > fxMa20
+          }
+        ]
       },
       {
+        key: 'f2',
         title: `2. 趨勢破線 (MA${params.maLen})`,
+        weight: 30,
         enabled: true,
         alert: res.sig2[last] === 1,
         val: Number.isFinite(maVal) ? (row.Close < maVal ? `破線 ${consecBelow} 日` : '站穩均線') : '--',
-        sub: Number.isFinite(maVal) ? `MA${params.maLen}：${fmtInt(maVal)}` : '--'
+        sub: Number.isFinite(maVal) ? `MA${params.maLen}：${fmtInt(maVal)}` : '--',
+        summaryDesc: `偵測加權指數是否有效跌破短期生命線（MA${params.maLen}）且伴隨均線下彎與帶量長黑，過濾假跌破洗盤。`,
+        normalStd: `收盤價站穩 MA${params.maLen} 之上，或破線未滿 ${params.confirmDays} 日、均線仍上揚、近 3 日無帶量重挫（單日跌幅 ≤ ${fmtDec(dropThPct, 1)}%）。`,
+        alertRule: `須「同時」滿足：連續破線 ≥ ${params.confirmDays} 日 + MA${params.maLen} 下彎 + 近 3 日曾出現帶量重挫（跌幅 ≤ ${fmtDec(dropThPct, 1)}% 且成交量 > 均量 ${params.volMult} 倍）。`,
+        checks: [
+          {
+            label: `連續跌破 MA${params.maLen} 日數`,
+            current: Number.isFinite(maVal) ? (row.Close < maVal ? `已連續破線 ${consecBelow} 日（收盤 ${fmtInt(row.Close)} < ${fmtInt(maVal)}）` : `站穩均線（收盤 ${fmtInt(row.Close)} ≥ ${fmtInt(maVal)}）`) : '--',
+            standard: `正常：< ${params.confirmDays} 日（警戒 ≥ ${params.confirmDays} 日）`,
+            triggered: consecBelow >= params.confirmDays
+          },
+          {
+            label: `MA${params.maLen} 均線方向`,
+            current: Number.isFinite(maVal) && Number.isFinite(maPrev) ? (maVal < maPrev ? `下彎（${fmtInt(maPrev)} → ${fmtInt(maVal)}）` : `上揚/走平（${fmtInt(maPrev)} → ${fmtInt(maVal)}）`) : '--',
+            standard: '正常：均線上揚或走平（警戒：下彎）',
+            triggered: Number.isFinite(maVal) && Number.isFinite(maPrev) && maVal < maPrev
+          },
+          {
+            label: '近 3 日帶量長黑重挫',
+            current: res.sig2[last] === 1 ? '近 3 日已觸發帶量重挫' : '依今日趨勢燈號綜合判定',
+            standard: `正常：無單日跌幅 ≤ ${fmtDec(dropThPct, 1)}% 且量 > ${params.volMult}x 均量`,
+            triggered: res.sig2[last] === 1
+          }
+        ]
       },
       {
+        key: 'f3',
         title: '3. 波動恐慌+維持率',
+        weight: 25,
         enabled: true,
         alert: res.sig3[last] === 1,
         val: Number.isFinite(maintVal) ? `維持率 ${fmtDec(maintVal, 1)}%` : '--',
-        sub: `波動 ${fmtDec(volVal, 1)}%${Number.isFinite(volTh) ? ` (警戒 >${fmtDec(volTh, 1)}%)` : ''}`
+        sub: `波動 ${fmtDec(volVal, 1)}%${Number.isFinite(volTh) ? ` (警戒 >${fmtDec(volTh, 1)}%)` : ''}`,
+        summaryDesc: '偵測市場是否進入波動率急升與融資斷頭的多殺多恐慌階段，避免流動性風險擴大。',
+        normalStd: `估算融資維持率 ≥ ${fmtDec(params.maintTh, 1)}% 且年化波動度 ≤ ${Number.isFinite(volTh) ? `${fmtDec(volTh, 1)}%` : '歷史高分位'}。`,
+        alertRule: `符合以下任一即警戒：(A) 波動度 > ${Number.isFinite(volTh) ? `${fmtDec(volTh, 1)}%` : '高分位'} 且合併「維持率 < ${fmtDec(params.maintTh, 1)}% / 融資背離 / 近 ${params.retDays} 日跌幅 ≤ -2.5%」；或 (B) 維持率跌破極端斷頭線 < ${fmtDec(params.maintTh - 2.5, 1)}%。`,
+        checks: [
+          {
+            label: '估算大盤融資維持率',
+            current: Number.isFinite(maintVal) ? `${fmtDec(maintVal, 1)}%` : '--',
+            standard: `正常：≥ ${fmtDec(params.maintTh, 1)}%（極端斷頭 < ${fmtDec(params.maintTh - 2.5, 1)}%）`,
+            triggered: Number.isFinite(maintVal) && maintVal < params.maintTh
+          },
+          {
+            label: '20 日年化波動度',
+            current: Number.isFinite(volVal) ? `${fmtDec(volVal, 1)}%` : '--',
+            standard: `正常：≤ ${Number.isFinite(volTh) ? `${fmtDec(volTh, 1)}%` : '--'}（動態歷史高分位）`,
+            triggered: Number.isFinite(volVal) && Number.isFinite(volTh) && volVal > volTh
+          },
+          {
+            label: `近 ${params.retDays} 日大盤漲跌幅`,
+            current: Number.isFinite(retKdVal) ? `${fmtSign(retKdVal, 2, '%')}` : '--',
+            standard: '正常：> -2.50%（警戒：≤ -2.50% 或跌勢中融資反增）',
+            triggered: Number.isFinite(retKdVal) && retKdVal <= -2.5
+          }
+        ]
       },
       {
+        key: 'f4',
         title: '4. OTC 櫃買廣度',
+        weight: meta.hasOtc && params.useOtcSignal ? 15 : 0,
         enabled: meta.hasOtc && params.useOtcSignal,
         alert: res.sig4[last] === 1,
         val: Number.isFinite(otcVal) ? `${fmtDec(otcVal, 1)}` : '--',
         sub: meta.hasOtc && params.useOtcSignal
           ? (Number.isFinite(otcMa) ? `20MA ${fmtDec(otcMa, 1)}` : '--')
-          : (params.useOtcSignal ? '無 OTC 欄位' : '濾網已關閉')
+          : (params.useOtcSignal ? '無 OTC 欄位' : '濾網已關閉'),
+        summaryDesc: '偵測中小型股（櫃買指數）是否領先大盤轉弱，提防「拉權值股（台積電）掩護出貨中小型股」的假多頭（破拉積盤）。',
+        normalStd: 'OTC 指數站穩 20MA 之上（或 20MA 上揚），且 OTC/加權相對強弱維持在 20MA 之上。',
+        alertRule: '須「同時」滿足：OTC 收盤跌破 20MA 且 20MA 下彎 + OTC 相對大盤強弱比率跌破其 20MA。',
+        checks: [
+          {
+            label: 'OTC 指數 vs. 20MA',
+            current: Number.isFinite(otcVal) && Number.isFinite(otcMa) ? `${fmtDec(otcVal, 1)}（20MA ${fmtDec(otcMa, 1)}，${Number.isFinite(otcMaPrev) && otcMa < otcMaPrev ? '下彎' : '上揚/走平'}）` : '--',
+            standard: '正常：站穩 20MA 或均線上揚（警戒：破線且下彎）',
+            triggered: Number.isFinite(otcVal) && Number.isFinite(otcMa) && Number.isFinite(otcMaPrev) && otcVal < otcMa && otcMa < otcMaPrev
+          },
+          {
+            label: 'OTC / 加權相對強弱',
+            current: Number.isFinite(otcRatio) && Number.isFinite(otcRatioMa) ? (otcRatio < otcRatioMa ? '弱於大盤（低於 20MA）' : '強於或同步大盤') : '--',
+            standard: '正常：相對強弱 ≥ 20MA（警戒：低於 20MA）',
+            triggered: Number.isFinite(otcRatio) && Number.isFinite(otcRatioMa) && otcRatio < otcRatioMa
+          }
+        ]
       },
       {
+        key: 'f5',
         title: '5. 美股費半 / VIX',
+        weight: meta.hasUs && params.useUsFilter ? 20 : 0,
         enabled: meta.hasUs && params.useUsFilter,
         alert: res.sig5[last] === 1,
         val: Number.isFinite(soxVal) ? `SOX ${fmtInt(soxVal)}` : '--',
         sub: meta.hasUs && params.useUsFilter
           ? `VIX ${Number.isFinite(vixVal) ? fmtDec(vixVal, 1) : '--'}`
-          : (params.useUsFilter ? '無美股欄位' : '濾網已關閉')
+          : (params.useUsFilter ? '無美股欄位' : '濾網已關閉'),
+        summaryDesc: '偵測全球半導體與美股恐慌情緒是否共振轉空；反之當費半強勢且 VIX 偏低時，會啟動抗洗盤濾網自動幫總分降壓 -20 分。',
+        normalStd: '費半 SOX 站穩 20MA 之上，且 VIX < 22、單日未急漲超過 +15%。（若 SOX 站穩上揚 20MA 且 VIX < 17.5 則觸發 -20 分降壓保護）',
+        alertRule: '符合以下任一即警戒：(A) 費半 SOX 跌破 20MA 且 20MA 下彎/走平；或 (B) VIX ≥ 22 或單日急漲 ≥ +15%。',
+        checks: [
+          {
+            label: '美股費半 SOX vs. 20MA',
+            current: Number.isFinite(soxVal) && Number.isFinite(soxMa) ? `${fmtInt(soxVal)}（20MA ${fmtInt(soxMa)}，${Number.isFinite(soxMaPrev) && soxMa <= soxMaPrev ? '下彎/走平' : '上揚'}）` : '--',
+            standard: '正常：站穩 20MA 且均線上揚（警戒：破線且均線走平/下彎）',
+            triggered: Number.isFinite(soxVal) && Number.isFinite(soxMa) && Number.isFinite(soxMaPrev) && soxVal < soxMa && soxMa <= soxMaPrev
+          },
+          {
+            label: '恐慌指數 VIX 與單日變化',
+            current: Number.isFinite(vixVal) ? `VIX ${fmtDec(vixVal, 1)}${Number.isFinite(vixRetVal) ? `（單日 ${fmtSign(vixRetVal * 100, 1, '%')}）` : ''}` : '--',
+            standard: '正常：VIX < 22 且單日漲幅 < +15%（低恐慌 < 17.5）',
+            triggered: Number.isFinite(vixVal) && (vixVal >= 22 || (Number.isFinite(vixRetVal) && vixRetVal >= 0.15))
+          }
+        ]
       }
     ];
+    const selectedFactor = factors.find((f) => f.key === this.selectedFactorKey) || null;
 
     const updatedNote = meta.updatedAt
       ? new Date(meta.updatedAt).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
@@ -339,23 +478,84 @@ export class TwseRadarUI {
       </div>
 
       <div class="radar-factors-grid">
-        ${factors.map((f) => `
-          <div class="radar-factor-card ${f.alert ? 'is-alert' : ''}">
-            <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
-              <span class="text-muted" style="font-size:11.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${f.title}</span>
-              <span class="pill ${!f.enabled ? '' : (f.alert ? 'pill-rose' : 'pill-emerald')}" style="font-size:10.5px; padding:1px 6px;">
-                ${!f.enabled ? '未啟用' : (f.alert ? '警戒' : '正常')}
+        ${factors.map((f) => {
+          const isSelected = f.key === this.selectedFactorKey;
+          return `
+            <div class="radar-factor-card ${f.alert ? 'is-alert' : ''}" data-radar-factor="${f.key}" role="button" tabindex="0" title="點擊查看「${escapeHtml(f.title)}」詳細說明與正常標準" style="cursor:pointer; transition:border-color 0.15s, box-shadow 0.15s; ${isSelected ? 'border-color:var(--accent-blue); box-shadow:0 0 0 1px var(--accent-blue);' : ''}">
+              <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
+                <span class="text-muted" style="font-size:11.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${f.title}</span>
+                <span class="pill ${!f.enabled ? '' : (f.alert ? 'pill-rose' : 'pill-emerald')}" style="font-size:10.5px; padding:1px 6px;">
+                  ${!f.enabled ? '未啟用' : (f.alert ? '警戒' : '正常')}
+                </span>
+              </div>
+              <div class="font-mono" style="font-size:15.5px; font-weight:700; color:var(--text-primary);">
+                ${f.val}
+              </div>
+              <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
+                <span class="text-muted font-mono" style="font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(f.sub)}">${f.sub}</span>
+                <span class="text-muted" style="font-size:10px; flex-shrink:0; color:${isSelected ? 'var(--accent-blue)' : 'var(--text-muted)'};">${isSelected ? '收起 ▴' : '說明 ▾'}</span>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+
+      ${selectedFactor ? `
+        <div class="card" id="radar-factor-detail-panel" style="margin-top:12px; border-color:var(--accent-blue);">
+          <div class="card-header" style="margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <div class="card-title">${escapeHtml(selectedFactor.title)} — 指標詳解與正常標準</div>
+              <span class="pill ${!selectedFactor.enabled ? '' : (selectedFactor.alert ? 'pill-rose' : 'pill-emerald')}" style="font-size:11px;">
+                ${!selectedFactor.enabled ? '未啟用' : (selectedFactor.alert ? '目前警戒' : '目前正常')}
               </span>
+              <span class="pill" style="font-size:11px;">風險權重 ${selectedFactor.weight} 分</span>
             </div>
-            <div class="font-mono" style="font-size:15.5px; font-weight:700; color:var(--text-primary);">
-              ${f.val}
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-close-factor-detail">✕ 收起</button>
+          </div>
+
+          <div style="font-size:13px; line-height:1.6; color:var(--text-primary); margin-bottom:12px;">
+            ${escapeHtml(selectedFactor.summaryDesc)}
+          </div>
+
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:10px; margin-bottom:12px;">
+            <div style="padding:10px 12px; border-radius:8px; background:var(--bg-subtle); border:1px solid var(--border-color);">
+              <div style="font-size:11.5px; font-weight:700; color:var(--accent-emerald); margin-bottom:4px;">✓ 正常標準</div>
+              <div style="font-size:12.5px; line-height:1.55; color:var(--text-primary);">${escapeHtml(selectedFactor.normalStd)}</div>
             </div>
-            <div class="text-muted font-mono" style="font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(f.sub)}">
-              ${f.sub}
+            <div style="padding:10px 12px; border-radius:8px; background:var(--bg-subtle); border:1px solid var(--border-color);">
+              <div style="font-size:11.5px; font-weight:700; color:var(--accent-rose); margin-bottom:4px;">⚠ 觸發警戒條件</div>
+              <div style="font-size:12.5px; line-height:1.55; color:var(--text-primary);">${escapeHtml(selectedFactor.alertRule)}</div>
             </div>
           </div>
-        `).join('')}
-      </div>
+
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>檢測項目</th>
+                  <th>今日即時數值</th>
+                  <th>正常標準 / 門檻</th>
+                  <th style="text-align:center;">狀態</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${selectedFactor.checks.map((ck) => `
+                  <tr>
+                    <td style="font-weight:600;">${escapeHtml(ck.label)}</td>
+                    <td class="font-mono">${escapeHtml(ck.current)}</td>
+                    <td class="text-muted" style="font-size:12px;">${escapeHtml(ck.standard)}</td>
+                    <td style="text-align:center;">
+                      <span class="pill ${ck.triggered ? 'pill-rose' : 'pill-emerald'}" style="font-size:10.5px;">
+                        ${ck.triggered ? '觸發' : '正常'}
+                      </span>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ` : ''}
     `;
   }
 
@@ -1018,6 +1218,30 @@ export class TwseRadarUI {
   // Event Binding (Includes Pinch-to-Zoom, Drag-Pan, Calendar Jump, Presets)
   // =========================================================================
   _bindEvents(container, state, store, showToast, rawData, res, params) {
+    // Factor card click -> toggle detailed explanation panel below the 5-card grid
+    container.querySelectorAll('[data-radar-factor]').forEach((card) => {
+      const toggleFactor = () => {
+        const key = card.getAttribute('data-radar-factor');
+        this.selectedFactorKey = this.selectedFactorKey === key ? null : key;
+        this.render(container, state, store, showToast);
+      };
+      card.addEventListener('click', toggleFactor);
+      card.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          toggleFactor();
+        }
+      });
+    });
+
+    const closeFactorBtn = container.querySelector('#btn-close-factor-detail');
+    if (closeFactorBtn) {
+      closeFactorBtn.addEventListener('click', () => {
+        this.selectedFactorKey = null;
+        this.render(container, state, store, showToast);
+      });
+    }
+
     // Tab switching
     container.querySelectorAll('[data-radar-tab]').forEach((btn) => {
       btn.addEventListener('click', () => {
